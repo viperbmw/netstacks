@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}License Error - NetStacks Pro{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h4><i class="fas fa-exclamation-triangle"></i> License Error</h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-danger">
+                    <h5>{{ message }}</h5>
+                </div>
+
+                {% if license_status and license_status.license %}
+                <div class="mt-4">
+                    <h5>Current License Information</h5>
+                    <table class="table table-sm">
+                        <tr>
+                            <th>Company:</th>
+                            <td>{{ license_status.license.company_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>License Type:</th>
+                            <td><span class="badge bg-primary">{{ license_status.license.license_type.upper() }}</span></td>
+                        </tr>
+                        <tr>
+                            <th>Expiration Date:</th>
+                            <td>
+                                {% if license_status.license.expiration_date %}
+                                    {{ license_status.license.expiration_date }}
+                                {% else %}
+                                    Never
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                {% endif %}
+
+                <div class="mt-4">
+                    <h5>What can I do?</h5>
+                    <ul>
+                        <li>If your license has expired, please contact support to renew your license</li>
+                        <li>If you don't have a license, you can <a href="/license">install a trial license</a></li>
+                        <li>Visit the <a href="/license">License Management page</a> to view your current license status</li>
+                        <li>Contact support at <a href="mailto:support@netstacks.io">support@netstacks.io</a> for assistance</li>
+                    </ul>
+                </div>
+
+                <div class="mt-4 d-flex gap-2">
+                    <a href="/license" class="btn btn-primary">
+                        <i class="fas fa-key"></i> Manage License
+                    </a>
+                    <a href="/" class="btn btn-secondary">
+                        <i class="fas fa-home"></i> Return to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

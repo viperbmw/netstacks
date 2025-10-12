@@ -1,11 +1,14 @@
-# NetStacks
+# NetStacks Pro
 
-**Web-based Service Stack Management for Network Automation**
+**Professional Web-based Service Stack Management for Network Automation**
 
-NetStacks is a modern web UI for managing network device configurations using template-based service stacks. It connects to [Netpalm](https://github.com/tbotnz/netpalm) for network automation and provides an intuitive interface for deploying, validating, and managing configuration services across your network infrastructure.
+NetStacks Pro is the commercial version of NetStacks, offering advanced features for enterprise network automation. It provides a modern web UI for managing network device configurations using template-based service stacks, with professional features including licensing, enhanced security, and enterprise-grade capabilities.
+
+This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for network automation and provides an intuitive interface for deploying, validating, and managing configuration services across your network infrastructure.
 
 ## 🚀 Features
 
+### Core Features
 - **Template-Based Services**: Deploy configurations using Jinja2 templates with variable substitution
 - **Service Stacks**: Group related services and deploy them as a stack with dependency management
 - **Validation**: Automatically validate deployed configurations against device running configs
@@ -14,6 +17,13 @@ NetStacks is a modern web UI for managing network device configurations using te
 - **Netbox Integration**: Automatically fetch device inventory from Netbox
 - **Real-time Monitoring**: Track deployment progress and job status
 - **Template Metadata**: Link validation and delete templates to service templates
+
+### Professional Features
+- **🔑 License Management**: Flexible licensing system with trial, standard, professional, and enterprise tiers
+- **📊 Feature Flags**: Enable/disable features based on license type
+- **👥 User & Device Limits**: Control deployment scale based on license
+- **🛡️ License Validation**: Automatic license validation and expiration warnings
+- **📈 Usage Tracking**: Monitor device and user counts against license limits
 
 ## 📋 Prerequisites
 
@@ -190,12 +200,65 @@ NetStacks uses the following Netpalm API endpoints:
 
 - `netstacks-data:/data` - Persistent SQLite database storage for settings and service data
 
+## 🔑 Licensing
+
+NetStacks Pro requires a valid license to operate. The application includes a comprehensive licensing system with multiple tiers.
+
+### License Tiers
+
+| Tier | Duration | Max Devices | Max Users | Features |
+|------|----------|-------------|-----------|----------|
+| **Trial** | 30 days | 10 | 3 | Basic deployment, Service stacks |
+| **Standard** | 1 year | Unlimited | Unlimited | + Advanced validation, API access |
+| **Professional** | 1 year | Unlimited | Unlimited | + Scheduled deployments, Audit logging, Backup/restore, Webhooks |
+| **Enterprise** | 1 year | Unlimited | Unlimited | All features |
+
+### Getting Started with Licensing
+
+1. **Start a Trial**: Navigate to `/license` and click "Start 30-Day Trial"
+2. **Install a License**: If you have a license key, enter it on the `/license` page
+3. **Generate Licenses** (Admin): Use the license management interface to generate new licenses for customers
+
+### Managing Licenses
+
+Access the license management interface at `http://localhost:8088/license` where you can:
+- View current license status and expiration
+- Install new license keys
+- Generate trial licenses
+- Monitor device and user limits
+- Generate new licenses (admin only)
+
+### License Key Format
+
+License keys follow the format: `NSPRO-XXXXX-XXXXX-XXXXX-XXXXX`
+
+Example:
+```
+NSPRO-ABCDE-12345-FGHIJ-67890
+```
+
+### Feature Flags
+
+Different license tiers enable different features:
+- `basic_deployment` - Core service deployment
+- `service_stacks` - Service stack management
+- `advanced_validation` - Enhanced validation features
+- `scheduled_deployments` - Schedule deployments
+- `audit_logging` - Detailed audit trails
+- `backup_restore` - Automatic config backups
+- `change_management` - Approval workflows
+- `advanced_reporting` - Analytics and reports
+- `api_access` - REST API access
+- `webhooks` - Custom webhook integration
+- `rbac` - Role-based access control
+- `multi_tenancy` - Multiple organizations
+
 ## 🔄 Updating
 
-To update NetStacks:
+To update NetStacks Pro:
 
 ```bash
-cd netstacks
+cd netstacks-pro
 git pull
 docker-compose down
 docker-compose up -d --build

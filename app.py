@@ -16,6 +16,7 @@ from datetime import datetime
 from netbox_client import NetboxClient
 from jinja2 import Template, TemplateSyntaxError
 import database as db
+import license_manager
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'netstacks-secret-key')
@@ -103,6 +104,45 @@ def login_required(f):
 
 # Initialize default user on startup
 create_default_user()
+
+
+# License management
+@app.context_processor
+def inject_license_status():
+    """Inject license status into all templates"""
+    return {'license_status': license_manager.get_license_status()}
+
+
+def license_required(feature=None):
+    """Decorator to require valid license for routes"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            validation = license_manager.validate_license()
+            if not validation['valid']:
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({
+                        'error': 'Invalid or expired license',
+                        'message': validation['message']
+                    }), 403
+                return render_template('license_error.html',
+                                      message=validation['message'],
+                                      license_status=license_manager.get_license_status()), 403
+
+            # Check specific feature if required
+            if feature and not license_manager.check_feature_enabled(feature):
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({
+                        'error': 'Feature not available',
+                        'message': f'Your license does not include the "{feature}" feature. Please upgrade your license.'
+                    }), 403
+                return render_template('license_error.html',
+                                      message=f'Your license does not include the "{feature}" feature.',
+                                      license_status=license_manager.get_license_status()), 403
+
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 
 # Device list cache
@@ -3231,6 +3271,167 @@ def delete_stack_template_endpoint(template_id):
 
     except Exception as e:
         log.error(f"Error deleting stack template: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===== License Management Routes =====
+
+@app.route('/license')
+@login_required
+def license_page():
+    """License management page"""
+    return render_template('license.html')
+
+
+@app.route('/api/license/status', methods=['GET'])
+@login_required
+def get_license_status_endpoint():
+    """Get current license status"""
+    try:
+        status = license_manager.get_license_status()
+        return jsonify(status)
+    except Exception as e:
+        log.error(f"Error getting license status: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/license/install', methods=['POST'])
+@login_required
+def install_license_endpoint():
+    """Install a license key"""
+    try:
+        data = request.json
+        license_key = data.get('license_key', '').strip()
+
+        if not license_key:
+            return jsonify({'success': False, 'error': 'License key is required'}), 400
+
+        # Check if license exists in database
+        license_data = db.get_license(license_key)
+        if not license_data:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid license key. Please contact support.'
+            }), 400
+
+        # Activate the license
+        db.activate_license(license_key)
+
+        validation = license_manager.validate_license(license_key)
+
+        return jsonify({
+            'success': True,
+            'message': 'License installed successfully',
+            'license': validation.get('license'),
+            'status': license_manager.get_license_status()
+        })
+
+    except Exception as e:
+        log.error(f"Error installing license: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/license/trial', methods=['POST'])
+@login_required
+def install_trial_license_endpoint():
+    """Install a trial license"""
+    try:
+        data = request.json or {}
+        company_name = data.get('company_name', 'Trial Company')
+        contact_email = data.get('contact_email', '')
+
+        license_data = license_manager.install_trial_license(company_name, contact_email)
+
+        return jsonify({
+            'success': True,
+            'message': '30-day trial license created successfully',
+            'license': license_data,
+            'status': license_manager.get_license_status()
+        })
+
+    except Exception as e:
+        log.error(f"Error creating trial license: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/license/generate', methods=['POST'])
+@login_required
+def generate_license_endpoint():
+    """Generate a new license (admin only)"""
+    try:
+        data = request.json
+
+        required_fields = ['company_name', 'license_type']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+
+        license_data = license_manager.create_license(
+            company_name=data['company_name'],
+            license_type=data.get('license_type', 'standard'),
+            contact_email=data.get('contact_email', ''),
+            duration_days=data.get('duration_days', 365),
+            max_devices=data.get('max_devices', -1),
+            max_users=data.get('max_users', -1),
+            notes=data.get('notes', '')
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'License generated successfully',
+            'license': license_data
+        })
+
+    except Exception as e:
+        log.error(f"Error generating license: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/license/all', methods=['GET'])
+@login_required
+def get_all_licenses_endpoint():
+    """Get all licenses (admin only)"""
+    try:
+        licenses = db.get_all_licenses()
+        return jsonify(licenses)
+    except Exception as e:
+        log.error(f"Error getting licenses: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/license/<license_key>/deactivate', methods=['POST'])
+@login_required
+def deactivate_license_endpoint(license_key):
+    """Deactivate a license"""
+    try:
+        success = db.deactivate_license(license_key)
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'License deactivated successfully',
+                'status': license_manager.get_license_status()
+            })
+        return jsonify({'success': False, 'error': 'License not found'}), 404
+    except Exception as e:
+        log.error(f"Error deactivating license: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/license/<license_key>/activate', methods=['POST'])
+@login_required
+def activate_license_endpoint(license_key):
+    """Activate a license"""
+    try:
+        success = db.activate_license(license_key)
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'License activated successfully',
+                'status': license_manager.get_license_status()
+            })
+        return jsonify({'success': False, 'error': 'License not found'}), 404
+    except Exception as e:
+        log.error(f"Error activating license: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

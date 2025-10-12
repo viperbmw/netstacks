@@ -132,6 +132,25 @@ def init_db():
         )
     ''')
 
+    # License table for NetStacks Pro
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS licenses (
+            license_key TEXT PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            contact_email TEXT,
+            license_type TEXT NOT NULL,  -- 'trial', 'standard', 'professional', 'enterprise'
+            max_devices INTEGER DEFAULT -1,  -- -1 means unlimited
+            max_users INTEGER DEFAULT -1,    -- -1 means unlimited
+            features TEXT,                   -- JSON array of enabled features
+            issued_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expiration_date TIMESTAMP,
+            is_active INTEGER DEFAULT 1,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Create indexes for better performance
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_service_instances_stack ON service_instances(stack_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_service_instances_device ON service_instances(device)')
@@ -541,4 +560,94 @@ def delete_stack_template(template_id):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM stack_templates WHERE template_id = ?', (template_id,))
+        return cursor.rowcount > 0
+
+# License operations
+def save_license(license_data):
+    """Save or update a license"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO licenses
+            (license_key, company_name, contact_email, license_type, max_devices, max_users,
+             features, issued_date, expiration_date, is_active, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (
+            license_data['license_key'],
+            license_data['company_name'],
+            license_data.get('contact_email', ''),
+            license_data['license_type'],
+            license_data.get('max_devices', -1),
+            license_data.get('max_users', -1),
+            json.dumps(license_data.get('features', [])),
+            license_data.get('issued_date'),
+            license_data.get('expiration_date'),
+            1 if license_data.get('is_active', True) else 0,
+            license_data.get('notes', '')
+        ))
+
+def get_active_license():
+    """Get the currently active license"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM licenses
+            WHERE is_active = 1
+            AND (expiration_date IS NULL OR expiration_date > datetime('now'))
+            ORDER BY issued_date DESC
+            LIMIT 1
+        ''')
+        row = cursor.fetchone()
+        if row:
+            license_data = dict(row)
+            license_data['features'] = json.loads(license_data['features']) if license_data['features'] else []
+            license_data['is_active'] = bool(license_data['is_active'])
+            return license_data
+        return None
+
+def get_license(license_key):
+    """Get a license by key"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM licenses WHERE license_key = ?', (license_key,))
+        row = cursor.fetchone()
+        if row:
+            license_data = dict(row)
+            license_data['features'] = json.loads(license_data['features']) if license_data['features'] else []
+            license_data['is_active'] = bool(license_data['is_active'])
+            return license_data
+        return None
+
+def get_all_licenses():
+    """Get all licenses"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM licenses ORDER BY issued_date DESC')
+        licenses = []
+        for row in cursor.fetchall():
+            license_data = dict(row)
+            license_data['features'] = json.loads(license_data['features']) if license_data['features'] else []
+            license_data['is_active'] = bool(license_data['is_active'])
+            licenses.append(license_data)
+        return licenses
+
+def deactivate_license(license_key):
+    """Deactivate a license"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('UPDATE licenses SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE license_key = ?', (license_key,))
+        return cursor.rowcount > 0
+
+def activate_license(license_key):
+    """Activate a license"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('UPDATE licenses SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE license_key = ?', (license_key,))
+        return cursor.rowcount > 0
+
+def delete_license(license_key):
+    """Delete a license"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM licenses WHERE license_key = ?', (license_key,))
         return cursor.rowcount > 0
