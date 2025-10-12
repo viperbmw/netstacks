@@ -12,11 +12,14 @@ import base64
 import uuid
 import time
 import hashlib
+import secrets
 from datetime import datetime
 from netbox_client import NetboxClient
 from jinja2 import Template, TemplateSyntaxError
 import database as db
 import license_manager
+import auth_ldap
+import auth_oidc
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'netstacks-secret-key')
@@ -437,6 +440,61 @@ def get_device_connection_info(device_name, credential_override=None):
         return None
 
 
+def authenticate_user(username, password):
+    """
+    Authenticate user using all enabled authentication methods
+
+    Args:
+        username: Username to authenticate
+        password: Password to verify
+
+    Returns:
+        Tuple of (success: bool, user_info: dict or None, auth_method: str)
+    """
+    # Get all enabled auth methods ordered by priority
+    auth_configs = db.get_enabled_auth_configs()
+
+    if not auth_configs:
+        # No auth methods configured, fall back to local auth only
+        auth_configs = [{'auth_type': 'local', 'config_data': {}}]
+
+    for auth_config in auth_configs:
+        auth_type = auth_config['auth_type']
+        config_data = auth_config.get('config_data', {})
+
+        try:
+            if auth_type == 'local':
+                # Local database authentication
+                user = get_user(username)
+                if user and verify_password(user['password_hash'], password):
+                    log.info(f"User {username} authenticated via local auth")
+                    return True, {'username': username, 'auth_method': 'local'}, 'local'
+
+            elif auth_type == 'ldap':
+                # LDAP authentication
+                success, user_info = auth_ldap.authenticate_ldap(username, password, config_data)
+                if success:
+                    log.info(f"User {username} authenticated via LDAP")
+                    # Create/update local user record for LDAP user
+                    if not get_user(username):
+                        # Create placeholder user for LDAP
+                        db.create_user(username, hash_password(secrets.token_urlsafe(32)))
+                    return True, user_info, 'ldap'
+
+            elif auth_type == 'oidc':
+                # OIDC requires redirect flow, not direct password auth
+                # This is handled separately in the OIDC routes
+                pass
+
+        except Exception as e:
+            log.error(f"Error during {auth_type} authentication for user {username}: {e}")
+            continue
+
+    # All authentication methods failed
+    log.warning(f"Authentication failed for user {username}")
+    return False, None, None
+
+
 # Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -445,7 +503,12 @@ def login():
         # If already logged in, redirect to dashboard
         if 'username' in session:
             return redirect(url_for('index'))
-        return render_template('login.html')
+
+        # Check if OIDC is enabled for SSO button
+        auth_configs = db.get_enabled_auth_configs()
+        oidc_enabled = any(config['auth_type'] == 'oidc' for config in auth_configs)
+
+        return render_template('login.html', oidc_enabled=oidc_enabled)
 
     # Handle POST - login attempt
     username = request.form.get('username')
@@ -454,20 +517,21 @@ def login():
     if not username or not password:
         return render_template('login.html', error='Username and password are required')
 
-    # Get user from database
-    user = get_user(username)
-    if not user:
-        return render_template('login.html', error='Invalid username or password')
+    # Authenticate user through all enabled methods
+    success, user_info, auth_method = authenticate_user(username, password)
 
-    # Verify password
-    if not verify_password(user['password_hash'], password):
+    if not success:
         return render_template('login.html', error='Invalid username or password')
 
     # Login successful - create session
     session['username'] = username
+    session['auth_method'] = auth_method
     session['login_time'] = datetime.now().isoformat()
 
-    log.info(f"User {username} logged in successfully")
+    if user_info:
+        session['user_info'] = user_info
+
+    log.info(f"User {username} logged in successfully via {auth_method}")
 
     # Redirect to dashboard
     return redirect(url_for('index'))
@@ -480,6 +544,92 @@ def logout():
     session.clear()
     log.info(f"User {username} logged out")
     return redirect(url_for('login'))
+
+
+@app.route('/login/oidc')
+def login_oidc():
+    """Initiate OIDC login flow"""
+    # Get OIDC configuration
+    oidc_config = db.get_auth_config('oidc')
+
+    if not oidc_config or not oidc_config['is_enabled']:
+        return render_template('login.html', error='OIDC authentication is not configured')
+
+    try:
+        # Generate authorization URL
+        config_data = oidc_config['config_data']
+        auth_url, state = auth_oidc.get_oidc_authorization_url(config_data)
+
+        # Store state in session for verification
+        session['oidc_state'] = state
+        session['oidc_redirect'] = request.args.get('next', url_for('index'))
+
+        # Redirect to OIDC provider
+        return redirect(auth_url)
+
+    except Exception as e:
+        log.error(f"Error initiating OIDC login: {e}", exc_info=True)
+        return render_template('login.html', error='Failed to initiate SSO login')
+
+
+@app.route('/login/oidc/callback')
+def login_oidc_callback():
+    """Handle OIDC callback"""
+    # Get authorization code and state from callback
+    code = request.args.get('code')
+    state = request.args.get('state')
+    error = request.args.get('error')
+
+    if error:
+        log.error(f"OIDC callback error: {error}")
+        return render_template('login.html', error=f'SSO authentication failed: {error}')
+
+    if not code or not state:
+        return render_template('login.html', error='Invalid SSO callback')
+
+    # Verify state
+    expected_state = session.get('oidc_state')
+    if not expected_state or state != expected_state:
+        log.error("OIDC state mismatch")
+        return render_template('login.html', error='SSO authentication failed: Invalid state')
+
+    # Get OIDC configuration
+    oidc_config = db.get_auth_config('oidc')
+    if not oidc_config:
+        return render_template('login.html', error='OIDC authentication is not configured')
+
+    try:
+        # Exchange code for token and get user info
+        config_data = oidc_config['config_data']
+        success, user_info = auth_oidc.authenticate_oidc_callback(code, state, expected_state, config_data)
+
+        if not success or not user_info:
+            return render_template('login.html', error='SSO authentication failed')
+
+        username = user_info['username']
+
+        # Create/update local user record for OIDC user
+        if not get_user(username):
+            db.create_user(username, hash_password(secrets.token_urlsafe(32)))
+
+        # Login successful - create session
+        session['username'] = username
+        session['auth_method'] = 'oidc'
+        session['login_time'] = datetime.now().isoformat()
+        session['user_info'] = user_info
+
+        # Clear OIDC state
+        session.pop('oidc_state', None)
+
+        log.info(f"User {username} logged in successfully via OIDC")
+
+        # Redirect to original destination or dashboard
+        next_url = session.pop('oidc_redirect', url_for('index'))
+        return redirect(next_url)
+
+    except Exception as e:
+        log.error(f"Error processing OIDC callback: {e}", exc_info=True)
+        return render_template('login.html', error='SSO authentication failed')
 
 
 @app.context_processor
