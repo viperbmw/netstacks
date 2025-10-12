@@ -1,0 +1,267 @@
+/* Netpalm GUI Custom Styles */
+
+/* Custom dark theme with neutral grays (no pink tint) */
+[data-bs-theme="dark"] {
+    --bs-body-bg: #1a1a1a;
+    --bs-body-color: #e0e0e0;
+    --bs-card-bg: #2a2a2a;
+    --bs-border-color: #404040;
+}
+
+[data-bs-theme="dark"] body {
+    background-color: #1a1a1a;
+}
+
+[data-bs-theme="light"] body {
+    background-color: #f8f9fa;
+}
+
+/* Override card backgrounds to pure gray */
+[data-bs-theme="dark"] .card {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+[data-bs-theme="dark"] .card-header {
+    background-color: #333333;
+    border-bottom: 2px solid #404040;
+}
+
+/* Form controls - neutral gray */
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+    background-color: #333333;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+/* Modals - neutral gray */
+[data-bs-theme="dark"] .modal-content {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+[data-bs-theme="dark"] .modal-header,
+[data-bs-theme="dark"] .modal-footer {
+    border-color: #404040;
+}
+
+/* Pre/code blocks - dark theme */
+[data-bs-theme="dark"] pre {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+/* Pre/code blocks - light theme */
+[data-bs-theme="light"] pre {
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+/* Alert/info boxes - neutral colors */
+[data-bs-theme="dark"] .alert-info {
+    background-color: #1a3a52;
+    border-color: #2a5a7a;
+    color: #a8d4f0;
+}
+
+[data-bs-theme="dark"] .alert-warning {
+    background-color: #4a3c1a;
+    border-color: #6a5a2a;
+    color: #f0d8a8;
+}
+
+[data-bs-theme="dark"] .alert-success {
+    background-color: #1a3a2a;
+    border-color: #2a5a3a;
+    color: #a8f0c0;
+}
+
+[data-bs-theme="dark"] .alert-danger {
+    background-color: #4a1a1a;
+    border-color: #6a2a2a;
+    color: #f0a8a8;
+}
+
+[data-bs-theme="dark"] .alert-secondary {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #c0c0c0;
+}
+
+.navbar-brand {
+    font-weight: bold;
+    font-size: 1.3rem;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1.5rem;
+}
+
+.card-header {
+    /* background-color removed - handled by dark theme override */
+    border-bottom: 2px solid #e9ecef;
+    font-weight: 600;
+}
+
+/* Status badges */
+.badge-queued {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.badge-running {
+    background-color: #17a2b8;
+}
+
+.badge-completed {
+    background-color: #28a745;
+}
+
+.badge-failed {
+    background-color: #dc3545;
+}
+
+/* Task table */
+#tasks-table tbody tr {
+    cursor: pointer;
+}
+
+#tasks-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* Code/pre styling */
+pre {
+    font-size: 0.875rem;
+    background-color: #f8f9fa;
+}
+
+/* Loading spinner centering */
+.spinner-border {
+    margin: 2rem auto;
+    display: block;
+}
+
+/* Stats cards */
+.card.text-white h2 {
+    font-weight: bold;
+    margin: 0;
+}
+
+.card.text-white .card-title {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    opacity: 0.9;
+}
+
+/* Dashboard clickable cards */
+.dashboard-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Auto-refresh button */
+#auto-refresh-btn.active {
+    background-color: #0d6efd;
+    color: white;
+}
+
+/* Form styling */
+.form-label {
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+textarea.font-monospace {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+}
+
+/* Modal improvements */
+.modal-xl {
+    max-width: 90%;
+}
+
+.modal pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Quick action buttons */
+.btn-lg {
+    padding: 0.75rem 1.5rem;
+}
+
+/* Worker status colors */
+.worker-idle {
+    color: #6c757d;
+}
+
+.worker-busy {
+    color: #0d6efd;
+}
+
+.worker-failed {
+    color: #dc3545;
+}
+
+/* Responsive table */
+.table-responsive {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+/* Alerts */
+.alert {
+    border-radius: 0.5rem;
+}
+
+/* Device select styling */
+select.form-select {
+    background-color: #fff;
+}
+
+/* Animations */
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+/* Success/Error status panels */
+#status-success .alert,
+#status-error .alert {
+    margin-bottom: 0;
+}
+
+/* Navigation active states */
+.nav-link.active {
+    font-weight: 600;
+}
+
+/* Utility classes */
+.opacity-50 {
+    opacity: 0.5;
+}
+
+.font-monospace {
+    font-family: 'Courier New', Courier, monospace;
+}

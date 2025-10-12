@@ -1,0 +1,2170 @@
+// Service Stacks Management
+let allDevices = [];
+let allTemplates = [];
+let serviceCounter = 0;
+
+$(document).ready(function() {
+    // Load initial data
+    loadDevices();
+    loadTemplates();
+    loadServiceStacks();
+    loadStackTemplates();
+
+    // Event handlers
+    $('#create-stack-btn').click(function() {
+        openStackModal();
+    });
+
+    $('#save-stack-btn').click(function() {
+        saveServiceStack();
+    });
+
+    $('#add-service-btn').click(function() {
+        addServiceToStack();
+    });
+
+    $('#add-shared-var-btn').click(function() {
+        addSharedVariable();
+    });
+
+    // Stack Template handlers
+    $('#create-template-btn').click(function() {
+        openStackTemplateModal();
+    });
+
+    // Use event delegation for save button to ensure it always works
+    $(document).on('click', '#save-stack-template-btn', function(e) {
+        e.preventDefault();
+        console.log('Save stack template button clicked');
+        saveStackTemplate();
+    });
+
+    $('#add-template-service-btn').click(function() {
+        addServiceToTemplate();
+    });
+});
+
+/**
+ * Load devices from API
+ */
+function loadDevices() {
+    // Get filters from settings
+    let filters = [];
+    try {
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        filters = settings.netbox_filters || [];
+    } catch (e) {
+        console.error('Error reading filters from settings:', e);
+    }
+
+    // Make POST request with filters
+    $.ajax({
+        url: '/api/devices',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ filters: filters })
+    })
+    .done(function(data) {
+        if (data.success && data.devices) {
+            allDevices = data.devices;
+            console.log('Loaded ' + allDevices.length + ' devices');
+        }
+    })
+    .fail(function() {
+        console.error('Failed to load devices');
+    });
+}
+
+/**
+ * Load templates from API
+ */
+function loadTemplates() {
+    $.get('/api/templates')
+        .done(function(data) {
+            if (data.success && data.templates) {
+                allTemplates = data.templates;
+            }
+        })
+        .fail(function() {
+            console.error('Failed to load templates');
+        });
+}
+
+/**
+ * Load and display all service stacks
+ */
+function loadServiceStacks() {
+    const container = $('#stacks-container');
+    container.html('<div class="text-center"><div class="spinner-border"></div></div>');
+
+    $.get('/api/service-stacks')
+        .done(function(data) {
+            if (data.success && data.stacks) {
+                renderServiceStacks(data.stacks);
+            } else {
+                container.html('<div class="alert alert-warning">No service stacks found</div>');
+            }
+        })
+        .fail(function() {
+            container.html('<div class="alert alert-danger">Failed to load service stacks</div>');
+        });
+}
+
+/**
+ * Render service stacks as cards
+ */
+function renderServiceStacks(stacks) {
+    const container = $('#stacks-container');
+
+    if (stacks.length === 0) {
+        container.html('<div class="alert alert-info">No service stacks created yet. Click "Create Stack" to get started.</div>');
+        return;
+    }
+
+    let html = '<div class="row">';
+
+    stacks.forEach(function(stack) {
+        const stateColors = {
+            'pending': 'secondary',
+            'deploying': 'warning',
+            'deployed': 'success',
+            'partial': 'warning',
+            'failed': 'danger'
+        };
+
+        const stateColor = stateColors[stack.state] || 'secondary';
+
+        // Calculate unique device count from all services
+        const allDevicesInStack = new Set();
+        if (stack.services && Array.isArray(stack.services)) {
+            stack.services.forEach(service => {
+                if (service.devices && Array.isArray(service.devices)) {
+                    service.devices.forEach(device => allDevicesInStack.add(device));
+                } else if (service.device) {
+                    allDevicesInStack.add(service.device);
+                }
+            });
+        }
+        const deviceCount = allDevicesInStack.size;
+        const deviceList = Array.from(allDevicesInStack);
+        const serviceCount = stack.services ? stack.services.length : 0;
+
+        html += `
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card h-100 stack-card" data-stack-id="${stack.stack_id}" style="cursor: pointer;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">${stack.name}</h6>
+                        <div>
+                            <span class="badge bg-${stateColor}">${stack.state}</span>
+                            ${stack.has_pending_changes ? '<span class="badge bg-info ms-1"><i class="fas fa-exclamation-circle"></i> Pending Updates</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        ${stack.description ? `<p class="text-muted small">${stack.description}</p>` : ''}
+
+                        <div class="mb-2">
+                            <small>
+                                <i class="fas fa-cogs text-primary"></i> <strong>${serviceCount}</strong> service${serviceCount !== 1 ? 's' : ''}
+                            </small>
+                        </div>
+
+                        <div class="mb-2">
+                            <small>
+                                <i class="fas fa-server text-info"></i> <strong>${deviceCount}</strong> device${deviceCount !== 1 ? 's' : ''}
+                            </small>
+                        </div>
+
+                        ${deviceList.length > 0 ? `
+                            <div class="mb-2">
+                                <small class="text-muted">
+                                    ${deviceList.slice(0, 3).join(', ')}${deviceList.length > 3 ? '...' : ''}
+                                </small>
+                            </div>
+                        ` : ''}
+
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                Created: ${new Date(stack.created_at).toLocaleString()}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <div class="btn-group w-100" role="group">
+                            <button class="btn btn-sm btn-outline-primary view-stack-btn" data-stack-id="${stack.stack_id}">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary edit-stack-btn" data-stack-id="${stack.stack_id}">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            ${stack.state === 'deployed' || stack.state === 'partial' ? `
+                                <button class="btn btn-sm btn-outline-info validate-stack-btn" data-stack-id="${stack.stack_id}">
+                                    <i class="fas fa-check-circle"></i> Validate
+                                </button>
+                            ` : ''}
+                            ${stack.state === 'pending' || stack.state === 'deploying' ? `
+                                <button class="btn btn-sm btn-outline-success deploy-stack-btn" data-stack-id="${stack.stack_id}" ${stack.state === 'deploying' ? 'disabled' : ''}>
+                                    <i class="fas fa-rocket"></i> ${stack.state === 'deploying' ? 'Deploying...' : 'Deploy'}
+                                </button>
+                            ` : `
+                                <button class="btn btn-sm ${stack.has_pending_changes ? 'btn-warning' : 'btn-outline-warning'} redeploy-stack-btn" data-stack-id="${stack.stack_id}">
+                                    <i class="fas fa-${stack.has_pending_changes ? 'exclamation-triangle' : 'redo'}"></i> ${stack.has_pending_changes ? 'Deploy Updates' : 'Redeploy'}
+                                </button>
+                            `}
+                            <button class="btn btn-sm btn-outline-danger delete-stack-btn" data-stack-id="${stack.stack_id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    container.html(html);
+
+    // Attach event handlers
+    // Make entire card clickable to view details
+    $('.stack-card').click(function(e) {
+        // Don't trigger if clicking on action buttons
+        if ($(e.target).closest('.btn').length === 0) {
+            const stackId = $(this).data('stack-id');
+            viewStackDetails(stackId);
+        }
+    });
+
+    $('.view-stack-btn').click(function(e) {
+        e.stopPropagation();
+        const stackId = $(this).data('stack-id');
+        viewStackDetails(stackId);
+    });
+
+    $('.edit-stack-btn').click(function(e) {
+        e.stopPropagation();
+        const stackId = $(this).data('stack-id');
+        editStack(stackId);
+    });
+
+    $('.deploy-stack-btn').click(function(e) {
+        e.stopPropagation();
+        const stackId = $(this).data('stack-id');
+        deployStack(stackId);
+    });
+
+    $('.validate-stack-btn').click(function(e) {
+        e.stopPropagation();
+        const stackId = $(this).data('stack-id');
+        validateStack(stackId);
+    });
+
+    $('.redeploy-stack-btn').click(function(e) {
+        e.stopPropagation();
+        const stackId = $(this).data('stack-id');
+        redeployStack(stackId);
+    });
+
+    $('.delete-stack-btn').click(function(e) {
+        e.stopPropagation();
+        const stackId = $(this).data('stack-id');
+        deleteStack(stackId);
+    });
+}
+
+/**
+ * Redeploy an existing stack
+ */
+function redeployStack(stackId) {
+    if (!confirm('Redeploy this service stack? This will deploy the configuration to all devices again.')) {
+        return;
+    }
+
+    // Reset stack state to pending before deploying
+    $.ajax({
+        url: '/api/service-stacks/' + encodeURIComponent(stackId),
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({ state: 'pending' })
+    })
+    .done(function() {
+        // Now deploy
+        deployStack(stackId);
+    })
+    .fail(function(xhr) {
+        const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+        alert('Failed to reset stack state: ' + error);
+    });
+}
+
+/**
+ * Validate a service stack - validates all deployed services
+ */
+function validateStack(stackId) {
+    showStatus('info', {
+        message: 'Validating service stack...',
+        details: 'Checking all deployed services against device configurations.'
+    });
+
+    // Get credentials from settings
+    let username, password;
+    try {
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        username = settings.default_username;
+        password = settings.default_password;
+        console.log('Validate stack - Credentials from settings:', { username, hasPassword: !!password });
+    } catch (e) {
+        console.error('Error reading credentials from settings:', e);
+    }
+
+    $.ajax({
+        url: '/api/service-stacks/' + encodeURIComponent(stackId) + '/validate',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            username: username,
+            password: password
+        }),
+        timeout: 300000 // 5 minute timeout
+    })
+    .done(function(data) {
+        if (data.success) {
+            const allValid = data.all_valid;
+            const results = data.results || [];
+
+            let detailsHtml = '<strong>Validation Results:</strong><ul class="mb-0">';
+            results.forEach(function(result) {
+                const icon = result.valid ? '<i class="fas fa-check-circle text-success"></i>' : '<i class="fas fa-times-circle text-danger"></i>';
+                detailsHtml += `<li>${icon} ${result.service_name}: ${result.message}`;
+                if (result.missing_lines && result.missing_lines.length > 0) {
+                    detailsHtml += '<br><small class="text-muted">Missing: ' + result.missing_lines.join(', ') + '</small>';
+                }
+                detailsHtml += '</li>';
+            });
+            detailsHtml += '</ul>';
+
+            showStatus(allValid ? 'success' : 'warning', {
+                message: allValid ? '✓ All services validated successfully!' : '⚠ Some services have configuration drift',
+                details: detailsHtml
+            });
+        } else {
+            showStatus('error', {
+                message: '✗ Stack validation failed',
+                details: data.error || 'Unknown error'
+            });
+        }
+    })
+    .fail(function(xhr) {
+        const error = xhr.responseJSON ? xhr.responseJSON.error : 'Request failed';
+        showStatus('error', {
+            message: '✗ Failed to validate stack',
+            details: error
+        });
+    });
+}
+
+/**
+ * Edit an existing stack
+ */
+function editStack(stackId) {
+    $.get('/api/service-stacks/' + encodeURIComponent(stackId))
+        .done(function(data) {
+            if (data.success && data.stack) {
+                openStackModal(data.stack);
+            } else {
+                alert('Failed to load stack: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .fail(function(xhr) {
+            const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            alert('Failed to load stack: ' + error);
+        });
+}
+
+/**
+ * Add a shared variable key-value pair
+ */
+function addSharedVariable(key, value) {
+    $('#no-shared-vars-msg').remove();
+
+    const varHtml = `
+        <div class="shared-var-item mb-2 d-flex gap-2">
+            <input type="text" class="form-control form-control-sm shared-var-key" placeholder="Variable name" value="${key || ''}" style="flex: 1;">
+            <input type="text" class="form-control form-control-sm shared-var-value" placeholder="Variable value" value="${value || ''}" style="flex: 2;">
+            <button type="button" class="btn btn-sm btn-danger remove-shared-var-btn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `;
+
+    $('#shared-vars-list').append(varHtml);
+
+    // Attach remove handler
+    $('#shared-vars-list').find('.shared-var-item').last().find('.remove-shared-var-btn').click(function() {
+        $(this).closest('.shared-var-item').remove();
+
+        if ($('#shared-vars-list .shared-var-item').length === 0) {
+            $('#shared-vars-list').html('<p class="text-muted text-center mb-0" id="no-shared-vars-msg"><small>No shared variables. Click "Add Variable" to add one.</small></p>');
+        }
+    });
+}
+
+/**
+ * Open modal to create new stack
+ */
+function openStackModal(stackData) {
+    serviceCounter = 0;
+
+    $('#stackModalTitle').text(stackData ? 'Edit Service Stack' : 'Create Service Stack');
+    $('#stack-form')[0].reset();
+    $('#services-list').html('<p class="text-muted text-center mb-0" id="no-services-msg">No services added yet. Click "Add Service" to begin.</p>');
+    $('#shared-vars-list').html('<p class="text-muted text-center mb-0" id="no-shared-vars-msg"><small>No shared variables. Click "Add Variable" to add one.</small></p>');
+
+    if (stackData) {
+        $('#stack-id').val(stackData.stack_id);
+        $('#stack-name').val(stackData.name);
+        $('#stack-description').val(stackData.description || '');
+
+        // Load shared variables
+        if (stackData.shared_variables && Object.keys(stackData.shared_variables).length > 0) {
+            Object.entries(stackData.shared_variables).forEach(([key, value]) => {
+                addSharedVariable(key, value);
+            });
+        }
+
+        // Load services
+        if (stackData.services && stackData.services.length > 0) {
+            stackData.services.forEach(function(service) {
+                addServiceToStack(service);
+            });
+        }
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('stackModal'));
+    modal.show();
+}
+
+/**
+ * Add a service to the stack
+ */
+function addServiceToStack(serviceData) {
+    serviceCounter++;
+    const serviceId = serviceData ? serviceData.order : serviceCounter;
+
+    $('#no-services-msg').remove();
+
+    const serviceHtml = `
+        <div class="service-item border rounded p-3 mb-3" data-service-id="${serviceId}">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <h6>Service #${serviceId}</h6>
+                <button type="button" class="btn btn-sm btn-danger remove-service-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Service Name *</label>
+                    <input type="text" class="form-control service-name" placeholder="e.g., PE Router Config" value="${serviceData ? serviceData.name : ''}" required>
+                </div>
+
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Order</label>
+                    <input type="number" class="form-control service-order" value="${serviceId}" min="1" required>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Template Stack *</label>
+                    <select class="form-select service-template" required>
+                        <option value="">Select template stack...</option>
+                        ${allTemplates.filter(t => {
+                            // Only show complete template stacks (those with delete templates)
+                            return t.delete_template;
+                        }).map(t => {
+                            const templateName = typeof t === 'string' ? t : t.name;
+                            const templateDisplay = templateName.replace('.j2', '');
+                            const isSelected = serviceData && serviceData.template === templateName;
+                            const hasValidation = t.validation_template ? ' (Full Stack)' : ' (Manual Validation)';
+                            return `<option value="${templateName}" ${isSelected ? 'selected' : ''}>${templateDisplay}${hasValidation}</option>`;
+                        }).join('')}
+                    </select>
+                </div>
+
+                <div class="col-md-6 mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label mb-0">Devices *</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary add-device-btn">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div class="devices-list">
+                        <!-- Device dropdowns will be added here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-12 mb-2">
+                    <label class="form-label">Service Variables</label>
+                    <div class="service-variables-container p-2 border rounded bg-light">
+                        <div class="text-center text-muted">
+                            <small>Select a template to load variables...</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-12">
+                    <label class="form-label">Dependencies (comma-separated service names)</label>
+                    <input type="text" class="form-control service-dependencies" placeholder="e.g., CE Router Config, VLAN Setup" value="${serviceData && serviceData.depends_on ? serviceData.depends_on.join(', ') : ''}">
+                    <small class="form-text text-muted">This service will wait for these services to complete first</small>
+                </div>
+            </div>
+        </div>
+    `;
+
+    $('#services-list').append(serviceHtml);
+
+    const $serviceItem = $('#services-list').find('.service-item').last();
+
+    // Initialize with at least one device dropdown
+    if (serviceData && serviceData.devices) {
+        // Load existing devices
+        serviceData.devices.forEach(device => {
+            addDeviceDropdown($serviceItem, device);
+        });
+    } else {
+        // Add first empty device dropdown
+        addDeviceDropdown($serviceItem, null);
+    }
+
+    // If we have service data with variables, populate them
+    if (serviceData && serviceData.template) {
+        loadTemplateVariablesForService($serviceItem, serviceData.template, serviceData.variables);
+    }
+
+    // Attach add device button handler
+    $serviceItem.find('.add-device-btn').click(function() {
+        addDeviceDropdown($serviceItem, null);
+    });
+
+    // Attach template change handler
+    $serviceItem.find('.service-template').change(function() {
+        const template = $(this).val();
+        if (template) {
+            loadTemplateVariablesForService($serviceItem, template);
+        }
+    });
+
+    // Attach remove handler
+    $serviceItem.find('.remove-service-btn').click(function() {
+        $(this).closest('.service-item').remove();
+
+        if ($('#services-list .service-item').length === 0) {
+            $('#services-list').html('<p class="text-muted text-center mb-0" id="no-services-msg">No services added yet. Click "Add Service" to begin.</p>');
+        }
+    });
+}
+
+/**
+ * Add a device dropdown to a service
+ */
+function addDeviceDropdown($serviceItem, selectedDevice) {
+    const $devicesList = $serviceItem.find('.devices-list');
+    const deviceCount = $devicesList.find('.device-dropdown-item').length;
+
+    const deviceHtml = `
+        <div class="device-dropdown-item mb-2 d-flex gap-2">
+            <select class="form-select form-select-sm service-device-select" required>
+                <option value="">Select device...</option>
+                ${allDevices.map(d => `<option value="${d.name}" ${selectedDevice === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
+            </select>
+            ${deviceCount > 0 ? '<button type="button" class="btn btn-sm btn-danger remove-device-btn"><i class="fas fa-times"></i></button>' : ''}
+        </div>
+    `;
+
+    $devicesList.append(deviceHtml);
+
+    // Attach remove handler (only for additional devices, not the first one)
+    if (deviceCount > 0) {
+        $devicesList.find('.device-dropdown-item').last().find('.remove-device-btn').click(function() {
+            $(this).closest('.device-dropdown-item').remove();
+        });
+    }
+}
+
+/**
+ * Load template variables for a service
+ */
+function loadTemplateVariablesForService($serviceItem, templateName, existingVariables) {
+    const $container = $serviceItem.find('.service-variables-container');
+    $container.html('<div class="text-center"><small class="text-muted">Loading variables...</small></div>');
+
+    $.get('/api/templates/' + encodeURIComponent(templateName) + '/variables')
+        .done(function(data) {
+            if (data.success && data.variables) {
+                renderTemplateVariablesForm($container, data.variables, existingVariables);
+            } else {
+                $container.html('<div class="alert alert-warning alert-sm mb-0"><small>No variables found in template</small></div>');
+            }
+        })
+        .fail(function() {
+            $container.html('<div class="alert alert-danger alert-sm mb-0"><small>Failed to load template variables</small></div>');
+        });
+}
+
+/**
+ * Render template variables as form inputs
+ */
+function renderTemplateVariablesForm($container, variables, existingValues) {
+    existingValues = existingValues || {};
+
+    if (variables.length === 0) {
+        $container.html('<div class="text-muted text-center"><small>No variables required for this template</small></div>');
+        return;
+    }
+
+    let html = '<div class="row g-2">';
+
+    variables.forEach(function(field) {
+        // Handle both string array format and object format
+        let fieldName, fieldLabel, fieldValue, fieldType, fieldDescription, fieldOptions, isRequired;
+
+        if (typeof field === 'string') {
+            // Simple string format from current API
+            fieldName = field;
+            fieldLabel = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            fieldValue = existingValues[fieldName] || '';
+            fieldType = 'text';
+            fieldDescription = '';
+            fieldOptions = null;
+            isRequired = false;
+        } else {
+            // Object format with metadata
+            fieldName = field.name;
+            fieldLabel = field.name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            fieldValue = existingValues[fieldName] || field.default || '';
+            fieldType = field.type || 'text';
+            fieldDescription = field.description || '';
+            fieldOptions = field.options || null;
+            isRequired = field.required || false;
+        }
+
+        html += `<div class="col-md-6">`;
+        html += `<label class="form-label small mb-1">${fieldLabel} ${isRequired ? '*' : ''}</label>`;
+
+        if (fieldType === 'select' || fieldType === 'device') {
+            html += `<select class="form-select form-select-sm var-input" data-var-name="${fieldName}" ${isRequired ? 'required' : ''}>`;
+            html += `<option value="">Select ${fieldLabel}...</option>`;
+
+            if (fieldType === 'device') {
+                allDevices.forEach(function(device) {
+                    const selected = fieldValue === device.name ? 'selected' : '';
+                    html += `<option value="${device.name}" ${selected}>${device.display || device.name}</option>`;
+                });
+            } else if (fieldOptions) {
+                fieldOptions.forEach(function(opt) {
+                    const selected = fieldValue === opt ? 'selected' : '';
+                    html += `<option value="${opt}" ${selected}>${opt}</option>`;
+                });
+            }
+
+            html += '</select>';
+        } else if (fieldType === 'boolean') {
+            html += `<select class="form-select form-select-sm var-input" data-var-name="${fieldName}" ${isRequired ? 'required' : ''}>`;
+            html += `<option value="true" ${fieldValue === 'true' || fieldValue === true ? 'selected' : ''}>True</option>`;
+            html += `<option value="false" ${fieldValue === 'false' || fieldValue === false ? 'selected' : ''}>False</option>`;
+            html += '</select>';
+        } else if (fieldType === 'integer' || fieldType === 'number') {
+            html += `<input type="number" class="form-control form-control-sm var-input" data-var-name="${fieldName}"
+                     value="${fieldValue}" placeholder="${fieldDescription}" ${isRequired ? 'required' : ''}>`;
+        } else {
+            // Default to text input
+            html += `<input type="text" class="form-control form-control-sm var-input" data-var-name="${fieldName}"
+                     value="${fieldValue}" placeholder="${fieldDescription}" ${isRequired ? 'required' : ''}>`;
+        }
+
+        if (fieldDescription) {
+            html += `<small class="form-text text-muted d-block">${fieldDescription}</small>`;
+        }
+
+        html += '</div>';
+    });
+
+    html += '</div>';
+    $container.html(html);
+}
+
+/**
+ * Save service stack
+ */
+function saveServiceStack() {
+    // Validate form
+    const name = $('#stack-name').val().trim();
+    if (!name) {
+        alert('Stack name is required');
+        return;
+    }
+
+    const services = [];
+    let valid = true;
+
+    $('#services-list .service-item').each(function() {
+        const serviceName = $(this).find('.service-name').val().trim();
+        const template = $(this).find('.service-template').val();
+        const order = parseInt($(this).find('.service-order').val());
+        const dependenciesText = $(this).find('.service-dependencies').val().trim();
+
+        // Collect all selected devices
+        const devices = [];
+        $(this).find('.service-device-select').each(function() {
+            const deviceValue = $(this).val();
+            if (deviceValue) {
+                devices.push(deviceValue);
+            }
+        });
+
+        if (!serviceName || !template || devices.length === 0) {
+            alert('All services must have name, template, and at least one device');
+            valid = false;
+            return false;
+        }
+
+        // Collect variables from GUI inputs
+        const variables = {};
+        $(this).find('.var-input').each(function() {
+            const varName = $(this).data('var-name');
+            const varValue = $(this).val();
+            if (varValue) {
+                variables[varName] = varValue;
+            }
+        });
+
+        const dependencies = dependenciesText ?
+            dependenciesText.split(',').map(d => d.trim()).filter(d => d) : [];
+
+        services.push({
+            name: serviceName,
+            template: template,
+            devices: devices,
+            order: order,
+            variables: variables,
+            depends_on: dependencies
+        });
+    });
+
+    if (!valid || services.length === 0) {
+        if (services.length === 0) {
+            alert('At least one service is required');
+        }
+        return;
+    }
+
+    // Collect shared variables from key-value inputs
+    const sharedVariables = {};
+    $('#shared-vars-list .shared-var-item').each(function() {
+        const key = $(this).find('.shared-var-key').val().trim();
+        const value = $(this).find('.shared-var-value').val().trim();
+        if (key && value) {
+            sharedVariables[key] = value;
+        }
+    });
+
+    const stackData = {
+        name: name,
+        description: $('#stack-description').val().trim(),
+        services: services,
+        shared_variables: sharedVariables
+    };
+
+    const stackId = $('#stack-id').val();
+    const url = stackId ? `/api/service-stacks/${stackId}` : '/api/service-stacks';
+    const method = stackId ? 'PUT' : 'POST';
+
+    $('#save-stack-btn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Saving...');
+
+    $.ajax({
+        url: url,
+        method: method,
+        contentType: 'application/json',
+        data: JSON.stringify(stackData)
+    })
+    .done(function(data) {
+        if (data.success) {
+            showStatus('success', {
+                message: data.message
+            });
+            bootstrap.Modal.getInstance(document.getElementById('stackModal')).hide();
+            loadServiceStacks();
+        } else {
+            showStatus('error', {
+                message: data.error || 'Failed to save service stack'
+            });
+        }
+    })
+    .fail(function(xhr) {
+        const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+        showStatus('error', {
+            message: 'Failed to save service stack: ' + error
+        });
+    })
+    .always(function() {
+        $('#save-stack-btn').prop('disabled', false).html('<i class="fas fa-save"></i> Save Stack');
+    });
+}
+
+/**
+ * View stack details
+ */
+function viewStackDetails(stackId) {
+    const modal = new bootstrap.Modal(document.getElementById('stackDetailsModal'));
+    const body = $('#stackDetailsBody');
+    body.html('<div class="text-center"><div class="spinner-border"></div></div>');
+
+    // Store current stack ID for refresh after service operations
+    $('#stackDetailsModal').data('current-stack-id', stackId);
+
+    modal.show();
+
+    $.get('/api/service-stacks/' + encodeURIComponent(stackId))
+        .done(function(data) {
+            if (data.success && data.stack) {
+                renderStackDetails(data.stack);
+            } else {
+                body.html('<div class="alert alert-danger">Failed to load stack details</div>');
+            }
+        })
+        .fail(function(xhr, status, error) {
+            console.error('Failed to load stack details:', status, error);
+            body.html('<div class="alert alert-danger">Failed to load stack details</div>');
+        });
+
+    // Set up deploy and validate buttons
+    $('#deploy-stack-details-btn').off('click').on('click', function() {
+        deployStack(stackId);
+    });
+
+    $('#validate-stack-details-btn').off('click').on('click', function() {
+        validateStack(stackId);
+    });
+}
+
+/**
+ * Render stack details in modal
+ */
+function renderStackDetails(stack) {
+    const stateColors = {
+        'pending': 'secondary',
+        'deploying': 'warning',
+        'deployed': 'success',
+        'partial': 'warning',
+        'failed': 'danger'
+    };
+
+    const stateColor = stateColors[stack.state] || 'secondary';
+
+    // Count deployed service instances (not service definitions)
+    const deployedServiceCount = stack.deployed_services ? stack.deployed_services.length : 0;
+    const serviceDefinitionCount = stack.services ? stack.services.length : 0;
+
+    let html = `
+        <div class="mb-3">
+            <h5>
+                ${stack.name}
+                <span class="badge bg-${stateColor}">${stack.state}</span>
+                ${stack.has_pending_changes ? '<span class="badge bg-info ms-1"><i class="fas fa-exclamation-circle"></i> Pending Updates</span>' : ''}
+            </h5>
+            ${stack.description ? `<p class="text-muted">${stack.description}</p>` : ''}
+            ${stack.has_pending_changes ? `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> This stack has pending changes that require redeployment.
+                    ${stack.pending_since ? `<br><small>Changes made: ${new Date(stack.pending_since).toLocaleString()}</small>` : ''}
+                </div>
+            ` : ''}
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <strong>Service Types:</strong> ${serviceDefinitionCount}
+            </div>
+            <div class="col-md-4">
+                <strong>Deployed Instances:</strong> ${deployedServiceCount}
+            </div>
+            <div class="col-md-4">
+                <strong>Created:</strong> ${new Date(stack.created_at).toLocaleString()}
+            </div>
+        </div>
+
+        ${stack.shared_variables && Object.keys(stack.shared_variables).length > 0 ? `
+            <div class="mb-3">
+                <h6>Shared Variables</h6>
+                <pre class="bg-light p-2 rounded"><code>${JSON.stringify(stack.shared_variables, null, 2)}</code></pre>
+            </div>
+        ` : ''}
+    `;
+
+    // Show deployed service instances if available
+    if (stack.deployed_services && stack.deployed_services.length > 0) {
+        html += `
+            <div class="mb-3">
+                <h6><i class="fas fa-cogs"></i> Deployed Service Instances</h6>
+                <div id="deployed-services-list">
+                    <div class="text-center"><div class="spinner-border spinner-border-sm"></div> Loading...</div>
+                </div>
+            </div>
+        `;
+    } else {
+        html += `
+            <div class="mb-3">
+                <h6><i class="fas fa-info-circle"></i> No Deployed Services</h6>
+                <p class="text-muted">This stack has not been deployed yet. Click "Deploy Stack" to deploy all services.</p>
+            </div>
+        `;
+    }
+
+    // Show deployment errors for failed or partial states
+    if ((stack.state === 'failed' || stack.state === 'partial') && stack.deployment_errors && stack.deployment_errors.length > 0) {
+        const alertClass = stack.state === 'partial' ? 'alert-warning' : 'alert-danger';
+        html += `
+            <div class="alert ${alertClass}">
+                <h6><i class="fas fa-exclamation-triangle"></i> ${stack.state === 'partial' ? 'Partial Deployment Issues' : 'Deployment Errors'}</h6>
+                <ul class="mb-0">
+                    ${stack.deployment_errors.map(e => {
+                        let errorHtml = `<li><strong>${e.name || 'Unknown'}</strong>: ${e.error}`;
+
+                        // Show device-level details if available
+                        if (e.failed_devices && e.failed_devices.length > 0) {
+                            errorHtml += '<ul class="mt-1">';
+                            e.failed_devices.forEach(fd => {
+                                errorHtml += `<li><i class="fas fa-server text-danger"></i> ${fd.device}: ${fd.error}</li>`;
+                            });
+                            errorHtml += '</ul>';
+                        }
+
+                        // Show succeeded devices for partial failures
+                        if (e.succeeded_devices && e.succeeded_devices.length > 0) {
+                            errorHtml += `<div class="text-muted small mt-1">✓ Succeeded on: ${e.succeeded_devices.join(', ')}</div>`;
+                        }
+
+                        // Show skipped devices (no changes)
+                        if (e.skipped_devices && e.skipped_devices.length > 0) {
+                            errorHtml += `<div class="text-info small mt-1"><i class="fas fa-forward"></i> Skipped (no changes): ${e.skipped_devices.join(', ')}</div>`;
+                        }
+
+                        errorHtml += '</li>';
+                        return errorHtml;
+                    }).join('')}
+                </ul>
+            </div>
+        `;
+    }
+
+    $('#stackDetailsBody').html(html);
+    $('#stackDetailsTitle').text('Stack: ' + stack.name);
+
+    // Load deployed service instances
+    if (stack.deployed_services && stack.deployed_services.length > 0) {
+        loadDeployedServices(stack.deployed_services);
+    }
+}
+
+/**
+ * Load and display deployed service instances
+ */
+function loadDeployedServices(serviceIds) {
+    const container = $('#deployed-services-list');
+
+    // Fetch all service instances (with error handling for deleted services)
+    Promise.all(serviceIds.map(id =>
+        $.get('/api/services/instances/' + encodeURIComponent(id))
+            .catch(function(xhr) {
+                // Service might have been deleted, return null instead of failing
+                console.warn('Service instance not found or error loading:', id);
+                return null;
+            })
+    )).then(function(responses) {
+        let html = '<div class="list-group">';
+        let serviceCount = 0;
+
+        responses.forEach(function(response) {
+            // Skip null responses (deleted or errored services)
+            // API returns service in 'instance' field, not 'service' field
+            if (response && response.success && response.instance) {
+                const service = response.instance;
+                serviceCount++;
+                const stateColors = {
+                    'pending': 'secondary',
+                    'deployed': 'success',
+                    'failed': 'danger',
+                    'validated': 'info'
+                };
+                const stateColor = stateColors[service.state] || 'secondary';
+
+                html += `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1">
+                                    ${service.name}
+                                    <span class="badge bg-${stateColor} ms-2">${service.state}</span>
+                                </h6>
+                                <small class="text-muted">
+                                    <i class="fas fa-server"></i> ${service.device} |
+                                    <i class="fas fa-file-code"></i> ${service.template}
+                                </small>
+                                ${service.deployed_at ? `<br><small class="text-muted">Deployed: ${new Date(service.deployed_at).toLocaleString()}</small>` : ''}
+                                ${service.state === 'failed' && service.error ? `<br><small class="text-danger"><i class="fas fa-exclamation-triangle"></i> ${service.error}</small>` : ''}
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-info view-service-btn" data-service-id="${service.service_id}">
+                                    <i class="fas fa-eye"></i> Details
+                                </button>
+                                ${service.state === 'deployed' || service.state === 'validated' ? `
+                                    <button class="btn btn-outline-success validate-service-btn" data-service-id="${service.service_id}">
+                                        <i class="fas fa-check-circle"></i> Validate
+                                    </button>
+                                ` : ''}
+                                ${service.state === 'failed' ? `
+                                    <button class="btn btn-warning redeploy-service-btn" data-service-id="${service.service_id}">
+                                        <i class="fas fa-redo"></i> Redeploy
+                                    </button>
+                                ` : `
+                                    <button class="btn btn-outline-warning redeploy-service-btn" data-service-id="${service.service_id}">
+                                        <i class="fas fa-redo"></i> Redeploy
+                                    </button>
+                                `}
+                                <button class="btn btn-outline-danger delete-service-btn" data-service-id="${service.service_id}">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        html += '</div>';
+
+        if (serviceCount === 0) {
+            container.html('<div class="alert alert-info">No service instances found</div>');
+        } else {
+            container.html(html);
+        }
+
+        // Attach event handlers for service actions
+        attachServiceActionHandlers();
+
+    }).catch(function(error) {
+        console.error('Error loading services:', error);
+        const errorMsg = error && error.message ? error.message : 'Unknown error';
+        container.html('<div class="alert alert-danger">Failed to load service instances: ' + errorMsg + '</div>');
+    });
+}
+
+/**
+ * Attach event handlers for service instance actions
+ */
+function attachServiceActionHandlers() {
+    $('.view-service-btn').off('click').on('click', function() {
+        const serviceId = $(this).data('service-id');
+        viewServiceDetails(serviceId);
+    });
+
+    $('.validate-service-btn').off('click').on('click', function() {
+        const serviceId = $(this).data('service-id');
+        validateService(serviceId);
+    });
+
+    $('.delete-service-btn').off('click').on('click', function() {
+        const serviceId = $(this).data('service-id');
+        deleteService(serviceId);
+    });
+
+    $('.redeploy-service-btn').off('click').on('click', function() {
+        const serviceId = $(this).data('service-id');
+        redeployService(serviceId);
+    });
+}
+
+/**
+ * View service instance details
+ */
+function viewServiceDetails(serviceId) {
+    const modal = new bootstrap.Modal(document.getElementById('serviceInstanceModal'));
+    const body = $('#serviceInstanceBody');
+    body.html('<div class="text-center"><div class="spinner-border"></div></div>');
+
+    modal.show();
+
+    // Fetch service instance details
+    $.get('/api/services/instances/' + encodeURIComponent(serviceId))
+        .done(function(data) {
+            if (data.success && data.instance) {
+                renderServiceInstanceDetails(data.instance);
+
+                // Setup action buttons
+                $('#validate-service-instance-btn').off('click').on('click', function() {
+                    modal.hide();
+                    validateService(serviceId);
+                });
+
+                $('#delete-service-instance-btn').off('click').on('click', function() {
+                    modal.hide();
+                    deleteService(serviceId);
+                });
+            } else {
+                body.html('<div class="alert alert-danger">Failed to load service instance details</div>');
+            }
+        })
+        .fail(function(xhr, status, error) {
+            console.error('Failed to load service instance:', status, error);
+            body.html('<div class="alert alert-danger">Failed to load service instance details</div>');
+        });
+}
+
+/**
+ * Render service instance details in modal
+ */
+function renderServiceInstanceDetails(service) {
+    const stateColors = {
+        'pending': 'secondary',
+        'deployed': 'success',
+        'failed': 'danger',
+        'validated': 'info'
+    };
+    const stateColor = stateColors[service.state] || 'secondary';
+
+    let html = `
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h5>${service.name} <span class="badge bg-${stateColor}">${service.state}</span></h5>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <h6><i class="fas fa-info-circle"></i> Service Information</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <th style="width: 40%;">Service ID:</th>
+                        <td><code>${service.service_id}</code></td>
+                    </tr>
+                    <tr>
+                        <th>Device:</th>
+                        <td>${service.device}</td>
+                    </tr>
+                    <tr>
+                        <th>Template:</th>
+                        <td><code>${service.template}</code></td>
+                    </tr>
+                    ${service.validation_template ? `
+                    <tr>
+                        <th>Validation Template:</th>
+                        <td><code>${service.validation_template}</code></td>
+                    </tr>
+                    ` : ''}
+                    ${service.delete_template ? `
+                    <tr>
+                        <th>Delete Template:</th>
+                        <td><code>${service.delete_template}</code></td>
+                    </tr>
+                    ` : ''}
+                    <tr>
+                        <th>State:</th>
+                        <td><span class="badge bg-${stateColor}">${service.state}</span></td>
+                    </tr>
+                    ${service.state === 'failed' && service.error ? `
+                    <tr>
+                        <th>Error:</th>
+                        <td><span class="text-danger"><i class="fas fa-exclamation-triangle"></i> ${service.error}</span></td>
+                    </tr>
+                    ` : ''}
+                    ${service.validation_status ? `
+                    <tr>
+                        <th>Validation Status:</th>
+                        <td>${service.validation_status === 'valid' ? '<span class="badge bg-success">Valid</span>' : '<span class="badge bg-warning">Invalid</span>'}</td>
+                    </tr>
+                    ` : ''}
+                </table>
+            </div>
+
+            <div class="col-md-6">
+                <h6><i class="fas fa-clock"></i> Timestamps</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <th style="width: 40%;">Created:</th>
+                        <td>${new Date(service.created_at).toLocaleString()}</td>
+                    </tr>
+                    ${service.deployed_at ? `
+                    <tr>
+                        <th>Deployed:</th>
+                        <td>${new Date(service.deployed_at).toLocaleString()}</td>
+                    </tr>
+                    ` : ''}
+                    ${service.last_validated ? `
+                    <tr>
+                        <th>Last Validated:</th>
+                        <td>${new Date(service.last_validated).toLocaleString()}</td>
+                    </tr>
+                    ` : ''}
+                    ${service.updated_at ? `
+                    <tr>
+                        <th>Updated:</th>
+                        <td>${new Date(service.updated_at).toLocaleString()}</td>
+                    </tr>
+                    ` : ''}
+                </table>
+
+                ${service.task_id ? `
+                <h6 class="mt-3"><i class="fas fa-tasks"></i> Task Information</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <th style="width: 40%;">Task ID:</th>
+                        <td><code>${service.task_id}</code></td>
+                    </tr>
+                </table>
+                ` : ''}
+            </div>
+        </div>
+
+        ${service.variables && Object.keys(service.variables).length > 0 ? `
+        <div class="mb-3">
+            <h6><i class="fas fa-code"></i> Template Variables</h6>
+            <pre class="bg-light p-3 rounded"><code>${JSON.stringify(service.variables, null, 2)}</code></pre>
+        </div>
+        ` : ''}
+
+        ${service.rendered_config ? `
+        <div class="mb-3">
+            <h6><i class="fas fa-file-code"></i> Rendered Configuration</h6>
+            <pre class="bg-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"><code>${service.rendered_config}</code></pre>
+        </div>
+        ` : ''}
+
+        ${service.stack_id ? `
+        <div class="mb-3">
+            <h6><i class="fas fa-layer-group"></i> Stack Information</h6>
+            <p class="mb-1"><strong>Stack ID:</strong> <code>${service.stack_id}</code></p>
+            ${service.stack_order ? `<p class="mb-1"><strong>Order in Stack:</strong> ${service.stack_order}</p>` : ''}
+        </div>
+        ` : ''}
+    `;
+
+    $('#serviceInstanceBody').html(html);
+    $('#serviceInstanceTitle').text('Service: ' + service.name);
+}
+
+/**
+ * Validate a service instance
+ */
+function validateService(serviceId) {
+    if (!confirm('Validate this service instance?')) {
+        return;
+    }
+
+    showStatus('info', { message: 'Validating service...' });
+
+    // Get credentials from settings
+    let username, password;
+    try {
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        username = settings.default_username;
+        password = settings.default_password;
+    } catch (e) {
+        console.error('Error reading credentials:', e);
+    }
+
+    $.ajax({
+        url: '/api/services/instances/' + encodeURIComponent(serviceId) + '/validate',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ username, password }),
+        timeout: 60000
+    })
+    .done(function(data) {
+        if (data.success) {
+            if (data.valid) {
+                showStatus('success', {
+                    message: '✓ Service validation passed',
+                    details: data.message
+                });
+            } else {
+                showStatus('warning', {
+                    message: '⚠ Service validation failed - configuration drift detected',
+                    details: data.message + (data.missing_lines ? '<br>Missing: ' + data.missing_lines.join(', ') : '')
+                });
+            }
+        } else {
+            showStatus('error', {
+                message: 'Validation failed: ' + (data.error || 'Unknown error')
+            });
+        }
+    })
+    .fail(function(xhr) {
+        showStatus('error', {
+            message: 'Validation failed: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error')
+        });
+    });
+}
+
+/**
+ * Redeploy a service instance
+ */
+function redeployService(serviceId) {
+    if (!confirm('Redeploy this service instance? This will push the stored configuration to the device again.')) {
+        return;
+    }
+
+    showStatus('info', { message: 'Redeploying service...' });
+
+    // Get credentials from settings
+    let username, password;
+    try {
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        username = settings.default_username;
+        password = settings.default_password;
+    } catch (e) {
+        console.error('Error reading credentials:', e);
+    }
+
+    $.ajax({
+        url: '/api/services/instances/' + encodeURIComponent(serviceId) + '/redeploy',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ username, password }),
+        timeout: 120000  // 2 minutes for redeploy
+    })
+    .done(function(data) {
+        if (data.success) {
+            showStatus('success', {
+                message: '✓ Service redeployed successfully',
+                details: data.message
+            });
+            // Refresh the current stack view
+            const stackId = $('#stackDetailsModal').data('current-stack-id');
+            if (stackId) {
+                setTimeout(() => viewStackDetails(stackId), 1500);
+            }
+        } else {
+            showStatus('error', {
+                message: 'Redeploy failed: ' + (data.error || 'Unknown error')
+            });
+        }
+    })
+    .fail(function(xhr) {
+        showStatus('error', {
+            message: 'Redeploy failed: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error')
+        });
+    });
+}
+
+/**
+ * Delete a service instance
+ */
+function deleteService(serviceId) {
+    if (!confirm('Delete this service instance? This will remove the configuration from the device.')) {
+        return;
+    }
+
+    showStatus('info', { message: 'Deleting service...' });
+
+    // Get credentials from settings
+    let username, password;
+    try {
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        username = settings.default_username;
+        password = settings.default_password;
+    } catch (e) {
+        console.error('Error reading credentials:', e);
+    }
+
+    $.ajax({
+        url: '/api/services/instances/' + encodeURIComponent(serviceId) + '/delete',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ username, password }),
+        timeout: 60000
+    })
+    .done(function(data) {
+        if (data.success) {
+            showStatus('success', {
+                message: '✓ Service deleted successfully',
+                details: data.message
+            });
+            // Refresh the current stack view and the stacks list
+            const stackId = $('#stackDetailsModal').data('current-stack-id');
+            if (stackId) {
+                setTimeout(() => {
+                    viewStackDetails(stackId);
+                    loadServiceStacks(); // Refresh the main stacks list
+                }, 1500);
+            }
+        } else {
+            showStatus('error', {
+                message: 'Delete failed: ' + (data.error || 'Unknown error')
+            });
+        }
+    })
+    .fail(function(xhr) {
+        showStatus('error', {
+            message: 'Delete failed: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error')
+        });
+    });
+}
+
+/**
+ * Deploy a service stack
+ */
+function deployStack(stackId) {
+    if (!confirm('Deploy this service stack? All services will be deployed in order with dependency checking.')) {
+        return;
+    }
+
+    // Get credentials from settings
+    let username, password;
+    try {
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        username = settings.default_username;
+        password = settings.default_password;
+        console.log('Credentials from settings:', { username, hasPassword: !!password });
+    } catch (e) {
+        console.error('Error reading credentials from settings:', e);
+    }
+
+    showStatus('info', {
+        message: 'Deploying service stack...',
+        details: 'This may take several minutes depending on the number of services.'
+    });
+
+    $.ajax({
+        url: '/api/service-stacks/' + encodeURIComponent(stackId) + '/deploy',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            username: username,
+            password: password
+        }),
+        timeout: 300000 // 5 minute timeout
+    })
+    .done(function(data) {
+        if (data.success) {
+            showStatus('success', {
+                message: `✓ Stack deployed successfully - ${data.deployed_count} service(s) deployed`,
+                details: data.deployed_services.length > 0 ?
+                    '<strong>Deployed services:</strong><br><ul class="mb-0">' +
+                    data.deployed_services.map(id => '<li><code>' + id + '</code></li>').join('') +
+                    '</ul>' : ''
+            });
+        } else {
+            const failedDetails = data.failed_services && data.failed_services.length > 0 ?
+                '<strong>Failed services:</strong><br><ul class="mb-0">' +
+                data.failed_services.map(f => '<li>' + f.name + ': ' + f.error + '</li>').join('') +
+                '</ul>' : '';
+
+            showStatus('error', {
+                message: `⚠ Stack deployment failed - ${data.deployed_count} deployed, ${data.failed_count} failed`,
+                details: failedDetails
+            });
+        }
+
+        loadServiceStacks();
+    })
+    .fail(function(xhr) {
+        const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+        showStatus('error', {
+            message: 'Stack deployment failed: ' + error
+        });
+    });
+}
+
+/**
+ * Validate a service stack
+ */
+/**
+ * Delete a service stack
+ */
+function deleteStack(stackId) {
+    // Show the delete confirmation modal
+    const modal = new bootstrap.Modal(document.getElementById('deleteStackModal'));
+    modal.show();
+
+    // Store the stack ID for the confirm button
+    $('#confirm-delete-stack-btn').data('stack-id', stackId);
+
+    // Remove any existing click handlers and add new one
+    $('#confirm-delete-stack-btn').off('click').on('click', function() {
+        const runDeleteTemplates = $('input[name="deleteOption"]:checked').val() === 'cleanup';
+
+        // Hide the modal
+        modal.hide();
+
+        // Show status
+        showStatus('info', {
+            message: runDeleteTemplates ?
+                'Deleting stack and running delete templates...' :
+                'Deleting stack (keeping device configurations)...'
+        });
+
+        // Execute the deletion
+        $.ajax({
+            url: '/api/service-stacks/' + encodeURIComponent(stackId) +
+                 (runDeleteTemplates ? '?delete_services=true' : ''),
+            method: 'DELETE',
+            timeout: runDeleteTemplates ? 180000 : 30000  // 3 min if running delete templates, 30 sec otherwise
+        })
+        .done(function(data) {
+            if (data.success) {
+                showStatus('success', {
+                    message: data.message + (runDeleteTemplates ? ' Device configurations have been removed.' : ' Device configurations remain.')
+                });
+                loadServiceStacks();
+            } else {
+                showStatus('error', {
+                    message: data.error || 'Failed to delete service stack'
+                });
+            }
+        })
+        .fail(function(xhr) {
+            const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            showStatus('error', {
+                message: 'Failed to delete service stack: ' + error
+            });
+        });
+    });
+}
+
+/**
+ * Show status modal (reused from services.js)
+ */
+function showStatus(type, data) {
+    const modal = new bootstrap.Modal(document.getElementById('statusModal'));
+
+    const titles = {
+        'success': 'Success',
+        'error': 'Error',
+        'warning': 'Warning',
+        'info': 'Information'
+    };
+    $('#statusModalTitle').text(titles[type] || 'Status');
+
+    const alertClasses = {
+        'success': 'alert-success',
+        'error': 'alert-danger',
+        'warning': 'alert-warning',
+        'info': 'alert-info'
+    };
+
+    const icons = {
+        'success': 'fa-check-circle',
+        'error': 'fa-exclamation-triangle',
+        'warning': 'fa-exclamation-circle',
+        'info': 'fa-info-circle'
+    };
+
+    let html = `
+        <div class="alert ${alertClasses[type] || 'alert-info'}">
+            <h5><i class="fas ${icons[type] || 'fa-info-circle'}"></i> ${data.message || 'Status'}</h5>
+            ${data.details ? `<hr><div>${data.details}</div>` : ''}
+            ${data.task_id ? `<hr><small><strong>Task ID:</strong> <code>${data.task_id}</code></small>` : ''}
+        </div>
+    `;
+
+    $('#statusModalBody').html(html);
+    modal.show();
+
+    // Cleanup backdrop on close
+    const modalElement = document.getElementById('statusModal');
+    modalElement.addEventListener('hidden.bs.modal', function () {
+        const backdrops = document.querySelectorAll('.modal-backdrop');
+        backdrops.forEach(backdrop => backdrop.remove());
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+    });
+}
+
+/**
+ * Load stack templates from API
+ */
+function loadStackTemplates() {
+    $.get('/api/stack-templates')
+        .done(function(data) {
+            if (data.success) {
+                displayStackTemplates(data.templates);
+            }
+        })
+        .fail(function(xhr) {
+            $('#stack-templates-container').html(`
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i> Failed to load stack templates: ${xhr.responseJSON?.error || 'Unknown error'}
+                </div>
+            `);
+        });
+}
+
+/**
+ * Display stack templates
+ */
+function displayStackTemplates(templates) {
+    const container = $('#stack-templates-container');
+
+    if (!templates || templates.length === 0) {
+        container.html(`
+            <div class="text-center text-muted">
+                <i class="fas fa-folder-open fa-2x mb-2"></i>
+                <p>No stack templates created yet. Click "New Template" to create one.</p>
+            </div>
+        `);
+        return;
+    }
+
+    let html = '<div class="row">';
+    templates.forEach(template => {
+        const serviceCount = template.services?.length || 0;
+        const variableCount = template.required_variables?.length || 0;
+
+        html += `
+            <div class="col-md-3 mb-2">
+                <div class="card shadow-sm" style="max-height: 180px;">
+                    <div class="card-body p-2">
+                        <h6 class="card-title mb-1 small">
+                            <i class="fas fa-file-alt text-success"></i> ${escapeHtml(template.name)}
+                        </h6>
+                        <p class="card-text" style="font-size: 0.75rem; color: #6c757d; margin-bottom: 0.5rem; max-height: 2.4em; overflow: hidden;">${escapeHtml(template.description || 'No description')}</p>
+                        <div style="font-size: 0.7rem;">
+                            <span class="badge bg-info" style="font-size: 0.65rem;">${serviceCount} Svc</span>
+                            <span class="badge bg-secondary" style="font-size: 0.65rem;">${variableCount} Var</span>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent p-1">
+                        <div class="btn-group w-100">
+                            <button class="btn btn-sm btn-primary deploy-from-template-btn" data-template-id="${template.template_id}" style="font-size: 0.7rem; padding: 0.2rem 0.3rem;">
+                                <i class="fas fa-plus-circle"></i> Create
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary edit-template-btn" data-template-id="${template.template_id}" style="font-size: 0.7rem; padding: 0.2rem 0.3rem;">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger delete-template-btn" data-template-id="${template.template_id}" style="font-size: 0.7rem; padding: 0.2rem 0.3rem;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+
+    container.html(html);
+
+    // Attach event handlers
+    $('.deploy-from-template-btn').click(function() {
+        const templateId = $(this).data('template-id');
+        openDeployFromTemplateModal(templateId);
+    });
+
+    $('.edit-template-btn').click(function() {
+        const templateId = $(this).data('template-id');
+        editStackTemplate(templateId);
+    });
+
+    $('.delete-template-btn').click(function() {
+        const templateId = $(this).data('template-id');
+        deleteStackTemplate(templateId);
+    });
+}
+
+/**
+ * Open stack template modal
+ */
+function openStackTemplateModal(templateId = null) {
+    $('#stack-template-id').val(templateId || '');
+    $('#stack-template-name').val('');
+    $('#stack-template-description').val('');
+    $('#template-services-container').html('<p class="text-muted">No services added yet. Click "Add Service" to define services for this template.</p>');
+
+    $('#stackTemplateModalTitle').text(templateId ? 'Edit Stack Template' : 'Create Stack Template');
+
+    const modal = new bootstrap.Modal(document.getElementById('stackTemplateModal'));
+    modal.show();
+}
+
+/**
+ * Add service to template
+ */
+function addServiceToTemplate() {
+    serviceCounter++;
+    const serviceId = `template-service-${serviceCounter}`;
+
+    const container = $('#template-services-container');
+
+    // Remove "no services" message if present
+    if (container.find('p.text-muted').length) {
+        container.empty();
+    }
+
+    const serviceHtml = `
+        <div class="card mb-2" id="${serviceId}">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <label class="form-label small">Service Name *</label>
+                        <input type="text" class="form-control form-control-sm service-name" placeholder="e.g., PE Router Config" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Config Template *</label>
+                        <select class="form-select form-control-sm service-template" required>
+                            <option value="">Select template...</option>
+                            ${allTemplates.filter(t => t.delete_template).map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Order</label>
+                        <input type="number" class="form-control form-control-sm service-order" value="${serviceCounter}" min="1">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label small">&nbsp;</label>
+                        <button type="button" class="btn btn-sm btn-danger w-100 remove-service-btn">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.append(serviceHtml);
+
+    // Attach remove handler
+    $(`#${serviceId} .remove-service-btn`).click(function() {
+        $(`#${serviceId}`).remove();
+        if ($('#template-services-container .card').length === 0) {
+            $('#template-services-container').html('<p class="text-muted">No services added yet. Click "Add Service" to define services for this template.</p>');
+        }
+    });
+}
+
+/**
+ * Save stack template
+ */
+function saveStackTemplate() {
+    console.log('saveStackTemplate function called');
+
+    const templateId = $('#stack-template-id').val();
+    const name = $('#stack-template-name').val().trim();
+    const description = $('#stack-template-description').val().trim();
+
+    console.log('Template data:', { templateId, name, description });
+
+    if (!name) {
+        alert('Please enter a template name');
+        return;
+    }
+
+    // Collect services
+    const services = [];
+    $('#template-services-container .card').each(function() {
+        const serviceName = $(this).find('.service-name').val().trim();
+        const template = $(this).find('.service-template').val();
+        const order = parseInt($(this).find('.service-order').val()) || 0;
+
+        if (serviceName && template) {
+            services.push({
+                name: serviceName,
+                template: template,
+                order: order
+            });
+        }
+    });
+
+    console.log('Collected services:', services);
+
+    if (services.length === 0) {
+        alert('Please add at least one service to the template');
+        return;
+    }
+
+    const payload = {
+        name: name,
+        description: description,
+        services: services
+    };
+
+    // Include template_id if editing existing template
+    if (templateId) {
+        payload.template_id = templateId;
+    }
+
+    console.log('Sending payload to API:', payload);
+
+    $.ajax({
+        url: '/api/stack-templates',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload)
+    })
+    .done(function(data) {
+        console.log('API response:', data);
+        if (data.success) {
+            // Show success message (using alert for now since showToast doesn't exist)
+            const message = templateId ? 'Stack template updated successfully' : 'Stack template created successfully';
+            console.log(message);
+
+            // Close modal with proper cleanup
+            const modalElement = document.getElementById('stackTemplateModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+
+            // Add one-time event listener for cleanup
+            modalElement.addEventListener('hidden.bs.modal', function cleanupBackdrop() {
+                // Remove any lingering backdrops
+                const backdrops = document.querySelectorAll('.modal-backdrop');
+                backdrops.forEach(backdrop => backdrop.remove());
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+
+                // Refresh templates list
+                loadStackTemplates();
+
+                // Remove this event listener
+                modalElement.removeEventListener('hidden.bs.modal', cleanupBackdrop);
+            }, { once: true });
+
+            // Hide the modal
+            if (modalInstance) {
+                modalInstance.hide();
+            } else {
+                $(modalElement).modal('hide');
+            }
+        }
+    })
+    .fail(function(xhr) {
+        console.error('API error:', xhr);
+        alert('Failed to save stack template: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+}
+
+/**
+ * Open deploy from template modal
+ */
+function openDeployFromTemplateModal(templateId) {
+    $.get(`/api/stack-templates/${templateId}`)
+        .done(function(data) {
+            if (data.success) {
+                const template = data.template;
+
+                $('#deploy-template-id').val(templateId);
+                $('#deploy-stack-name').val('');
+                $('#deploy-stack-description').val('');
+
+                // Display required variables
+                const varsContainer = $('#deploy-variables-container');
+                if (template.required_variables && template.required_variables.length > 0) {
+                    let varsHtml = '<div class="row">';
+                    template.required_variables.forEach(varName => {
+                        varsHtml += `
+                            <div class="col-md-6 mb-2">
+                                <label class="form-label small">${varName}</label>
+                                <input type="text" class="form-control form-control-sm template-variable" data-var-name="${varName}" placeholder="Enter ${varName}">
+                            </div>
+                        `;
+                    });
+                    varsHtml += '</div>';
+                    varsContainer.html(varsHtml);
+                } else {
+                    varsContainer.html('<p class="text-muted small">No variables required</p>');
+                }
+
+                // Display services with device selection (using add device button pattern)
+                const servicesContainer = $('#deploy-services-preview');
+                let servicesHtml = '';
+                template.services.forEach((service, index) => {
+                    servicesHtml += `
+                        <div class="border rounded p-3 mb-3" data-service-index="${index}">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label class="form-label"><strong>${escapeHtml(service.name)}</strong></label>
+                                    <div><small class="text-muted"><i class="fas fa-file-code"></i> ${escapeHtml(service.template)}</small></div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label class="form-label mb-0">Devices *</label>
+                                        <button type="button" class="btn btn-sm btn-outline-primary add-deploy-device-btn" data-service-index="${index}">
+                                            <i class="fas fa-plus"></i> Add Device
+                                        </button>
+                                    </div>
+                                    <div class="deploy-devices-list" data-service-index="${index}">
+                                        <!-- Device dropdowns will be added here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                servicesContainer.html(servicesHtml);
+
+                // Initialize each service with one device dropdown
+                template.services.forEach((service, index) => {
+                    addDeployDeviceDropdown(index, null);
+                });
+
+                // Attach add device button handlers
+                $('.add-deploy-device-btn').click(function() {
+                    const serviceIndex = $(this).data('service-index');
+                    addDeployDeviceDropdown(serviceIndex, null);
+                });
+
+                const modal = new bootstrap.Modal(document.getElementById('deployFromTemplateModal'));
+                modal.show();
+
+                // Attach deploy handler
+                $('#confirm-deploy-from-template-btn').off('click').on('click', function() {
+                    deployFromTemplate(template);
+                });
+            }
+        })
+        .fail(function(xhr) {
+            alert('Failed to load template: ' + (xhr.responseJSON?.error || 'Unknown error'));
+        });
+}
+
+/**
+ * Add device dropdown to deploy from template service
+ */
+function addDeployDeviceDropdown(serviceIndex, selectedDevice) {
+    const $devicesList = $(`.deploy-devices-list[data-service-index="${serviceIndex}"]`);
+    const deviceCount = $devicesList.find('.deploy-device-dropdown-item').length;
+
+    const deviceHtml = `
+        <div class="deploy-device-dropdown-item mb-2 d-flex gap-2">
+            <select class="form-select form-select-sm deploy-service-device-select" data-service-index="${serviceIndex}" required>
+                <option value="">Select device...</option>
+                ${allDevices.map(d => `<option value="${d.name}" ${selectedDevice === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
+            </select>
+            ${deviceCount > 0 ? '<button type="button" class="btn btn-sm btn-danger remove-deploy-device-btn"><i class="fas fa-times"></i></button>' : ''}
+        </div>
+    `;
+
+    $devicesList.append(deviceHtml);
+
+    // Attach remove handler (only for additional devices, not the first one)
+    if (deviceCount > 0) {
+        $devicesList.find('.deploy-device-dropdown-item').last().find('.remove-deploy-device-btn').click(function() {
+            $(this).closest('.deploy-device-dropdown-item').remove();
+        });
+    }
+}
+
+/**
+ * Deploy stack from template
+ */
+function deployFromTemplate(template) {
+    const stackName = $('#deploy-stack-name').val().trim();
+    const description = $('#deploy-stack-description').val().trim();
+
+    if (!stackName) {
+        alert('Please enter a stack name');
+        return;
+    }
+
+    // Collect variable values
+    const sharedVariables = {};
+    $('.template-variable').each(function() {
+        const varName = $(this).data('var-name');
+        const value = $(this).val().trim();
+        if (value) {
+            sharedVariables[varName] = value;
+        }
+    });
+
+    // Collect device selections for each service and expand into individual service instances
+    const services = [];
+    const serviceDevices = {};
+
+    // Group devices by service index
+    $('.deploy-service-device-select').each(function() {
+        const serviceIndex = $(this).data('service-index');
+        const deviceName = $(this).val();
+
+        if (!deviceName) {
+            return; // Skip empty selections
+        }
+
+        if (!serviceDevices[serviceIndex]) {
+            serviceDevices[serviceIndex] = [];
+        }
+        serviceDevices[serviceIndex].push(deviceName);
+    });
+
+    // Validate and create service instances
+    for (let i = 0; i < template.services.length; i++) {
+        const templateService = template.services[i];
+        const devices = serviceDevices[i] || [];
+
+        if (devices.length === 0) {
+            alert(`Please select at least one device for service: ${templateService.name}`);
+            return;
+        }
+
+        // Create one service instance per selected device
+        devices.forEach(deviceName => {
+            services.push({
+                name: templateService.name,
+                template: templateService.template,
+                device: deviceName,
+                order: templateService.order || 0,
+                variables: {} // Variables will be inherited from shared_variables
+            });
+        });
+    }
+
+    if (services.length === 0) {
+        alert('Please select at least one device for each service');
+        return;
+    }
+
+    // Create stack with expanded services
+    const stackData = {
+        name: stackName,
+        description: description,
+        services: services,
+        shared_variables: sharedVariables
+    };
+
+    $.ajax({
+        url: '/api/service-stacks',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(stackData)
+    })
+    .done(function(data) {
+        if (data.success) {
+            console.log('Stack created from template successfully');
+            const modalElement = document.getElementById('deployFromTemplateModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            setTimeout(function() {
+                loadServiceStacks();
+            }, 300);
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to create stack: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+}
+
+/**
+ * Edit stack template
+ */
+function editStackTemplate(templateId) {
+    $.get(`/api/stack-templates/${templateId}`)
+        .done(function(data) {
+            if (data.success) {
+                const template = data.template;
+
+                // Populate the template modal for editing
+                $('#stack-template-id').val(template.template_id);
+                $('#stack-template-name').val(template.name);
+                $('#stack-template-description').val(template.description || '');
+
+                // Clear and populate services
+                $('#template-services-container').empty();
+
+                if (template.services && template.services.length > 0) {
+                    template.services.forEach(service => {
+                        serviceCounter++;
+                        const serviceId = `template-service-${serviceCounter}`;
+
+                        const serviceHtml = `
+                            <div class="card mb-2" id="${serviceId}">
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Service Name *</label>
+                                            <input type="text" class="form-control form-control-sm service-name" placeholder="e.g., PE Router Config" value="${escapeHtml(service.name)}" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Config Template *</label>
+                                            <select class="form-select form-control-sm service-template" required>
+                                                <option value="">Select template...</option>
+                                                ${allTemplates.filter(t => t.delete_template).map(t => `<option value="${t.name}" ${service.template === t.name ? 'selected' : ''}>${t.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small">Order</label>
+                                            <input type="number" class="form-control form-control-sm service-order" value="${service.order || 0}" min="1">
+                                        </div>
+                                        <div class="col-md-1">
+                                            <label class="form-label small">&nbsp;</label>
+                                            <button type="button" class="btn btn-sm btn-danger w-100 remove-service-btn">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+
+                        $('#template-services-container').append(serviceHtml);
+
+                        // Attach remove handler
+                        $(`#${serviceId} .remove-service-btn`).click(function() {
+                            $(`#${serviceId}`).remove();
+                            if ($('#template-services-container .card').length === 0) {
+                                $('#template-services-container').html('<p class="text-muted">No services added yet. Click "Add Service" to define services for this template.</p>');
+                            }
+                        });
+                    });
+                } else {
+                    $('#template-services-container').html('<p class="text-muted">No services added yet. Click "Add Service" to define services for this template.</p>');
+                }
+
+                $('#stackTemplateModalTitle').text('Edit Stack Template');
+                const modal = new bootstrap.Modal(document.getElementById('stackTemplateModal'));
+                modal.show();
+            }
+        })
+        .fail(function(xhr) {
+            alert('Failed to load template: ' + (xhr.responseJSON?.error || 'Unknown error'));
+        });
+}
+
+/**
+ * Delete stack template
+ */
+function deleteStackTemplate(templateId) {
+    if (!confirm('Are you sure you want to delete this stack template?')) {
+        return;
+    }
+
+    $.ajax({
+        url: `/api/stack-templates/${templateId}`,
+        method: 'DELETE'
+    })
+    .done(function(data) {
+        if (data.success) {
+            console.log('Stack template deleted successfully');
+            loadStackTemplates();
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to delete template: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+}

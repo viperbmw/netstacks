@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Job Monitor - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-chart-line"></i> Job Monitor
+        </h1>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <button id="refresh-btn" class="btn btn-primary">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button id="auto-refresh-btn" class="btn btn-outline-primary" data-auto="false">
+                            <i class="fas fa-play"></i> Auto-Refresh (5s)
+                        </button>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="show-completed" checked>
+                        <label class="form-check-label" for="show-completed">
+                            Show Completed
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-tasks"></i> Task Queue</h5>
+            </div>
+            <div class="card-body">
+                <div id="tasks-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="tasks-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="tasks-table">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tasks-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-tasks" class="alert alert-info" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No tasks in queue
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-history"></i> Recently Completed Tasks (Last 20)</h5>
+            </div>
+            <div class="card-body">
+                <div id="history-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="history-container" style="display: none;">
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Task ID</th>
+                                    <th>Status</th>
+                                    <th>Completed</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-history" class="alert alert-info" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No completed tasks yet
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-users"></i> Workers Status</h5>
+            </div>
+            <div class="card-body">
+                <div id="workers-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="workers-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Worker Name</th>
+                                    <th>Type</th>
+                                    <th>State</th>
+                                    <th>Current Job</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workers-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Task Detail Modal -->
+<div class="modal fade" id="taskDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Task Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="task-detail-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="task-detail-content" style="display: none;">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6>Status: <span id="detail-status" class="badge"></span></h6>
+                            <p class="mb-1"><strong>Task ID:</strong> <small class="font-monospace" id="detail-task-id"></small></p>
+                            <p class="mb-1"><strong>Queue:</strong> <span id="detail-queue"></span></p>
+                            <p class="mb-1"><strong>Worker:</strong> <span id="detail-worker"></span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Created:</strong> <span id="detail-created"></span></p>
+                            <p class="mb-1"><strong>Started:</strong> <span id="detail-started"></span></p>
+                            <p class="mb-1"><strong>Ended:</strong> <span id="detail-ended"></span></p>
+                            <p class="mb-1"><strong>Duration:</strong> <span id="detail-duration"></span></p>
+                        </div>
+                    </div>
+
+                    <div id="detail-errors-section" style="display: none;">
+                        <h6 class="text-danger"><i class="fas fa-exclamation-triangle"></i> Errors:</h6>
+                        <div id="detail-errors" class="alert alert-danger"></div>
+                    </div>
+
+                    <h6>Result:</h6>
+                    <pre id="detail-result" class="p-3 border rounded" style="max-height: 400px; overflow-y: auto; font-size: 0.85rem;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="copy-task-details">
+                    <i class="fas fa-copy"></i> Copy Details
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/monitor.js') }}"></script>
+<script src="{{ url_for('static', filename='js/monitor-history.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-tachometer-alt"></i> NetStacks Dashboard
+        </h1>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <a href="/workers" class="text-decoration-none">
+            <div class="card text-white bg-primary dashboard-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Active Workers</h5>
+                            <h2 id="worker-count">-</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-users fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="/devices" class="text-decoration-none">
+            <div class="card text-white bg-success dashboard-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Devices</h5>
+                            <h2 id="device-count">-</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-server fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="/monitor" class="text-decoration-none">
+            <div class="card text-white bg-warning dashboard-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Queued Jobs</h5>
+                            <h2 id="queued-count">-</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-clock fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="/monitor" class="text-decoration-none">
+            <div class="card text-white bg-info dashboard-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Running Jobs</h5>
+                            <h2 id="running-count">-</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-play-circle fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-tasks"></i> Recent Tasks</h5>
+            </div>
+            <div class="card-body">
+                <div id="recent-tasks-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="recent-tasks-container" style="display: none;">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Device</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recent-tasks-body">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-server"></i> Devices</h5>
+            </div>
+            <div class="card-body">
+                <div id="devices-list-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="devices-list-container" style="display: none; max-height: 400px; overflow-y: auto;">
+                    <div class="list-group" id="devices-list-body">
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="/devices" class="text-decoration-none">
+                    View All Devices <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
