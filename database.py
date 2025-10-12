@@ -151,6 +151,19 @@ def init_db():
         )
     ''')
 
+    # Authentication configuration table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS auth_config (
+            config_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            auth_type TEXT NOT NULL,  -- 'local', 'ldap', 'oidc'
+            is_enabled INTEGER DEFAULT 0,
+            priority INTEGER DEFAULT 0,  -- Order of authentication attempts
+            config_data TEXT,  -- JSON configuration for the auth method
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Create indexes for better performance
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_service_instances_stack ON service_instances(stack_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_service_instances_device ON service_instances(device)')
@@ -650,4 +663,82 @@ def delete_license(license_key):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM licenses WHERE license_key = ?', (license_key,))
+        return cursor.rowcount > 0
+
+# Authentication configuration operations
+def save_auth_config(auth_type, config_data, is_enabled=True, priority=0):
+    """Save or update authentication configuration"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Check if config exists
+        cursor.execute('SELECT config_id FROM auth_config WHERE auth_type = ?', (auth_type,))
+        existing = cursor.fetchone()
+
+        if existing:
+            cursor.execute('''
+                UPDATE auth_config
+                SET config_data = ?, is_enabled = ?, priority = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE auth_type = ?
+            ''', (json.dumps(config_data), 1 if is_enabled else 0, priority, auth_type))
+        else:
+            cursor.execute('''
+                INSERT INTO auth_config (auth_type, config_data, is_enabled, priority)
+                VALUES (?, ?, ?, ?)
+            ''', (auth_type, json.dumps(config_data), 1 if is_enabled else 0, priority))
+
+def get_auth_config(auth_type):
+    """Get authentication configuration by type"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM auth_config WHERE auth_type = ?', (auth_type,))
+        row = cursor.fetchone()
+        if row:
+            config = dict(row)
+            config['config_data'] = json.loads(config['config_data']) if config['config_data'] else {}
+            config['is_enabled'] = bool(config['is_enabled'])
+            return config
+        return None
+
+def get_all_auth_configs():
+    """Get all authentication configurations ordered by priority"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM auth_config ORDER BY priority ASC')
+        configs = []
+        for row in cursor.fetchall():
+            config = dict(row)
+            config['config_data'] = json.loads(config['config_data']) if config['config_data'] else {}
+            config['is_enabled'] = bool(config['is_enabled'])
+            configs.append(config)
+        return configs
+
+def get_enabled_auth_configs():
+    """Get all enabled authentication configurations ordered by priority"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM auth_config WHERE is_enabled = 1 ORDER BY priority ASC')
+        configs = []
+        for row in cursor.fetchall():
+            config = dict(row)
+            config['config_data'] = json.loads(config['config_data']) if config['config_data'] else {}
+            config['is_enabled'] = bool(config['is_enabled'])
+            configs.append(config)
+        return configs
+
+def delete_auth_config(auth_type):
+    """Delete an authentication configuration"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM auth_config WHERE auth_type = ?', (auth_type,))
+        return cursor.rowcount > 0
+
+def toggle_auth_config(auth_type, enabled):
+    """Enable or disable an authentication method"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE auth_config
+            SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE auth_type = ?
+        ''', (1 if enabled else 0, auth_type))
         return cursor.rowcount > 0
