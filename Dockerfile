@@ -20,12 +20,12 @@ COPY . .
 RUN mkdir -p /data && chmod 777 /data
 
 # Expose port 8088
-EXPOSE 8088
+EXPOSE 8089
 
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV PYTHONUNBUFFERED=1
-ENV DB_FILE=/data/netstacks.db
+ENV DB_FILE=/data/netstackspro.db
 
 # Run the application
 CMD ["python", "app.py"]

@@ -3,16 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: netstacks
+    container_name: netstacks-pro
     environment:
       # Database Configuration
-      - DB_FILE=/data/netstacks.db
+      - DB_FILE=/data/netstackspro.db
     ports:
-      - "${NETSTACKS_PORT:-8088}:8088"
+      - "$8089:8088"
     restart: unless-stopped
     volumes:
       # Mount database directory for persistence
-      - netstacks-data:/data
+      - netstackspro-data:/data
 
 volumes:
   netstacks-data:
