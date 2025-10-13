@@ -8,11 +8,11 @@ services:
       # Database Configuration
       - DB_FILE=/data/netstackspro.db
     ports:
-      - "$8089:8088"
+      - "8089:8088"
     restart: unless-stopped
     volumes:
       # Mount database directory for persistence
       - netstackspro-data:/data
 
 volumes:
-  netstacks-data:
+  netstackspro-data:
