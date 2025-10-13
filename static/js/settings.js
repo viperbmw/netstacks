@@ -2,7 +2,7 @@
 
 // Default settings
 const DEFAULT_SETTINGS = {
-    netbox_url: 'https://netbox-prprd.gi-nw.viasat.io',
+    netbox_url: 'https://netbox.example.com',
     netbox_token: '',
     netbox_verify_ssl: false,
     netbox_filters: [],

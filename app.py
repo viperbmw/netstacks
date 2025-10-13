@@ -27,7 +27,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'netstacks-secret-key')
 # Configuration
 NETPALM_API_URL = os.environ.get('NETPALM_API_URL', 'http://netpalm-controller:9000')
 NETPALM_API_KEY = os.environ.get('NETPALM_API_KEY', '2a84465a-cf38-46b2-9d86-b84Q7d57f288')
-NETBOX_URL = os.environ.get('NETBOX_URL', 'https://netbox-prprd.gi-nw.viasat.io')
+NETBOX_URL = os.environ.get('NETBOX_URL', 'https://netbox.example.com')
 NETBOX_TOKEN = os.environ.get('NETBOX_TOKEN', '')
 VERIFY_SSL = os.environ.get('VERIFY_SSL', 'false').lower() == 'true'
 TASK_HISTORY_FILE = os.environ.get('TASK_HISTORY_FILE', '/tmp/netstacks_tasks.json')

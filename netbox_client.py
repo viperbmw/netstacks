@@ -82,7 +82,7 @@ class NetboxClient:
         Initialize Netbox client
 
         Args:
-            base_url: Netbox base URL (e.g., https://netbox-prprd.gi-nw.viasat.io)
+            base_url: Netbox base URL (e.g., https://netbox.example.com)
             token: Optional API token for authentication
             verify_ssl: Whether to verify SSL certificates
         """
