@@ -3448,7 +3448,7 @@ def get_license_status_endpoint():
 @app.route('/api/license/install', methods=['POST'])
 @login_required
 def install_license_endpoint():
-    """Install a license key"""
+    """Install a license key (supports v1 database and v2 RSA-signed licenses)"""
     try:
         data = request.json
         license_key = data.get('license_key', '').strip()
@@ -3456,7 +3456,50 @@ def install_license_endpoint():
         if not license_key:
             return jsonify({'success': False, 'error': 'License key is required'}), 400
 
-        # Check if license exists in database
+        # Check if it's a v2 RSA-signed license
+        if license_key.startswith('NSPRO-v2-'):
+            # RSA license - verify signature directly
+            validation = license_manager.validate_license(license_key)
+
+            if not validation['valid']:
+                return jsonify({
+                    'success': False,
+                    'error': validation['message']
+                }), 400
+
+            # RSA license is valid - save it to database as active license
+            license_data = validation['license']
+
+            # Create a database entry for this RSA license
+            db_license = {
+                'license_key': license_key,
+                'company_name': license_data.get('company_name', ''),
+                'license_type': license_data.get('license_type', ''),
+                'max_devices': license_data.get('max_devices', -1),
+                'max_users': license_data.get('max_users', -1),
+                'features': license_data.get('features', []),
+                'issued_date': license_data.get('issued_date', datetime.now().isoformat()),
+                'expiration_date': license_data.get('expiration_date'),
+                'is_active': True,
+                'notes': 'RSA-signed license (v2)'
+            }
+
+            # Deactivate all existing licenses (only one license allowed)
+            existing_licenses = db.get_all_licenses()
+            for lic in existing_licenses:
+                db.deactivate_license(lic['license_key'])
+
+            # Save the new license
+            db.save_license(db_license)
+
+            return jsonify({
+                'success': True,
+                'message': 'RSA-signed license installed and verified successfully!',
+                'license': license_data,
+                'status': license_manager.get_license_status()
+            })
+
+        # V1 database license - check if it exists
         license_data = db.get_license(license_key)
         if not license_data:
             return jsonify({
@@ -3464,14 +3507,20 @@ def install_license_endpoint():
                 'error': 'Invalid license key. Please contact support.'
             }), 400
 
-        # Activate the license
+        # Deactivate all existing licenses (only one license allowed)
+        existing_licenses = db.get_all_licenses()
+        for lic in existing_licenses:
+            if lic['license_key'] != license_key:
+                db.deactivate_license(lic['license_key'])
+
+        # Activate the new license
         db.activate_license(license_key)
 
         validation = license_manager.validate_license(license_key)
 
         return jsonify({
             'success': True,
-            'message': 'License installed successfully',
+            'message': 'License installed successfully. Previous licenses have been deactivated.',
             'license': validation.get('license'),
             'status': license_manager.get_license_status()
         })
@@ -3583,6 +3632,162 @@ def activate_license_endpoint(license_key):
     except Exception as e:
         log.error(f"Error activating license: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===== Administration Routes =====
+
+@app.route('/admin')
+@login_required
+def admin_page():
+    """Combined administration page with users and authentication"""
+    return render_template('admin.html')
+
+# Keep old routes for backward compatibility
+@app.route('/users')
+@login_required
+def users_page_redirect():
+    """Redirect to admin page users tab"""
+    return render_template('admin.html')
+
+@app.route('/authentication')
+@login_required
+def authentication_page():
+    """Redirect to admin page authentication tab"""
+    return render_template('admin.html')
+
+
+@app.route('/api/auth/configs', methods=['GET'])
+@login_required
+def get_auth_configs():
+    """Get all authentication configurations"""
+    try:
+        configs = db.get_all_auth_configs()
+        return jsonify(configs)
+    except Exception as e:
+        log.error(f"Error getting auth configs: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/config/<auth_type>', methods=['GET'])
+@login_required
+def get_auth_config_endpoint(auth_type):
+    """Get specific authentication configuration"""
+    try:
+        config = db.get_auth_config(auth_type)
+        if config:
+            return jsonify(config)
+        return jsonify({'error': 'Configuration not found'}), 404
+    except Exception as e:
+        log.error(f"Error getting auth config: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/config', methods=['POST'])
+@login_required
+def save_auth_config_endpoint():
+    """Save authentication configuration"""
+    try:
+        data = request.json
+        auth_type = data.get('auth_type')
+        config_data = data.get('config_data', {})
+        is_enabled = data.get('is_enabled', True)
+        priority = data.get('priority', 0)
+
+        if not auth_type:
+            return jsonify({'success': False, 'error': 'auth_type is required'}), 400
+
+        if auth_type not in ['local', 'ldap', 'oidc']:
+            return jsonify({'success': False, 'error': 'Invalid auth_type'}), 400
+
+        # Save configuration
+        db.save_auth_config(auth_type, config_data, is_enabled, priority)
+
+        return jsonify({
+            'success': True,
+            'message': f'{auth_type.upper()} configuration saved successfully'
+        })
+
+    except Exception as e:
+        log.error(f"Error saving auth config: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/config/<auth_type>', methods=['DELETE'])
+@login_required
+def delete_auth_config_endpoint(auth_type):
+    """Delete authentication configuration"""
+    try:
+        success = db.delete_auth_config(auth_type)
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'{auth_type.upper()} configuration deleted successfully'
+            })
+        return jsonify({'success': False, 'error': 'Configuration not found'}), 404
+    except Exception as e:
+        log.error(f"Error deleting auth config: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/config/<auth_type>/toggle', methods=['POST'])
+@login_required
+def toggle_auth_config_endpoint(auth_type):
+    """Enable or disable authentication method"""
+    try:
+        data = request.json
+        enabled = data.get('enabled', True)
+
+        success = db.toggle_auth_config(auth_type, enabled)
+        if success:
+            status = 'enabled' if enabled else 'disabled'
+            return jsonify({
+                'success': True,
+                'message': f'{auth_type.upper()} authentication {status} successfully'
+            })
+        return jsonify({'success': False, 'error': 'Configuration not found'}), 404
+    except Exception as e:
+        log.error(f"Error toggling auth config: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/test/ldap', methods=['POST'])
+@login_required
+def test_ldap_connection_endpoint():
+    """Test LDAP connection"""
+    try:
+        data = request.json
+        config = data.get('config', {})
+
+        success, message = auth_ldap.test_ldap_connection(config)
+
+        return jsonify({
+            'success': success,
+            'message': message
+        })
+
+    except Exception as e:
+        log.error(f"Error testing LDAP connection: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/auth/test/oidc', methods=['POST'])
+@login_required
+def test_oidc_connection_endpoint():
+    """Test OIDC configuration"""
+    try:
+        data = request.json
+        config = data.get('config', {})
+
+        success, message = auth_oidc.test_oidc_connection(config)
+
+        return jsonify({
+            'success': success,
+            'message': message
+        })
+
+    except Exception as e:
+        log.error(f"Error testing OIDC configuration: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 if __name__ == '__main__':

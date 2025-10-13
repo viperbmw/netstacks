@@ -20,10 +20,19 @@ This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for ne
 
 ### Professional Features
 - **🔑 License Management**: Flexible licensing system with trial, standard, professional, and enterprise tiers
+  - Single license policy (only one active license at a time)
+  - Secure offline license generation
+  - License history tracking
+- **🔐 Enterprise Authentication**: Multiple authentication methods
+  - Local database authentication
+  - LDAP / Active Directory integration
+  - OAuth2 / OpenID Connect (OIDC) support
+  - Auto-provisioning for external users
 - **📊 Feature Flags**: Enable/disable features based on license type
 - **👥 User & Device Limits**: Control deployment scale based on license
 - **🛡️ License Validation**: Automatic license validation and expiration warnings
 - **📈 Usage Tracking**: Monitor device and user counts against license limits
+- **🌐 Offline Operation**: Fully functional without internet connectivity
 
 ## 📋 Prerequisites
 
@@ -217,16 +226,35 @@ NetStacks Pro requires a valid license to operate. The application includes a co
 
 1. **Start a Trial**: Navigate to `/license` and click "Start 30-Day Trial"
 2. **Install a License**: If you have a license key, enter it on the `/license` page
-3. **Generate Licenses** (Admin): Use the license management interface to generate new licenses for customers
+
+**Note:** Only ONE license can be active at a time. Installing a new license will automatically deactivate any previous licenses.
+
+### License Generation
+
+**License generation has been moved to a separate secure tool for security reasons.**
+
+The license generator is located at: `../netstacks-license-generator/`
+
+To generate licenses:
+```bash
+cd ../netstacks-license-generator
+python3 generate_license.py "Company Name" <license_type>
+
+# Examples:
+python3 generate_license.py "Acme Corp" trial
+python3 generate_license.py "Big Corp" enterprise --duration 730
+```
+
+See `../netstacks-license-generator/README.md` for complete documentation.
 
 ### Managing Licenses
 
-Access the license management interface at `http://localhost:8088/license` where you can:
+Access the license management interface at `http://localhost:8088/license` (Administration → License) where you can:
 - View current license status and expiration
 - Install new license keys
-- Generate trial licenses
+- Start a 30-day trial
+- View license history
 - Monitor device and user limits
-- Generate new licenses (admin only)
 
 ### License Key Format
 

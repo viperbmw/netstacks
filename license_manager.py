@@ -1,6 +1,7 @@
 """
 License Management Module for NetStacks Pro
 Handles license key generation, validation, and enforcement
+Supports both v1 (database) and v2 (RSA-signed) licenses
 """
 import hashlib
 import secrets
@@ -9,6 +10,7 @@ from datetime import datetime, timedelta
 import json
 import logging
 import database as db
+import license_verifier_rsa
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +81,8 @@ def create_license(company_name, license_type='standard', contact_email='',
                    duration_days=365, max_devices=-1, max_users=-1, notes=''):
     """
     Create a new license
+    NOTE: Only one license can be active at a time. Installing a new license
+    will deactivate all existing licenses.
 
     Args:
         company_name: Name of the company
@@ -92,6 +96,14 @@ def create_license(company_name, license_type='standard', contact_email='',
     Returns:
         dict: License data including the generated key
     """
+    # Deactivate all existing licenses (only one license allowed)
+    existing_licenses = db.get_all_licenses()
+    for lic in existing_licenses:
+        db.deactivate_license(lic['license_key'])
+
+    if existing_licenses:
+        log.info(f"Deactivated {len(existing_licenses)} existing license(s)")
+
     license_key = generate_license_key(company_name, license_type)
 
     # Calculate expiration date
@@ -125,7 +137,7 @@ def create_license(company_name, license_type='standard', contact_email='',
 
 def validate_license(license_key=None):
     """
-    Validate a license
+    Validate a license (supports both v1 and v2 formats)
 
     Args:
         license_key: Specific license key to validate, or None to check active license
@@ -133,11 +145,24 @@ def validate_license(license_key=None):
     Returns:
         dict: Validation result with 'valid', 'license', 'message', 'warnings'
     """
+    # If license_key is provided, detect format
     if license_key:
+        # Check if it's a v2 RSA-signed license
+        if license_key.startswith('NSPRO-v2-'):
+            log.info("Validating RSA-signed license (v2)")
+            result = license_verifier_rsa.verify_rsa_license(license_key)
+            # Rename 'license_data' to 'license' for consistency
+            result['license'] = result.pop('license_data', None)
+            return result
+
+        # Otherwise it's a v1 database license
+        log.info("Validating database license (v1)")
         license_data = db.get_license(license_key)
     else:
+        # No key provided - check for active license in database
         license_data = db.get_active_license()
 
+    # V1 license validation (database-based)
     if not license_data:
         return {
             'valid': False,
