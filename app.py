@@ -24,6 +24,15 @@ import auth_oidc
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'netstacks-secret-key')
 
+# Register API documentation blueprint
+try:
+    from api_docs import api_bp
+    app.register_blueprint(api_bp)
+    log = logging.getLogger(__name__)
+    log.info("API documentation blueprint registered at /api/docs")
+except Exception as e:
+    logging.error(f"Failed to register API docs blueprint: {e}")
+
 # Configuration
 NETPALM_API_URL = os.environ.get('NETPALM_API_URL', 'http://netpalm-controller:9000')
 NETPALM_API_KEY = os.environ.get('NETPALM_API_KEY', '2a84465a-cf38-46b2-9d86-b84Q7d57f288')
@@ -778,6 +787,18 @@ def inject_theme():
         theme = db.get_user_theme(session['username'])
         return {'user_theme': theme}
     return {'user_theme': 'dark'}
+
+
+@app.context_processor
+def inject_netpalm_url():
+    """Inject Netpalm URL from settings into all templates"""
+    try:
+        settings = db.get_all_settings()
+        netpalm_url = settings.get('netpalm_url', 'http://localhost:9000')
+        return {'netpalm_url': netpalm_url}
+    except Exception as e:
+        log.error(f"Error loading Netpalm URL: {e}")
+        return {'netpalm_url': 'http://localhost:9000'}
 
 
 @app.route('/')
