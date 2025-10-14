@@ -71,6 +71,40 @@ $(document).ready(function() {
         e.preventDefault();
         deployTemplate();
     });
+
+    // Toggle pre/post check command fields for Set Config
+    $('#set-pre-check').change(function() {
+        if ($(this).is(':checked')) {
+            $('#set-pre-check-command-container').show();
+        } else {
+            $('#set-pre-check-command-container').hide();
+        }
+    });
+
+    $('#set-post-check').change(function() {
+        if ($(this).is(':checked')) {
+            $('#set-post-check-command-container').show();
+        } else {
+            $('#set-post-check-command-container').hide();
+        }
+    });
+
+    // Toggle pre/post check command fields for Template
+    $('#template-pre-check').change(function() {
+        if ($(this).is(':checked')) {
+            $('#template-pre-check-command-container').show();
+        } else {
+            $('#template-pre-check-command-container').hide();
+        }
+    });
+
+    $('#template-post-check').change(function() {
+        if ($(this).is(':checked')) {
+            $('#template-post-check-command-container').show();
+        } else {
+            $('#template-post-check-command-container').hide();
+        }
+    });
 });
 
 function loadDevices() {
@@ -326,11 +360,33 @@ function executeSetConfig() {
         return;
     }
 
+    // Collect pre/post check options
+    const preCheck = $('#set-pre-check').is(':checked');
+    const postCheck = $('#set-post-check').is(':checked');
+    const preCheckCommand = $('#set-pre-check-command').val().trim();
+    const postCheckCommand = $('#set-post-check-command').val().trim() || preCheckCommand;
+
+    if (preCheck && !preCheckCommand) {
+        showStatus('error', { message: 'Please enter a pre-check command or disable pre-check' });
+        return;
+    }
+
+    if (postCheck && !postCheckCommand) {
+        showStatus('error', { message: 'Please enter a post-check command or disable post-check' });
+        return;
+    }
+
     const commands = config.split('\n').filter(cmd => cmd.trim() !== '');
-    deployToDevices(devices, library, commands, username, password, dryRun);
+    const checkOptions = {
+        preCheck: preCheck,
+        postCheck: postCheck,
+        preCheckCommand: preCheckCommand,
+        postCheckCommand: postCheckCommand
+    };
+    deployToDevices(devices, library, commands, username, password, dryRun, checkOptions);
 }
 
-function deployToDevices(devices, library, commands, username, password, dryRun) {
+function deployToDevices(devices, library, commands, username, password, dryRun, checkOptions) {
     showStatus('loading');
 
     // Use default credentials if not provided
@@ -343,67 +399,60 @@ function deployToDevices(devices, library, commands, username, password, dryRun)
         return;
     }
 
+    // Default check options
+    checkOptions = checkOptions || {
+        preCheck: false,
+        postCheck: false,
+        preCheckCommand: '',
+        postCheckCommand: ''
+    };
+
     const taskIds = [];
     let completed = 0;
     const endpoint = dryRun ? '/api/deploy/setconfig/dry-run' : '/api/deploy/setconfig';
+    const getConfigEndpoint = '/api/deploy/getconfig';
 
     // Send config to each device
     devices.forEach(function(device) {
         // Fetch device connection info first
         $.get('/api/device/' + encodeURIComponent(device) + '/connection-info')
             .done(function(deviceInfo) {
-                const payload = {
-                    connection_args: {
-                        device_type: deviceInfo.device_type || "cisco_ios",
-                        host: deviceInfo.ip_address || device,
-                        username: finalUsername,
-                        password: finalPassword,
-                        timeout: 10
-                    },
-                    config: commands,
-                    queue_strategy: "pinned"
+                const connectionArgs = {
+                    device_type: deviceInfo.device_type || "cisco_ios",
+                    host: deviceInfo.ip_address || device,
+                    username: finalUsername,
+                    password: finalPassword,
+                    timeout: 10
                 };
 
-                $.ajax({
-                    url: endpoint,
-                    method: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({
-                        library: library,
-                        payload: payload,
-                        device_name: device  // Include device name for tracking
-                    }),
-                    timeout: 30000
-                })
-                .done(function(data) {
-                    // Netpalm returns: {status: 'success', data: {task_id: '...', ...}}
-                    const taskId = data.data?.task_id || data.task_id || data.id;
-                    if (taskId) {
-                        taskIds.push(taskId);
-                    }
-                    completed++;
+                // Execute deployment workflow with pre/post checks
+                executeDeploymentWithChecks(
+                    device,
+                    library,
+                    commands,
+                    connectionArgs,
+                    checkOptions,
+                    endpoint,
+                    getConfigEndpoint,
+                    function(success, taskId) {
+                        if (taskId) {
+                            taskIds.push(taskId);
+                        }
+                        completed++;
 
-                    if (completed === devices.length) {
-                        showStatus('success', { taskId: `${taskIds.length} tasks created` });
-
-                        // Redirect to job monitor after 3 seconds
-                        setTimeout(function() {
-                            window.location.href = '/monitor';
-                        }, 3000);
+                        if (completed === devices.length) {
+                            if (taskIds.length > 0) {
+                                showStatus('success', { taskId: `${taskIds.length} deployment tasks created` });
+                                // Redirect to job monitor after 3 seconds
+                                setTimeout(function() {
+                                    window.location.href = '/monitor';
+                                }, 3000);
+                            } else {
+                                showStatus('error', { message: `All deployments failed` });
+                            }
+                        }
                     }
-                })
-                .fail(function(xhr, status, error) {
-                    completed++;
-                    let errorMsg = 'Failed to deploy to ' + device;
-                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                        errorMsg += ': ' + xhr.responseJSON.error;
-                    }
-                    console.error(errorMsg);
-
-                    if (completed === devices.length) {
-                        showStatus('error', { message: `Completed with errors. ${taskIds.length} of ${devices.length} successful` });
-                    }
-                });
+                );
             })
             .fail(function() {
                 completed++;
@@ -413,6 +462,121 @@ function deployToDevices(devices, library, commands, username, password, dryRun)
                 }
             });
     });
+}
+
+// Helper function to execute deployment with pre/post checks
+function executeDeploymentWithChecks(device, library, commands, connectionArgs, checkOptions, deployEndpoint, getConfigEndpoint, callback) {
+    const tasks = {
+        preCheck: null,
+        deploy: null,
+        postCheck: null
+    };
+
+    // Step 1: Execute pre-check if enabled
+    if (checkOptions.preCheck) {
+        const preCheckPayload = {
+            connection_args: connectionArgs,
+            command: checkOptions.preCheckCommand,
+            queue_strategy: "pinned"
+        };
+
+        $.ajax({
+            url: getConfigEndpoint,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                library: library,
+                payload: preCheckPayload,
+                device_name: device + ' (PRE-CHECK)'
+            }),
+            timeout: 30000
+        })
+        .done(function(data) {
+            tasks.preCheck = data.data?.task_id || data.task_id;
+            console.log(`Pre-check task created for ${device}: ${tasks.preCheck}`);
+            // Wait a moment for pre-check to complete before deployment
+            setTimeout(function() {
+                executeDeployment();
+            }, 2000);
+        })
+        .fail(function(xhr) {
+            console.error(`Pre-check failed for ${device}:`, xhr.responseJSON?.error || 'Unknown error');
+            callback(false, null);
+        });
+    } else {
+        // No pre-check, proceed directly to deployment
+        executeDeployment();
+    }
+
+    // Step 2: Execute deployment
+    function executeDeployment() {
+        const deployPayload = {
+            connection_args: connectionArgs,
+            config: commands,
+            queue_strategy: "pinned"
+        };
+
+        $.ajax({
+            url: deployEndpoint,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                library: library,
+                payload: deployPayload,
+                device_name: device
+            }),
+            timeout: 30000
+        })
+        .done(function(data) {
+            tasks.deploy = data.data?.task_id || data.task_id;
+            console.log(`Deployment task created for ${device}: ${tasks.deploy}`);
+
+            // Step 3: Execute post-check if enabled
+            if (checkOptions.postCheck) {
+                // Wait for deployment to complete before post-check
+                setTimeout(function() {
+                    executePostCheck();
+                }, 5000);
+            } else {
+                callback(true, tasks.deploy);
+            }
+        })
+        .fail(function(xhr) {
+            console.error(`Deployment failed for ${device}:`, xhr.responseJSON?.error || 'Unknown error');
+            callback(false, null);
+        });
+    }
+
+    // Step 3: Execute post-check
+    function executePostCheck() {
+        const postCheckPayload = {
+            connection_args: connectionArgs,
+            command: checkOptions.postCheckCommand,
+            queue_strategy: "pinned"
+        };
+
+        $.ajax({
+            url: getConfigEndpoint,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                library: library,
+                payload: postCheckPayload,
+                device_name: device + ' (POST-CHECK)'
+            }),
+            timeout: 30000
+        })
+        .done(function(data) {
+            tasks.postCheck = data.data?.task_id || data.task_id;
+            console.log(`Post-check task created for ${device}: ${tasks.postCheck}`);
+            callback(true, tasks.deploy);
+        })
+        .fail(function(xhr) {
+            console.error(`Post-check failed for ${device}:`, xhr.responseJSON?.error || 'Unknown error');
+            // Still consider deployment successful even if post-check fails
+            callback(true, tasks.deploy);
+        });
+    }
 }
 
 function oldExecuteSetConfigSingle() {
@@ -552,6 +716,22 @@ function deployTemplate() {
         return;
     }
 
+    // Collect pre/post check options
+    const preCheck = $('#template-pre-check').is(':checked');
+    const postCheck = $('#template-post-check').is(':checked');
+    const preCheckCommand = $('#template-pre-check-command').val().trim();
+    const postCheckCommand = $('#template-post-check-command').val().trim() || preCheckCommand;
+
+    if (preCheck && !preCheckCommand) {
+        showStatus('error', { message: 'Please enter a pre-check command or disable pre-check' });
+        return;
+    }
+
+    if (postCheck && !postCheckCommand) {
+        showStatus('error', { message: 'Please enter a post-check command or disable post-check' });
+        return;
+    }
+
     let templateVars = {};
 
     // Collect variables from form or JSON
@@ -563,6 +743,13 @@ function deployTemplate() {
     }
 
     showStatus('loading');
+
+    const checkOptions = {
+        preCheck: preCheck,
+        postCheck: postCheck,
+        preCheckCommand: preCheckCommand,
+        postCheckCommand: postCheckCommand
+    };
 
     // Render template first
     $.ajax({
@@ -579,7 +766,7 @@ function deployTemplate() {
         if (data.success && data.rendered_config) {
             // Split rendered config into commands
             const commands = data.rendered_config.split('\n').filter(cmd => cmd.trim() !== '');
-            deployToDevices(devices, library, commands, username, password, dryRun);
+            deployToDevices(devices, library, commands, username, password, dryRun, checkOptions);
         } else {
             showStatus('error', { message: 'Failed to render template' });
         }

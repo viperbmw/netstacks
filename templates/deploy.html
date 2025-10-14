@@ -156,6 +156,33 @@
                                         </label>
                                     </div>
 
+                                    <div class="mb-3">
+                                        <label class="form-label">Pre/Post Checks</label>
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="set-pre-check">
+                                            <label class="form-check-label" for="set-pre-check">
+                                                Run Pre-Check (capture state before deployment)
+                                            </label>
+                                        </div>
+                                        <div class="mt-2" id="set-pre-check-command-container" style="display: none;">
+                                            <label for="set-pre-check-command" class="form-label">Pre-Check Command</label>
+                                            <input type="text" class="form-control" id="set-pre-check-command" placeholder="show running-config | include interface">
+                                            <small class="form-text text-muted">Command to run before deployment</small>
+                                        </div>
+
+                                        <div class="form-check mt-2">
+                                            <input type="checkbox" class="form-check-input" id="set-post-check">
+                                            <label class="form-check-label" for="set-post-check">
+                                                Run Post-Check (verify state after deployment)
+                                            </label>
+                                        </div>
+                                        <div class="mt-2" id="set-post-check-command-container" style="display: none;">
+                                            <label for="set-post-check-command" class="form-label">Post-Check Command</label>
+                                            <input type="text" class="form-control" id="set-post-check-command" placeholder="show running-config | include interface">
+                                            <small class="form-text text-muted">Command to run after deployment (defaults to pre-check command)</small>
+                                        </div>
+                                    </div>
+
                             <div class="d-flex gap-2">
                                 <button type="submit" class="btn btn-warning">
                                     <i class="fas fa-upload"></i> Deploy Now
@@ -218,6 +245,33 @@
                                         <label class="form-check-label" for="template-dry-run">
                                             Dry Run (validate only, don't apply)
                                         </label>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Pre/Post Checks</label>
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="template-pre-check">
+                                            <label class="form-check-label" for="template-pre-check">
+                                                Run Pre-Check (capture state before deployment)
+                                            </label>
+                                        </div>
+                                        <div class="mt-2" id="template-pre-check-command-container" style="display: none;">
+                                            <label for="template-pre-check-command" class="form-label">Pre-Check Command</label>
+                                            <input type="text" class="form-control" id="template-pre-check-command" placeholder="show running-config | include interface">
+                                            <small class="form-text text-muted">Command to run before deployment</small>
+                                        </div>
+
+                                        <div class="form-check mt-2">
+                                            <input type="checkbox" class="form-check-input" id="template-post-check">
+                                            <label class="form-check-label" for="template-post-check">
+                                                Run Post-Check (verify state after deployment)
+                                            </label>
+                                        </div>
+                                        <div class="mt-2" id="template-post-check-command-container" style="display: none;">
+                                            <label for="template-post-check-command" class="form-label">Post-Check Command</label>
+                                            <input type="text" class="form-control" id="template-post-check-command" placeholder="show running-config | include interface">
+                                            <small class="form-text text-muted">Command to run after deployment (defaults to pre-check command)</small>
+                                        </div>
                                     </div>
 
                             <div class="d-flex gap-2">
