@@ -196,27 +196,39 @@ class NetboxClient:
     def get_devices_with_details(self, filters: list = None) -> List[Dict]:
         """
         Get devices with relevant details for the GUI
-        Uses brief format for faster response
+        Uses non-brief format to get platform/manufacturer info
         All filtering is now controlled via the filters parameter from settings
 
         Args:
             filters: Optional list of filter dicts with 'key' and 'value'
 
         Returns:
-            List of dicts containing name, id, display, etc.
+            List of dicts containing name, id, display, device_type, etc.
         """
-        devices = self.get_devices(brief=True, filters=filters)
+        # Use non-brief format to get platform/manufacturer data
+        devices = self.get_devices(brief=False, filters=filters)
         device_list = []
 
         for device in devices:
             device_name = device.get('name', '')
 
-            # Brief format returns: id, url, display, name, description
+            # Extract platform information
+            platform = device.get('platform')
+            manufacturer = device.get('device_type', {}).get('manufacturer') if isinstance(device.get('device_type'), dict) else None
+
+            # Determine netmiko device_type
+            platform_name = platform.get('name') if isinstance(platform, dict) else None
+            manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
+            device_type = get_netmiko_device_type(platform_name, manufacturer_name)
+
             device_list.append({
                 'name': device_name,
                 'id': device.get('id'),
                 'display': device.get('display', device_name),
-                'url': device.get('url', '')
+                'url': device.get('url', ''),
+                'device_type': device_type,
+                'platform': platform_name,
+                'manufacturer': manufacturer_name
             })
 
         # Remove duplicates and sort by name

@@ -57,17 +57,6 @@ $(document).ready(function() {
         }
     });
 
-    // Configuration source radio buttons
-    $('input[name="set-config-source"]').change(function() {
-        if ($(this).val() === 'manual') {
-            $('#set-manual-container').show();
-            $('#set-template-container').hide();
-        } else if ($(this).val() === 'template') {
-            $('#set-manual-container').hide();
-            $('#set-template-container').show();
-            loadTemplates(); // Load templates when switching to template mode
-        }
-    });
 
     // Setup template variable form/JSON toggle for new template tab
     setupTemplateVariableToggle('#template-select', '#template-vars-container', '#template-vars-toggle');
@@ -288,6 +277,11 @@ function executeGetConfig() {
                     if (completed === devices.length) {
                         const taskIdList = taskIds.join(', ');
                         showStatus('success', { taskId: `${taskIds.length} tasks created` });
+
+                        // Redirect to job monitor after 3 seconds
+                        setTimeout(function() {
+                            window.location.href = '/monitor';
+                        }, 3000);
                     }
                 })
                 .fail(function(xhr, status, error) {
@@ -319,71 +313,21 @@ function executeSetConfig() {
     const username = $('#set-username').val();
     const password = $('#set-password').val();
     const dryRun = $('#set-dry-run').is(':checked');
-    const configSource = $('input[name="set-config-source"]:checked').val();
 
     if (!devices || devices.length === 0) {
         showStatus('error', { message: 'Please select at least one device' });
         return;
     }
 
-    if (configSource === 'manual') {
-        // Manual configuration mode
-        const config = $('#set-config').val();
-        if (!config.trim()) {
-            showStatus('error', { message: 'Please enter configuration commands' });
-            return;
-        }
-
-        const commands = config.split('\n').filter(cmd => cmd.trim() !== '');
-        deployToDevices(devices, library, commands, username, password, dryRun);
-    } else {
-        // Template mode
-        const templateName = $('#set-template-select').val();
-        if (!templateName) {
-            showStatus('error', { message: 'Please select a template' });
-            return;
-        }
-
-        let templateVars = {};
-
-        // Collect variables from form or JSON
-        try {
-            templateVars = collectTemplateVariables('#set-template-vars-container');
-        } catch (e) {
-            showStatus('error', { message: e.message });
-            return;
-        }
-
-        showStatus('loading');
-
-        // Render template first
-        $.ajax({
-            url: '/api/templates/render',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                template_name: templateName,
-                variables: templateVars
-            }),
-            timeout: 10000
-        })
-        .done(function(data) {
-            if (data.success && data.rendered_config) {
-                // Split rendered config into commands
-                const commands = data.rendered_config.split('\n').filter(cmd => cmd.trim() !== '');
-                deployToDevices(devices, library, commands, username, password, dryRun);
-            } else {
-                showStatus('error', { message: 'Failed to render template' });
-            }
-        })
-        .fail(function(xhr, status, error) {
-            let errorMsg = 'Failed to render template';
-            if (xhr.responseJSON && xhr.responseJSON.error) {
-                errorMsg += ': ' + xhr.responseJSON.error;
-            }
-            showStatus('error', { message: errorMsg });
-        });
+    // Set Config tab only supports manual configuration
+    const config = $('#set-config').val();
+    if (!config.trim()) {
+        showStatus('error', { message: 'Please enter configuration commands' });
+        return;
     }
+
+    const commands = config.split('\n').filter(cmd => cmd.trim() !== '');
+    deployToDevices(devices, library, commands, username, password, dryRun);
 }
 
 function deployToDevices(devices, library, commands, username, password, dryRun) {
@@ -441,6 +385,11 @@ function deployToDevices(devices, library, commands, username, password, dryRun)
 
                     if (completed === devices.length) {
                         showStatus('success', { taskId: `${taskIds.length} tasks created` });
+
+                        // Redirect to job monitor after 3 seconds
+                        setTimeout(function() {
+                            window.location.href = '/monitor';
+                        }, 3000);
                     }
                 })
                 .fail(function(xhr, status, error) {
@@ -515,6 +464,11 @@ function oldExecuteSetConfigSingle() {
         // Netpalm returns: {status: 'success', data: {task_id: '...', ...}}
         const taskId = data.data?.task_id || data.task_id || data.id;
         showStatus('success', { taskId: taskId });
+
+        // Redirect to job monitor after 3 seconds
+        setTimeout(function() {
+            window.location.href = '/monitor';
+        }, 3000);
 
         // Poll for result
         if (taskId) {
@@ -634,3 +588,193 @@ function deployTemplate() {
         showStatus('error', { message: 'Template rendering failed: ' + (xhr.responseJSON?.error || error) });
     });
 }
+
+// ==================== Scheduled Deployments ====================
+
+let currentScheduleType = null;
+
+// Schedule SetConfig button
+$(document).on('click', '#schedule-setconfig-btn', function() {
+    currentScheduleType = 'setconfig';
+    openScheduleModal();
+});
+
+// Schedule Template button
+$(document).on('click', '#schedule-template-btn', function() {
+    currentScheduleType = 'template';
+    openScheduleModal();
+});
+
+function openScheduleModal() {
+    $('#schedule-deploy-type').val(currentScheduleType);
+    $('#schedule-deploy-form')[0].reset();
+    
+    // Show datetime picker by default
+    $('#schedule-deploy-datetime-section').show();
+    $('#schedule-deploy-time-section').hide();
+    $('#schedule-deploy-day-week-section').hide();
+    $('#schedule-deploy-day-month-section').hide();
+    
+    const modal = new bootstrap.Modal(document.getElementById('scheduleDeployModal'));
+    modal.show();
+}
+
+// Handle schedule type changes
+$(document).on('change', '#schedule-deploy-type-select', function() {
+    const scheduleType = $(this).val();
+    
+    // Hide all sections
+    $('#schedule-deploy-datetime-section').hide();
+    $('#schedule-deploy-time-section').hide();
+    $('#schedule-deploy-day-week-section').hide();
+    $('#schedule-deploy-day-month-section').hide();
+    
+    // Show relevant sections
+    if (scheduleType === 'once') {
+        $('#schedule-deploy-datetime-section').show();
+        $('#schedule-deploy-datetime').prop('required', true);
+        $('#schedule-deploy-time').prop('required', false);
+    } else if (scheduleType === 'daily') {
+        $('#schedule-deploy-time-section').show();
+        $('#schedule-deploy-datetime').prop('required', false);
+        $('#schedule-deploy-time').prop('required', true);
+    } else if (scheduleType === 'weekly') {
+        $('#schedule-deploy-time-section').show();
+        $('#schedule-deploy-day-week-section').show();
+        $('#schedule-deploy-datetime').prop('required', false);
+        $('#schedule-deploy-time').prop('required', true);
+    } else if (scheduleType === 'monthly') {
+        $('#schedule-deploy-time-section').show();
+        $('#schedule-deploy-day-month-section').show();
+        $('#schedule-deploy-datetime').prop('required', false);
+        $('#schedule-deploy-time').prop('required', true);
+    }
+});
+
+// Confirm schedule button
+$(document).on('click', '#confirm-schedule-deploy-btn', function() {
+    const deployType = $('#schedule-deploy-type').val();
+    const scheduleType = $('#schedule-deploy-type-select').val();
+    
+    let scheduledTime, dayOfWeek, dayOfMonth;
+    
+    if (scheduleType === 'once') {
+        const localTime = $('#schedule-deploy-datetime').val();
+        if (!localTime) {
+            alert('Please select a date and time');
+            return;
+        }
+        // Convert local time to UTC ISO format
+        const localDate = new Date(localTime);
+        scheduledTime = localDate.toISOString();
+    } else {
+        scheduledTime = $('#schedule-deploy-time').val();
+        if (!scheduledTime) {
+            alert('Please select a time');
+            return;
+        }
+        
+        if (scheduleType === 'weekly') {
+            dayOfWeek = parseInt($('#schedule-deploy-day-week').val());
+        } else if (scheduleType === 'monthly') {
+            dayOfMonth = parseInt($('#schedule-deploy-day-month').val());
+            if (!dayOfMonth || dayOfMonth < 1 || dayOfMonth > 31) {
+                alert('Please enter a valid day of month (1-31)');
+                return;
+            }
+        }
+    }
+    
+    // Collect deployment configuration
+    let deployConfig = {};
+    
+    if (deployType === 'setconfig') {
+        const devices = $('#set-device').val();
+        const config = $('#set-config').val();
+        const username = $('#set-username').val();
+        const password = $('#set-password').val();
+        const dryRun = $('#set-dry-run').is(':checked');
+        
+        if (!devices || devices.length === 0) {
+            alert('Please select at least one device');
+            return;
+        }
+        
+        if (!config.trim()) {
+            alert('Please enter configuration commands');
+            return;
+        }
+        
+        deployConfig = {
+            type: 'setconfig',
+            devices: devices,
+            config: config,
+            username: username,
+            password: password,
+            dry_run: dryRun
+        };
+    } else if (deployType === 'template') {
+        const devices = $('#template-device').val();
+        const templateName = $('#template-select').val();
+        const username = $('#template-username').val();
+        const password = $('#template-password').val();
+        const dryRun = $('#template-dry-run').is(':checked');
+        
+        if (!devices || devices.length === 0) {
+            alert('Please select at least one device');
+            return;
+        }
+        
+        if (!templateName) {
+            alert('Please select a template');
+            return;
+        }
+        
+        // Collect template variables
+        const templateVars = {};
+        $('.template-var-input').each(function() {
+            const varName = $(this).data('var-name');
+            const varValue = $(this).val();
+            if (varValue) {
+                templateVars[varName] = varValue;
+            }
+        });
+        
+        deployConfig = {
+            type: 'template',
+            devices: devices,
+            template_name: templateName,
+            variables: templateVars,
+            username: username,
+            password: password,
+            dry_run: dryRun
+        };
+    }
+    
+    const scheduleData = {
+        operation_type: 'config_deploy',
+        schedule_type: scheduleType,
+        scheduled_time: scheduledTime,
+        day_of_week: dayOfWeek,
+        day_of_month: dayOfMonth,
+        config: deployConfig
+    };
+    
+    $.ajax({
+        url: '/api/scheduled-config-operations',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(scheduleData)
+    })
+    .done(function(data) {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('scheduleDeployModal')).hide();
+            alert('Deployment scheduled successfully!');
+        } else {
+            alert('Error: ' + (data.error || 'Failed to schedule deployment'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to schedule deployment: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+});

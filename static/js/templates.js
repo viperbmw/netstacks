@@ -49,6 +49,38 @@ $(document).ready(function() {
     $('#push-template-btn').click(function() {
         pushTemplateToNetpalm(currentTemplate);
     });
+
+    // Template type change handler - show/hide validation and delete options
+    $('#template-type').change(function() {
+        const type = $(this).val();
+        if (type === 'deploy') {
+            $('#deploy-template-options').show();
+        } else {
+            $('#deploy-template-options').hide();
+        }
+    });
+
+    // Create delete template button
+    $(document).on('click', '#create-delete-template-btn', function() {
+        const deployTemplateName = $('#template-name').val().trim();
+        const suggestedName = deployTemplateName ? `${deployTemplateName}_delete` : '';
+
+        // Save current template first if needed
+        if (confirm('This will open a new template editor. Save your current work first if needed. Continue?')) {
+            createNewTemplate(suggestedName, deployTemplateName, 'delete');
+        }
+    });
+
+    // Create validation template button
+    $(document).on('click', '#create-validation-template-btn', function() {
+        const deployTemplateName = $('#template-name').val().trim();
+        const suggestedName = deployTemplateName ? `${deployTemplateName}_validate` : '';
+
+        // Save current template first if needed
+        if (confirm('This will open a new template editor. Save your current work first if needed. Continue?')) {
+            createNewTemplate(suggestedName, deployTemplateName, 'validation');
+        }
+    });
 });
 
 function loadTemplates() {
@@ -83,16 +115,12 @@ function displayTemplateGroups(templates) {
 
     templates.forEach(template => {
         const name = template.name || template;
+        const templateType = template.type || 'deploy';
         const hasValidation = template.validation_template;
         const hasDelete = template.delete_template;
 
-        // Check if this template is referenced as a validation or delete template by another template
-        // Exclude self-references (when a template incorrectly references itself)
-        const isValidationTemplate = templates.some(t => t.validation_template === name && t.name !== name);
-        const isDeleteTemplate = templates.some(t => t.delete_template === name && t.name !== name);
-
-        // Only process deploy templates (not validation/delete helper templates)
-        if (!isValidationTemplate && !isDeleteTemplate) {
+        // Only process deploy templates (validation and delete templates are shown as linked components)
+        if (templateType === 'deploy') {
             const stack = {
                 deploy: template,
                 validation: hasValidation ? templates.find(t => t.name === hasValidation) : null,
@@ -119,14 +147,65 @@ function displayTemplateGroups(templates) {
         });
     }
 
-    // Display incomplete stacks (standalone templates)
+    // Display incomplete stacks (standalone deploy templates)
     if (incompleteStacks.length > 0) {
-        container.append('<h6 class="text-muted mt-4 mb-3"><i class="fas fa-file"></i> Standalone Templates</h6>');
-        container.append('<p class="text-muted small">Deploy templates without a delete template (cleanup required).</p>');
+        container.append('<h6 class="text-muted mt-4 mb-3"><i class="fas fa-file"></i> Standalone Deploy Templates</h6>');
+        container.append('<p class="text-muted small">Deploy templates without a delete template linked.</p>');
         container.append('<div class="row" id="standalone-stacks-grid"></div>');
 
         incompleteStacks.forEach(stack => {
             $('#standalone-stacks-grid').append(createTemplateStackCard(stack));
+        });
+    }
+
+    // Collect all linked template names (validation and delete templates that are already in use)
+    const linkedTemplateNames = new Set();
+    templates.forEach(template => {
+        if (template.type === 'deploy') {
+            if (template.validation_template) {
+                linkedTemplateNames.add(template.validation_template);
+            }
+            if (template.delete_template) {
+                linkedTemplateNames.add(template.delete_template);
+            }
+        }
+    });
+
+    // Display standalone delete and validation templates (not linked to any deploy template)
+    const standaloneTemplates = templates.filter(t =>
+        (t.type === 'delete' || t.type === 'validation') && !linkedTemplateNames.has(t.name)
+    );
+    if (standaloneTemplates.length > 0) {
+        container.append('<h6 class="text-muted mt-4 mb-3"><i class="fas fa-puzzle-piece"></i> Standalone Delete & Validation Templates</h6>');
+        container.append('<p class="text-muted small">Delete and validation templates not yet linked to deploy templates.</p>');
+        container.append('<div class="row" id="standalone-helpers-grid"></div>');
+
+        standaloneTemplates.forEach(template => {
+            const badge = template.type === 'delete' ?
+                '<span class="badge bg-danger">Delete</span>' :
+                '<span class="badge bg-success">Validation</span>';
+
+            const cardHtml = `
+                <div class="col-md-4 col-lg-2 mb-2">
+                    <div class="card template-card template-card-mini h-100">
+                        <div class="card-body d-flex flex-column">
+                            <div class="mb-2">
+                                ${badge}
+                            </div>
+                            <h6 class="card-title mb-2" style="font-size: 0.85rem; word-break: break-word;">
+                                ${template.name}
+                            </h6>
+                            ${template.description ? `<p class="text-muted mb-2" style="font-size: 0.7rem;">${template.description}</p>` : ''}
+                            <div class="mt-auto">
+                                <button class="btn btn-sm btn-outline-primary w-100" onclick="loadTemplate('${template.name}')">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#standalone-helpers-grid').append(cardHtml);
         });
     }
 
@@ -147,28 +226,28 @@ function createTemplateStackCard(stack) {
 
     // For standalone templates (no delete), show simplified card
     if (!hasDelete) {
+        const deployType = deploy.type || 'deploy';
+        const typeBadge = deployType === 'deploy' ?
+            '<span class="badge bg-info ms-1">Deploy</span>' :
+            deployType === 'delete' ?
+            '<span class="badge bg-danger ms-1">Delete</span>' :
+            '<span class="badge bg-success ms-1">Validation</span>';
+
         return `
-            <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card ${cardClass} h-100">
-                    <div class="card-body">
-                        <h6 class="card-title">
-                            ${deploy.name || deploy}
-                            <span class="badge bg-secondary ms-2">Standalone</span>
-                        </h6>
-                        ${deploy.description ? `<p class="text-muted mb-2">${deploy.description}</p>` : ''}
-
-                        <div class="template-flow">
-                            <span class="badge bg-primary template-flow-badge" data-template="${deploy.name || deploy}" title="Click to edit">
-                                <i class="fas fa-play-circle"></i> Deploy Only
-                            </span>
+            <div class="col-md-4 col-lg-2 mb-2">
+                <div class="card template-card template-card-mini ${cardClass} h-100">
+                    <div class="card-body d-flex flex-column">
+                        <div class="mb-2">
+                            ${typeBadge}
+                            <span class="badge bg-secondary ms-1">Standalone</span>
                         </div>
-
-                        <div class="action-buttons mt-2">
-                            <button class="btn btn-sm btn-outline-primary edit-template-btn" data-template="${deploy.name || deploy}">
+                        <h6 class="card-title mb-2" style="font-size: 0.85rem; word-break: break-word;">
+                            ${deploy.name || deploy}
+                        </h6>
+                        ${deploy.description ? `<p class="text-muted mb-2" style="font-size: 0.7rem;">${deploy.description}</p>` : ''}
+                        <div class="mt-auto">
+                            <button class="btn btn-sm btn-outline-primary w-100 edit-template-btn" data-template="${deploy.name || deploy}">
                                 <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger add-delete-btn" data-template="${deploy.name || deploy}">
-                                <i class="fas fa-plus"></i> Add Delete
                             </button>
                         </div>
                     </div>
@@ -179,16 +258,19 @@ function createTemplateStackCard(stack) {
 
     // For complete stacks, show full flow
     // If no explicit validation template, it uses itself (our new default behavior)
+    const deployType = deploy.type || 'deploy';
+    const typeBadge = '<span class="badge bg-info ms-1">Deploy</span>';
     const completeBadge = hasDelete
-        ? '<span class="badge bg-success ms-2">Complete</span>'
-        : '<span class="badge bg-warning text-dark ms-2">Manual Validation</span>';
+        ? '<span class="badge bg-success ms-1">Complete</span>'
+        : '<span class="badge bg-warning text-dark ms-1">Manual Validation</span>';
 
     return `
-        <div class="col-md-6 col-lg-4 mb-3">
-            <div class="card ${cardClass} h-100">
+        <div class="col-md-6 col-lg-3 mb-2">
+            <div class="card template-card ${cardClass} h-100">
                 <div class="card-body">
                     <h6 class="card-title">
                         ${deploy.name || deploy}
+                        ${typeBadge}
                         ${completeBadge}
                     </h6>
                     ${deploy.description ? `<p class="text-muted mb-2">${deploy.description}</p>` : ''}
@@ -250,12 +332,6 @@ $(document).on('click', '.add-validation-btn', function(e) {
     createRelatedTemplate(deployTemplate, 'validation');
 });
 
-$(document).on('click', '.add-delete-btn', function(e) {
-    e.stopPropagation();
-    const deployTemplate = $(this).data('template');
-    createRelatedTemplate(deployTemplate, 'delete');
-});
-
 function createRelatedTemplate(deployTemplate, type) {
     // Create a new template and suggest a name based on the deploy template
     const baseName = deployTemplate.replace('.j2', '').replace('_add_', '_').replace('_create_', '_');
@@ -278,6 +354,18 @@ function createNewTemplate(suggestedName = '', relatedTo = null, relationType = 
     editor.setValue('');
     $('#delete-template-btn').hide();
     $('#push-template-btn').hide();
+
+    // Set template type based on relation type
+    if (relationType === 'validation') {
+        $('#template-type').val('validation');
+        $('#deploy-template-options').hide();
+    } else if (relationType === 'delete') {
+        $('#template-type').val('delete');
+        $('#deploy-template-options').hide();
+    } else {
+        $('#template-type').val('deploy');
+        $('#deploy-template-options').show();
+    }
 
     // Populate metadata dropdowns
     populateMetadataDropdowns();
@@ -328,10 +416,20 @@ function loadTemplate(templateName) {
                 });
 
                 if (templateObj) {
+                    const templateType = templateObj.type || 'deploy'; // Default to deploy if no type set
                     $('#template-description').val(templateObj.description || '');
-                    // Default validation template to itself if not set
-                    $('#validation-template').val(templateObj.validation_template || templateName);
-                    $('#delete-template-select').val(templateObj.delete_template || '');
+                    $('#template-type').val(templateType);
+
+                    // Show/hide deploy options based on type
+                    // Templates without a type should be treated as deploy templates
+                    if (templateType === 'deploy') {
+                        $('#deploy-template-options').show();
+                        // Default validation template to itself if not set
+                        $('#validation-template').val(templateObj.validation_template || templateName);
+                        $('#delete-template-select').val(templateObj.delete_template || '');
+                    } else {
+                        $('#deploy-template-options').hide();
+                    }
                 }
 
                 // Populate metadata dropdowns
@@ -362,8 +460,17 @@ function populateMetadataDropdowns() {
 
     allTemplatesWithMetadata.forEach(function(template) {
         const templateName = typeof template === 'string' ? template : template.name;
-        validationSelect.append(`<option value="${templateName}">${templateName}</option>`);
-        deleteSelect.append(`<option value="${templateName}">${templateName}</option>`);
+        const templateType = template.type || 'deploy';
+
+        // Only show validation templates (or deploy templates) in validation dropdown
+        if (templateType === 'validation' || templateType === 'deploy') {
+            validationSelect.append(`<option value="${templateName}">${templateName} (${templateType})</option>`);
+        }
+
+        // Only show delete templates in delete dropdown
+        if (templateType === 'delete') {
+            deleteSelect.append(`<option value="${templateName}">${templateName}</option>`);
+        }
     });
 
     // Restore selections
@@ -374,6 +481,7 @@ function populateMetadataDropdowns() {
 function saveTemplate() {
     let templateName = $('#template-name').val().trim();
     const description = $('#template-description').val().trim();
+    const templateType = $('#template-type').val();
     const validationTemplate = $('#validation-template').val();
     const deleteTemplate = $('#delete-template-select').val();
 
@@ -396,9 +504,9 @@ function saveTemplate() {
         return;
     }
 
-    // Ensure template name ends with .j2
-    if (!templateName.endsWith('.j2')) {
-        templateName += '.j2';
+    // Strip .j2 extension if user added it - Netpalm stores without extension
+    if (templateName.endsWith('.j2')) {
+        templateName = templateName.slice(0, -3);
         $('#template-name').val(templateName);
     }
 
@@ -424,6 +532,7 @@ function saveTemplate() {
         if (data.success) {
             // Template saved successfully, now save metadata
             const metadataData = {
+                type: templateType || 'deploy',
                 description: description || null,
                 validation_template: validationTemplate || null,
                 delete_template: deleteTemplate || null
@@ -471,8 +580,10 @@ function deleteTemplate(templateName) {
     const templateNameNoExt = templateName.replace('.j2', '');
 
     $.ajax({
-        url: '/api/templates/' + encodeURIComponent(templateNameNoExt),
-        method: 'DELETE'
+        url: '/api/templates',
+        method: 'DELETE',
+        contentType: 'application/json',
+        data: JSON.stringify({ name: templateNameNoExt })
     })
     .done(function(data) {
         if (data.success) {
@@ -483,8 +594,9 @@ function deleteTemplate(templateName) {
             alert('Error: ' + (data.error || 'Unknown error'));
         }
     })
-    .fail(function() {
-        alert('Failed to delete template');
+    .fail(function(xhr) {
+        const errorMsg = xhr.responseJSON?.error || 'Failed to delete template';
+        alert('Error: ' + errorMsg);
     });
 }
 

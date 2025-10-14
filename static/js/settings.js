@@ -10,16 +10,23 @@ const DEFAULT_SETTINGS = {
     default_password: '',
     netpalm_url: 'http://netpalm-controller:9000',
     netpalm_api_key: '2a84465a-cf38-46b2-9d86-b84Q7d57f288',
-    cache_ttl: 300
+    cache_ttl: 300,
+    timezone: 'auto'
 };
 
 $(document).ready(function() {
     loadSettings();
     loadTheme();
+    updateTimezoneDisplay();
 
     // Theme change handler
     $('#theme-select').change(function() {
         saveTheme($(this).val());
+    });
+
+    // Timezone change handler
+    $('#timezone-select').change(function() {
+        updateTimezoneDisplay();
     });
 
     // Save settings form submit
@@ -107,11 +114,13 @@ function populateForm(settings) {
     $('#netpalm-url').val(settings.netpalm_url);
     $('#netpalm-api-key').val(settings.netpalm_api_key);
     $('#cache-ttl').val(settings.cache_ttl);
+    $('#timezone-select').val(settings.timezone || 'auto');
 
     // Load filters
     loadFilters(settings.netbox_filters || []);
 
     updateStatus(settings);
+    updateTimezoneDisplay();
 }
 
 function saveSettings() {
@@ -134,7 +143,8 @@ function saveSettings() {
         default_password: $('#default-password').val().trim(),
         netpalm_url: $('#netpalm-url').val().trim(),
         netpalm_api_key: $('#netpalm-api-key').val().trim(),
-        cache_ttl: parseInt($('#cache-ttl').val())
+        cache_ttl: parseInt($('#cache-ttl').val()),
+        timezone: $('#timezone-select').val()
     };
 
     // Validate
@@ -551,5 +561,35 @@ function saveTheme(theme) {
     });
 }
 
-// Export getSettings for use in other pages
+// Timezone display update
+function updateTimezoneDisplay() {
+    const selectedTz = $('#timezone-select').val();
+    let displayText = '';
+
+    if (selectedTz === 'auto') {
+        // Get browser timezone
+        const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        displayText = `Auto-detect (${browserTz})`;
+    } else {
+        displayText = selectedTz;
+    }
+
+    $('#current-timezone-display').text(displayText);
+}
+
+// Get user's timezone preference
+function getUserTimezone() {
+    const settings = getSettings();
+    const tzSetting = settings.timezone || 'auto';
+
+    if (tzSetting === 'auto') {
+        // Return browser timezone
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
+    return tzSetting;
+}
+
+// Export functions for use in other pages
 window.getAppSettings = getSettings;
+window.getUserTimezone = getUserTimezone;

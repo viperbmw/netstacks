@@ -47,14 +47,6 @@
                             </div>
 
                             <div class="mb-3">
-                                <label for="get-library" class="form-label">Driver</label>
-                                <select class="form-select" id="get-library" required>
-                                    <option value="netmiko">Netmiko (SSH/Telnet)</option>
-                                    <option value="napalm">NAPALM</option>
-                                </select>
-                            </div>
-
-                            <div class="mb-3">
                                 <label for="get-command" class="form-label">Command</label>
                                 <input type="text" class="form-control" id="get-command" placeholder="show running-config" required>
                                 <small class="form-text text-muted">Enter the command to retrieve configuration</small>
@@ -129,14 +121,6 @@
                                     </div>
 
                                     <div class="mb-3">
-                                        <label for="set-library" class="form-label">Driver</label>
-                                        <select class="form-select" id="set-library" required>
-                                            <option value="netmiko">Netmiko (SSH/Telnet)</option>
-                                            <option value="napalm">NAPALM</option>
-                                        </select>
-                                    </div>
-
-                                    <div class="mb-3">
                                         <label for="set-config" class="form-label">Configuration Commands</label>
                                         <textarea class="form-control font-monospace" id="set-config" rows="10" placeholder="interface GigabitEthernet0/1&#10;  description Configured by Netpalm&#10;  no shutdown" required></textarea>
                                         <small class="form-text text-muted">Enter raw configuration commands (one per line)</small>
@@ -172,9 +156,14 @@
                                         </label>
                                     </div>
 
-                            <button type="submit" class="btn btn-warning">
-                                <i class="fas fa-upload"></i> Deploy Configuration
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="fas fa-upload"></i> Deploy Now
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" id="schedule-setconfig-btn">
+                                    <i class="fas fa-clock"></i> Schedule Deploy
+                                </button>
+                            </div>
                         </form>
                     </div>
 
@@ -187,14 +176,6 @@
                                             <option value="">Loading devices...</option>
                                         </select>
                                         <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple devices</small>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label for="template-library" class="form-label">Driver</label>
-                                        <select class="form-select" id="template-library" required>
-                                            <option value="netmiko">Netmiko (SSH/Telnet)</option>
-                                            <option value="napalm">NAPALM</option>
-                                        </select>
                                     </div>
 
                                     <div class="mb-3">
@@ -239,9 +220,14 @@
                                         </label>
                                     </div>
 
-                            <button type="submit" class="btn btn-warning">
-                                <i class="fas fa-upload"></i> Deploy Template
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="fas fa-upload"></i> Deploy Now
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" id="schedule-template-btn">
+                                    <i class="fas fa-clock"></i> Schedule Deploy
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -290,16 +276,13 @@
             </div>
             <div class="card-body">
                 <h6>Get Config</h6>
-                <p class="small">Retrieve configuration or show commands from a device.</p>
+                <p class="small">Retrieve configuration or show commands from a device using Netmiko over SSH.</p>
 
                 <h6>Set Config</h6>
-                <p class="small">Deploy configuration changes to a device.</p>
+                <p class="small">Deploy raw configuration commands to a device using Netmiko over SSH.</p>
 
-                <h6>Drivers</h6>
-                <ul class="small">
-                    <li><strong>Netmiko:</strong> CLI over SSH/Telnet</li>
-                    <li><strong>NAPALM:</strong> Multi-vendor abstraction</li>
-                </ul>
+                <h6>Template Deploy</h6>
+                <p class="small">Deploy Jinja2 templates with variables to devices using Netmiko over SSH.</p>
             </div>
         </div>
     </div>
@@ -325,6 +308,75 @@
         </div>
     </div>
 </div>
+
+<!-- Schedule Deploy Modal -->
+<div class="modal fade" id="scheduleDeployModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-clock"></i> Schedule Configuration Deployment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="schedule-deploy-type">
+                <form id="schedule-deploy-form">
+                    <div class="mb-3">
+                        <label for="schedule-deploy-type-select" class="form-label">Schedule Type *</label>
+                        <select class="form-select" id="schedule-deploy-type-select" required>
+                            <option value="once">One-time</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+
+                    <!-- One-time schedule -->
+                    <div class="mb-3" id="schedule-deploy-datetime-section">
+                        <label for="schedule-deploy-datetime" class="form-label">Date and Time *</label>
+                        <input type="datetime-local" class="form-control" id="schedule-deploy-datetime" required>
+                    </div>
+
+                    <!-- Daily schedule -->
+                    <div class="mb-3" id="schedule-deploy-time-section" style="display: none;">
+                        <label for="schedule-deploy-time" class="form-label">Time *</label>
+                        <input type="time" class="form-control" id="schedule-deploy-time">
+                    </div>
+
+                    <!-- Weekly schedule -->
+                    <div class="mb-3" id="schedule-deploy-day-week-section" style="display: none;">
+                        <label for="schedule-deploy-day-week" class="form-label">Day of Week *</label>
+                        <select class="form-select" id="schedule-deploy-day-week">
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+
+                    <!-- Monthly schedule -->
+                    <div class="mb-3" id="schedule-deploy-day-month-section" style="display: none;">
+                        <label for="schedule-deploy-day-month" class="form-label">Day of Month *</label>
+                        <input type="number" class="form-control" id="schedule-deploy-day-month" min="1" max="31" placeholder="1-31">
+                    </div>
+
+                    <div class="alert alert-info">
+                        <small><i class="fas fa-info-circle"></i> The deployment will be scheduled with the current form settings (devices, config, credentials, etc.)</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="confirm-schedule-deploy-btn">
+                    <i class="fas fa-clock"></i> Schedule
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}

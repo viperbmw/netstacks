@@ -2,6 +2,7 @@
 let allDevices = [];
 let allTemplates = [];
 let serviceCounter = 0;
+let autoSyncInterval = null;
 
 $(document).ready(function() {
     // Load initial data
@@ -9,6 +10,9 @@ $(document).ready(function() {
     loadTemplates();
     loadServiceStacks();
     loadStackTemplates();
+
+    // Start auto-sync for deploying services (every 5 seconds)
+    startAutoSync();
 
     // Event handlers
     $('#create-stack-btn').click(function() {
@@ -42,7 +46,97 @@ $(document).ready(function() {
     $('#add-template-service-btn').click(function() {
         addServiceToTemplate();
     });
+
+    // Sync states button handler (manual sync)
+    $('#sync-states-btn').click(function() {
+        syncServiceStates(true); // true = show UI feedback
+    });
 });
+
+/**
+ * Start automatic state syncing in background
+ */
+function startAutoSync() {
+    // Sync every 5 seconds
+    autoSyncInterval = setInterval(function() {
+        syncServiceStates(false); // false = silent, no UI feedback
+    }, 5000);
+}
+
+/**
+ * Stop automatic state syncing
+ */
+function stopAutoSync() {
+    if (autoSyncInterval) {
+        clearInterval(autoSyncInterval);
+        autoSyncInterval = null;
+    }
+}
+
+/**
+ * Sync service instance states from Netpalm
+ * @param {boolean} showUI - Whether to show UI feedback (button state, status messages)
+ */
+function syncServiceStates(showUI) {
+    showUI = showUI !== false; // Default to true if not specified
+
+    const btn = $('#sync-states-btn');
+    if (showUI) {
+        btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Syncing...');
+    }
+
+    $.ajax({
+        url: '/api/services/instances/sync-states',
+        method: 'POST',
+        contentType: 'application/json'
+    })
+    .done(function(data) {
+        if (data.success) {
+            // Only reload if something changed
+            if (data.updated > 0 || data.failed > 0 || data.stacks_updated > 0) {
+                loadServiceStacks();
+
+                // Show status message only for manual sync
+                if (showUI) {
+                    let message = 'States synced: ';
+                    if (data.updated > 0) {
+                        message += `${data.updated} deployed`;
+                    }
+                    if (data.failed > 0) {
+                        message += `, ${data.failed} failed`;
+                    }
+                    if (data.stacks_updated > 0) {
+                        message += `, ${data.stacks_updated} stacks updated`;
+                    }
+                    if (data.updated === 0 && data.failed === 0) {
+                        message += 'no changes';
+                    }
+
+                    showStatus('success', {
+                        message: message
+                    });
+                }
+            }
+        } else if (showUI) {
+            showStatus('error', {
+                message: 'Failed to sync states: ' + (data.error || 'Unknown error')
+            });
+        }
+    })
+    .fail(function(xhr) {
+        if (showUI) {
+            const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            showStatus('error', {
+                message: 'Failed to sync states: ' + error
+            });
+        }
+    })
+    .always(function() {
+        if (showUI) {
+            btn.prop('disabled', false).html('<i class="fas fa-sync"></i> Refresh Status');
+        }
+    });
+}
 
 /**
  * Load devices from API
@@ -506,7 +600,7 @@ function addServiceToStack(serviceData) {
             <div class="row">
                 <div class="col-12 mb-2">
                     <label class="form-label">Service Variables</label>
-                    <div class="service-variables-container p-2 border rounded bg-light">
+                    <div class="service-variables-container p-2 border rounded">
                         <div class="text-center text-muted">
                             <small>Select a template to load variables...</small>
                         </div>
@@ -515,10 +609,47 @@ function addServiceToStack(serviceData) {
             </div>
 
             <div class="row">
-                <div class="col-12">
+                <div class="col-12 mb-2">
                     <label class="form-label">Dependencies (comma-separated service names)</label>
                     <input type="text" class="form-control service-dependencies" placeholder="e.g., CE Router Config, VLAN Setup" value="${serviceData && serviceData.depends_on ? serviceData.depends_on.join(', ') : ''}">
                     <small class="form-text text-muted">This service will wait for these services to complete first</small>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-12 mb-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enable-checks-${serviceId}" ${serviceData && (serviceData.pre_checks || serviceData.post_checks) ? 'checked' : ''}>
+                        <label class="form-check-label" for="enable-checks-${serviceId}">
+                            Enable Pre/Post Deployment Checks
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row checks-container" style="display: ${serviceData && (serviceData.pre_checks || serviceData.post_checks) ? 'flex' : 'none'};">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Pre-Check Command</label>
+                    <input type="text" class="form-control pre-check-command" placeholder="show run | i hostname" value="${serviceData && serviceData.pre_checks && serviceData.pre_checks[0] ? serviceData.pre_checks[0].get_config_args.command : ''}">
+                    <small class="form-text text-muted">Command to run before deployment</small>
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Pre-Check Expected Output</label>
+                    <input type="text" class="form-control pre-check-match" placeholder="hostname cat" value="${serviceData && serviceData.pre_checks && serviceData.pre_checks[0] ? serviceData.pre_checks[0].match_str.join(', ') : ''}">
+                    <small class="form-text text-muted">Text that must be in output</small>
+                </div>
+            </div>
+
+            <div class="row checks-container" style="display: ${serviceData && (serviceData.pre_checks || serviceData.post_checks) ? 'flex' : 'none'};">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Post-Check Command</label>
+                    <input type="text" class="form-control post-check-command" placeholder="show run | i hostname" value="${serviceData && serviceData.post_checks && serviceData.post_checks[0] ? serviceData.post_checks[0].get_config_args.command : ''}">
+                    <small class="form-text text-muted">Command to run after deployment</small>
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Post-Check Expected Output</label>
+                    <input type="text" class="form-control post-check-match" placeholder="hostname dog" value="${serviceData && serviceData.post_checks && serviceData.post_checks[0] ? serviceData.post_checks[0].match_str.join(', ') : ''}">
+                    <small class="form-text text-muted">Text that must be in output</small>
                 </div>
             </div>
         </div>
@@ -563,6 +694,16 @@ function addServiceToStack(serviceData) {
 
         if ($('#services-list .service-item').length === 0) {
             $('#services-list').html('<p class="text-muted text-center mb-0" id="no-services-msg">No services added yet. Click "Add Service" to begin.</p>');
+        }
+    });
+
+    // Attach enable checks toggle handler
+    $serviceItem.find(`#enable-checks-${serviceId}`).change(function() {
+        const $checks = $(this).closest('.service-item').find('.checks-container');
+        if ($(this).is(':checked')) {
+            $checks.show();
+        } else {
+            $checks.hide();
         }
     });
 }
@@ -744,14 +885,45 @@ function saveServiceStack() {
         const dependencies = dependenciesText ?
             dependenciesText.split(',').map(d => d.trim()).filter(d => d) : [];
 
-        services.push({
+        // Extract pre/post checks if enabled
+        const serviceData = {
             name: serviceName,
             template: template,
             devices: devices,
             order: order,
             variables: variables,
             depends_on: dependencies
-        });
+        };
+
+        const checksEnabled = $(this).find('input[type="checkbox"][id^="enable-checks-"]').is(':checked');
+        if (checksEnabled) {
+            const preCheckCommand = $(this).find('.pre-check-command').val().trim();
+            const preCheckMatch = $(this).find('.pre-check-match').val().trim();
+            const postCheckCommand = $(this).find('.post-check-command').val().trim();
+            const postCheckMatch = $(this).find('.post-check-match').val().trim();
+
+            if (preCheckCommand && preCheckMatch) {
+                serviceData.pre_checks = [{
+                    match_type: 'include',
+                    get_config_args: {
+                        command: preCheckCommand
+                    },
+                    match_str: preCheckMatch.split(',').map(s => s.trim())
+                }];
+            }
+
+            if (postCheckCommand && postCheckMatch) {
+                serviceData.post_checks = [{
+                    match_type: 'include',
+                    get_config_args: {
+                        command: postCheckCommand
+                    },
+                    match_str: postCheckMatch.split(',').map(s => s.trim())
+                }];
+            }
+        }
+
+        services.push(serviceData);
     });
 
     if (!valid || services.length === 0) {
@@ -899,7 +1071,7 @@ function renderStackDetails(stack) {
         ${stack.shared_variables && Object.keys(stack.shared_variables).length > 0 ? `
             <div class="mb-3">
                 <h6>Shared Variables</h6>
-                <pre class="bg-light p-2 rounded"><code>${JSON.stringify(stack.shared_variables, null, 2)}</code></pre>
+                <pre class="p-2 rounded border"><code>${JSON.stringify(stack.shared_variables, null, 2)}</code></pre>
             </div>
         ` : ''}
     `;
@@ -1231,14 +1403,14 @@ function renderServiceInstanceDetails(service) {
         ${service.variables && Object.keys(service.variables).length > 0 ? `
         <div class="mb-3">
             <h6><i class="fas fa-code"></i> Template Variables</h6>
-            <pre class="bg-light p-3 rounded"><code>${JSON.stringify(service.variables, null, 2)}</code></pre>
+            <pre class="p-3 rounded border"><code>${JSON.stringify(service.variables, null, 2)}</code></pre>
         </div>
         ` : ''}
 
         ${service.rendered_config ? `
         <div class="mb-3">
             <h6><i class="fas fa-file-code"></i> Rendered Configuration</h6>
-            <pre class="bg-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"><code>${service.rendered_config}</code></pre>
+            <pre class="p-3 rounded border" style="max-height: 300px; overflow-y: auto;"><code>${service.rendered_config}</code></pre>
         </div>
         ` : ''}
 
@@ -1456,6 +1628,11 @@ function deployStack(stackId) {
                     data.deployed_services.map(id => '<li><code>' + id + '</code></li>').join('') +
                     '</ul>' : ''
             });
+
+            // Redirect to job monitor after 3 seconds
+            setTimeout(function() {
+                window.location.href = '/monitor';
+            }, 3000);
         } else {
             const failedDetails = data.failed_services && data.failed_services.length > 0 ?
                 '<strong>Failed services:</strong><br><ul class="mb-0">' +
@@ -1506,11 +1683,29 @@ function deleteStack(stackId) {
                 'Deleting stack (keeping device configurations)...'
         });
 
+        // Get credentials from settings if running delete templates
+        let username, password;
+        if (runDeleteTemplates) {
+            try {
+                const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+                username = settings.default_username;
+                password = settings.default_password;
+                console.log('Delete stack - using credentials from settings:', { username, hasPassword: !!password });
+            } catch (e) {
+                console.error('Error reading credentials from settings:', e);
+            }
+        }
+
         // Execute the deletion
         $.ajax({
             url: '/api/service-stacks/' + encodeURIComponent(stackId) +
                  (runDeleteTemplates ? '?delete_services=true' : ''),
             method: 'DELETE',
+            contentType: 'application/json',
+            data: runDeleteTemplates ? JSON.stringify({
+                username: username,
+                password: password
+            }) : undefined,
             timeout: runDeleteTemplates ? 180000 : 30000  // 3 min if running delete templates, 30 sec otherwise
         })
         .done(function(data) {
@@ -1730,6 +1925,40 @@ function addServiceToTemplate() {
                         </button>
                     </div>
                 </div>
+
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input enable-checks-checkbox" type="checkbox" id="enable-checks-${serviceId}">
+                            <label class="form-check-label small" for="enable-checks-${serviceId}">
+                                Enable Pre/Post Deployment Checks
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checks-container" style="display: none;">
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <label class="form-label small">Pre-Check Command</label>
+                            <input type="text" class="form-control form-control-sm pre-check-command" placeholder="show run | i hostname">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Pre-Check Expected Output</label>
+                            <input type="text" class="form-control form-control-sm pre-check-match" placeholder="hostname cat">
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <label class="form-label small">Post-Check Command</label>
+                            <input type="text" class="form-control form-control-sm post-check-command" placeholder="show run | i hostname">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Post-Check Expected Output</label>
+                            <input type="text" class="form-control form-control-sm post-check-match" placeholder="hostname dog">
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -1741,6 +1970,16 @@ function addServiceToTemplate() {
         $(`#${serviceId}`).remove();
         if ($('#template-services-container .card').length === 0) {
             $('#template-services-container').html('<p class="text-muted">No services added yet. Click "Add Service" to define services for this template.</p>');
+        }
+    });
+
+    // Attach enable checks toggle handler
+    $(`#${serviceId} .enable-checks-checkbox`).change(function() {
+        const $checks = $(this).closest('.card-body').find('.checks-container');
+        if ($(this).is(':checked')) {
+            $checks.show();
+        } else {
+            $checks.hide();
         }
     });
 }
@@ -1770,11 +2009,42 @@ function saveStackTemplate() {
         const order = parseInt($(this).find('.service-order').val()) || 0;
 
         if (serviceName && template) {
-            services.push({
+            const serviceData = {
                 name: serviceName,
                 template: template,
                 order: order
-            });
+            };
+
+            // Extract pre/post checks if enabled
+            const checksEnabled = $(this).find('.enable-checks-checkbox').is(':checked');
+            if (checksEnabled) {
+                const preCheckCommand = $(this).find('.pre-check-command').val().trim();
+                const preCheckMatch = $(this).find('.pre-check-match').val().trim();
+                const postCheckCommand = $(this).find('.post-check-command').val().trim();
+                const postCheckMatch = $(this).find('.post-check-match').val().trim();
+
+                if (preCheckCommand && preCheckMatch) {
+                    serviceData.pre_checks = [{
+                        match_type: 'include',
+                        get_config_args: {
+                            command: preCheckCommand
+                        },
+                        match_str: preCheckMatch.split(',').map(s => s.trim())
+                    }];
+                }
+
+                if (postCheckCommand && postCheckMatch) {
+                    serviceData.post_checks = [{
+                        match_type: 'include',
+                        get_config_args: {
+                            command: postCheckCommand
+                        },
+                        match_str: postCheckMatch.split(',').map(s => s.trim())
+                    }];
+                }
+            }
+
+            services.push(serviceData);
         }
     });
 
@@ -2168,3 +2438,275 @@ function escapeHtml(text) {
     };
     return String(text).replace(/[&<>"']/g, m => map[m]);
 }
+
+// ==================== Scheduled Operations ====================
+
+/**
+ * Open schedule modal for a stack
+ */
+$(document).on('click', '#schedule-stack-btn', function() {
+    const stackId = $('#stackDetailsModal').data('current-stack-id');
+    if (!stackId) {
+        alert('No stack selected');
+        return;
+    }
+
+    $('#schedule-stack-id').val(stackId);
+    $('#schedule-form')[0].reset();
+
+    // Show datetime picker by default
+    $('#schedule-datetime-section').show();
+    $('#schedule-time-section').hide();
+    $('#schedule-day-week-section').hide();
+    $('#schedule-day-month-section').hide();
+
+    // Load existing schedules
+    loadScheduledOperations(stackId);
+
+    const modal = new bootstrap.Modal(document.getElementById('scheduleStackModal'));
+    modal.show();
+});
+
+/**
+ * Handle schedule type changes
+ */
+$(document).on('change', '#schedule-type', function() {
+    const scheduleType = $(this).val();
+
+    // Hide all sections
+    $('#schedule-datetime-section').hide();
+    $('#schedule-time-section').hide();
+    $('#schedule-day-week-section').hide();
+    $('#schedule-day-month-section').hide();
+
+    // Show relevant sections
+    if (scheduleType === 'once') {
+        $('#schedule-datetime-section').show();
+        $('#schedule-datetime').prop('required', true);
+        $('#schedule-time').prop('required', false);
+    } else if (scheduleType === 'daily') {
+        $('#schedule-time-section').show();
+        $('#schedule-datetime').prop('required', false);
+        $('#schedule-time').prop('required', true);
+    } else if (scheduleType === 'weekly') {
+        $('#schedule-time-section').show();
+        $('#schedule-day-week-section').show();
+        $('#schedule-datetime').prop('required', false);
+        $('#schedule-time').prop('required', true);
+    } else if (scheduleType === 'monthly') {
+        $('#schedule-time-section').show();
+        $('#schedule-day-month-section').show();
+        $('#schedule-datetime').prop('required', false);
+        $('#schedule-time').prop('required', true);
+    }
+});
+
+/**
+ * Create new schedule
+ */
+$(document).on('click', '#create-schedule-btn', function() {
+    const stackId = $('#schedule-stack-id').val();
+    const operationType = $('#schedule-operation-type').val();
+    const scheduleType = $('#schedule-type').val();
+
+    let scheduledTime, dayOfWeek, dayOfMonth;
+
+    if (scheduleType === 'once') {
+        scheduledTime = $('#schedule-datetime').val();
+        if (!scheduledTime) {
+            alert('Please select a date and time');
+            return;
+        }
+    } else {
+        scheduledTime = $('#schedule-time').val();
+        if (!scheduledTime) {
+            alert('Please select a time');
+            return;
+        }
+
+        if (scheduleType === 'weekly') {
+            dayOfWeek = parseInt($('#schedule-day-week').val());
+        } else if (scheduleType === 'monthly') {
+            dayOfMonth = parseInt($('#schedule-day-month').val());
+            if (!dayOfMonth || dayOfMonth < 1 || dayOfMonth > 31) {
+                alert('Please enter a valid day of month (1-31)');
+                return;
+            }
+        }
+    }
+
+    const scheduleData = {
+        stack_id: stackId,
+        operation_type: operationType,
+        schedule_type: scheduleType,
+        scheduled_time: scheduledTime,
+        day_of_week: dayOfWeek,
+        day_of_month: dayOfMonth
+    };
+
+    $.ajax({
+        url: '/api/scheduled-operations',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(scheduleData)
+    })
+    .done(function(data) {
+        if (data.success) {
+            $('#schedule-form')[0].reset();
+            loadScheduledOperations(stackId);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to create schedule'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to create schedule: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+});
+
+/**
+ * Load scheduled operations for a stack
+ */
+function loadScheduledOperations(stackId) {
+    $('#existing-schedules-list').html('<div class="text-center"><small class="text-muted">Loading...</small></div>');
+
+    $.get('/api/scheduled-operations?stack_id=' + encodeURIComponent(stackId))
+        .done(function(data) {
+            if (data.success && data.schedules && data.schedules.length > 0) {
+                renderSchedulesList(data.schedules);
+            } else {
+                $('#existing-schedules-list').html('<div class="text-center text-muted"><small>No schedules yet</small></div>');
+            }
+        })
+        .fail(function() {
+            $('#existing-schedules-list').html('<div class="alert alert-danger">Failed to load schedules</div>');
+        });
+}
+
+/**
+ * Render schedules list
+ */
+function renderSchedulesList(schedules) {
+    const operationIcons = {
+        'deploy': '<i class="fas fa-rocket text-primary"></i>',
+        'validate': '<i class="fas fa-check-circle text-info"></i>',
+        'delete': '<i class="fas fa-trash text-danger"></i>'
+    };
+
+    const operationLabels = {
+        'deploy': 'Deploy',
+        'validate': 'Validate',
+        'delete': 'Delete'
+    };
+
+    const scheduleTypeLabels = {
+        'once': 'One-time',
+        'daily': 'Daily',
+        'weekly': 'Weekly',
+        'monthly': 'Monthly'
+    };
+
+    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    let html = '<div class="list-group">';
+
+    schedules.forEach(schedule => {
+        const enabled = schedule.enabled ? true : false;
+        const badge = enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>';
+
+        let scheduleDetails = '';
+        if (schedule.schedule_type === 'once') {
+            scheduleDetails = new Date(schedule.scheduled_time).toLocaleString();
+        } else if (schedule.schedule_type === 'daily') {
+            scheduleDetails = `Every day at ${schedule.scheduled_time}`;
+        } else if (schedule.schedule_type === 'weekly') {
+            scheduleDetails = `Every ${dayNames[schedule.day_of_week]} at ${schedule.scheduled_time}`;
+        } else if (schedule.schedule_type === 'monthly') {
+            scheduleDetails = `Day ${schedule.day_of_month} of each month at ${schedule.scheduled_time}`;
+        }
+
+        const nextRun = schedule.next_run ? new Date(schedule.next_run).toLocaleString() : 'Not scheduled';
+
+        html += `
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <h6 class="mb-1">
+                            ${operationIcons[schedule.operation_type]}
+                            ${operationLabels[schedule.operation_type]} - ${scheduleTypeLabels[schedule.schedule_type]}
+                            ${badge}
+                        </h6>
+                        <p class="mb-1"><small>${scheduleDetails}</small></p>
+                        <p class="mb-1"><small class="text-muted">Next run: ${nextRun}</small></p>
+                        ${schedule.last_run ? `<p class="mb-0"><small class="text-muted">Last run: ${new Date(schedule.last_run).toLocaleString()} (${schedule.run_count} times)</small></p>` : ''}
+                    </div>
+                    <div class="btn-group-vertical btn-group-sm">
+                        <button class="btn btn-sm btn-outline-${enabled ? 'warning' : 'success'} toggle-schedule-btn"
+                                data-schedule-id="${schedule.schedule_id}"
+                                data-enabled="${enabled}">
+                            <i class="fas fa-${enabled ? 'pause' : 'play'}"></i> ${enabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger delete-schedule-btn"
+                                data-schedule-id="${schedule.schedule_id}">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    $('#existing-schedules-list').html(html);
+}
+
+/**
+ * Toggle schedule enabled/disabled
+ */
+$(document).on('click', '.toggle-schedule-btn', function() {
+    const scheduleId = $(this).data('schedule-id');
+    const enabled = $(this).data('enabled');
+    const newState = !enabled;
+
+    $.ajax({
+        url: `/api/scheduled-operations/${scheduleId}`,
+        method: 'PATCH',
+        contentType: 'application/json',
+        data: JSON.stringify({ enabled: newState })
+    })
+    .done(function(data) {
+        if (data.success) {
+            const stackId = $('#schedule-stack-id').val();
+            loadScheduledOperations(stackId);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to update schedule'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to update schedule: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+});
+
+/**
+ * Delete schedule
+ */
+$(document).on('click', '.delete-schedule-btn', function() {
+    const scheduleId = $(this).data('schedule-id');
+
+    $.ajax({
+        url: `/api/scheduled-operations/${scheduleId}`,
+        method: 'DELETE'
+    })
+    .done(function(data) {
+        if (data.success) {
+            const stackId = $('#schedule-stack-id').val();
+            loadScheduledOperations(stackId);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to delete schedule'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to delete schedule: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+});
+
+

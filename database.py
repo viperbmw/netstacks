@@ -42,6 +42,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS templates (
             name TEXT PRIMARY KEY,
+            type TEXT DEFAULT 'deploy',  -- deploy, delete, validation
             validation_template TEXT,
             delete_template TEXT,
             description TEXT,
@@ -49,6 +50,13 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Migration: Add type column if it doesn't exist
+    try:
+        cursor.execute("SELECT type FROM templates LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE templates ADD COLUMN type TEXT DEFAULT 'deploy'")
+        conn.commit()
 
     # Service stacks table
     cursor.execute('''
@@ -131,6 +139,79 @@ def init_db():
             created_by TEXT
         )
     ''')
+
+    # Scheduled stack operations table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scheduled_stack_operations (
+            schedule_id TEXT PRIMARY KEY,
+            stack_id TEXT,                 -- NULL for config_deploy operations
+            operation_type TEXT NOT NULL,  -- 'deploy', 'validate', 'delete', 'config_deploy'
+            schedule_type TEXT NOT NULL,   -- 'once', 'daily', 'weekly', 'monthly'
+            scheduled_time TEXT NOT NULL,  -- ISO format datetime for 'once', or time for recurring (HH:MM)
+            day_of_week INTEGER,           -- 0-6 for weekly schedules (0=Monday)
+            day_of_month INTEGER,          -- 1-31 for monthly schedules
+            config_data TEXT,              -- JSON config for config_deploy operations
+            enabled INTEGER DEFAULT 1,
+            last_run TIMESTAMP,
+            next_run TIMESTAMP,
+            run_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by TEXT,
+            FOREIGN KEY (stack_id) REFERENCES service_stacks(stack_id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Migration: Add config_data column if it doesn't exist
+    try:
+        cursor.execute("SELECT config_data FROM scheduled_stack_operations LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE scheduled_stack_operations ADD COLUMN config_data TEXT")
+        conn.commit()
+
+    # Migration: Make stack_id nullable for config_deploy operations
+    # Check if stack_id has NOT NULL constraint
+    cursor.execute("PRAGMA table_info(scheduled_stack_operations)")
+    columns = cursor.fetchall()
+    stack_id_column = [col for col in columns if col[1] == 'stack_id']
+
+    if stack_id_column and stack_id_column[0][3] == 1:  # notnull flag is 1
+        # Need to recreate table without NOT NULL on stack_id
+        log.info("Migrating scheduled_stack_operations table to make stack_id nullable")
+
+        # Create temporary table with new schema
+        cursor.execute('''
+            CREATE TABLE scheduled_stack_operations_new (
+                schedule_id TEXT PRIMARY KEY,
+                stack_id TEXT,
+                operation_type TEXT NOT NULL,
+                schedule_type TEXT NOT NULL,
+                scheduled_time TEXT NOT NULL,
+                day_of_week INTEGER,
+                day_of_month INTEGER,
+                config_data TEXT,
+                enabled INTEGER DEFAULT 1,
+                last_run TIMESTAMP,
+                next_run TIMESTAMP,
+                run_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT
+            )
+        ''')
+
+        # Copy data from old table
+        cursor.execute('''
+            INSERT INTO scheduled_stack_operations_new
+            SELECT * FROM scheduled_stack_operations
+        ''')
+
+        # Drop old table
+        cursor.execute("DROP TABLE scheduled_stack_operations")
+
+        # Rename new table
+        cursor.execute("ALTER TABLE scheduled_stack_operations_new RENAME TO scheduled_stack_operations")
+
+        conn.commit()
+        log.info("Migration completed: stack_id is now nullable")
 
     # License table for NetStacks Pro
     cursor.execute('''
@@ -292,10 +373,11 @@ def save_template_metadata(name, metadata):
         cursor = conn.cursor()
         cursor.execute('''
             INSERT OR REPLACE INTO templates
-            (name, validation_template, delete_template, description, updated_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (name, type, validation_template, delete_template, description, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             name,
+            metadata.get('type', 'deploy'),
             metadata.get('validation_template'),
             metadata.get('delete_template'),
             metadata.get('description')
@@ -742,3 +824,95 @@ def toggle_auth_config(auth_type, enabled):
             WHERE auth_type = ?
         ''', (1 if enabled else 0, auth_type))
         return cursor.rowcount > 0
+
+# ==================== Scheduled Stack Operations ====================
+
+def create_scheduled_operation(schedule_id, stack_id, operation_type, schedule_type, scheduled_time,
+                                day_of_week=None, day_of_month=None, created_by=None, config_data=None):
+    """Create a new scheduled stack operation"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO scheduled_stack_operations
+            (schedule_id, stack_id, operation_type, schedule_type, scheduled_time,
+             day_of_week, day_of_month, config_data, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (schedule_id, stack_id, operation_type, schedule_type, scheduled_time,
+              day_of_week, day_of_month, config_data, created_by))
+        return schedule_id
+
+def get_scheduled_operations(stack_id=None):
+    """Get scheduled operations, optionally filtered by stack_id"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if stack_id:
+            cursor.execute('''
+                SELECT * FROM scheduled_stack_operations
+                WHERE stack_id = ?
+                ORDER BY next_run ASC
+            ''', (stack_id,))
+        else:
+            cursor.execute('''
+                SELECT * FROM scheduled_stack_operations
+                ORDER BY next_run ASC
+            ''')
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+def get_scheduled_operation(schedule_id):
+    """Get a specific scheduled operation"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM scheduled_stack_operations WHERE schedule_id = ?', (schedule_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def update_scheduled_operation(schedule_id, **kwargs):
+    """Update a scheduled operation"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        allowed_fields = ['operation_type', 'schedule_type', 'scheduled_time', 'day_of_week',
+                         'day_of_month', 'enabled', 'last_run', 'next_run', 'run_count']
+
+        updates = []
+        values = []
+        for field, value in kwargs.items():
+            if field in allowed_fields:
+                updates.append(f'{field} = ?')
+                values.append(value)
+
+        if updates:
+            values.append(schedule_id)
+            cursor.execute(f'''
+                UPDATE scheduled_stack_operations
+                SET {', '.join(updates)}
+                WHERE schedule_id = ?
+            ''', values)
+            return cursor.rowcount > 0
+        return False
+
+def delete_scheduled_operation(schedule_id):
+    """Delete a scheduled operation"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM scheduled_stack_operations WHERE schedule_id = ?', (schedule_id,))
+        return cursor.rowcount > 0
+
+def get_pending_scheduled_operations():
+    """Get all enabled scheduled operations that are due to run"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Note: next_run is stored in ISO format (YYYY-MM-DDTHH:MM:SS+TZ)
+        # We need to convert it for SQLite comparison by:
+        # 1. Replacing 'T' with space
+        # 2. Removing timezone suffix (+00:00)
+        # 3. Removing milliseconds if present
+        cursor.execute('''
+            SELECT * FROM scheduled_stack_operations
+            WHERE enabled = 1
+            AND (next_run IS NULL OR
+                 REPLACE(SUBSTR(next_run, 1, 19), 'T', ' ') <= datetime('now'))
+            ORDER BY next_run ASC
+        ''')
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]

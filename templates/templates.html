@@ -51,8 +51,8 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <label for="template-name" class="form-label">Template Name</label>
-                    <input type="text" class="form-control" id="template-name" placeholder="my_template.j2">
-                    <small class="text-muted">Must end with .j2</small>
+                    <input type="text" class="form-control" id="template-name" placeholder="my_template">
+                    <small class="text-muted">Template name without .j2 extension (stored in Netpalm)</small>
                 </div>
 
                 <div class="mb-3">
@@ -60,24 +60,44 @@
                     <input type="text" class="form-control" id="template-description" placeholder="Brief description of what this template does">
                 </div>
 
-                <div class="row mb-3">
-                    <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="template-type" class="form-label">Template Type</label>
+                    <select class="form-select" id="template-type">
+                        <option value="deploy">Deploy - Adds configuration to device</option>
+                        <option value="delete">Delete - Removes configuration from device</option>
+                        <option value="validation">Validation - Validates configuration on device</option>
+                    </select>
+                    <small class="text-muted">Deploy templates can have validation and delete templates linked. Delete and validation templates are standalone.</small>
+                </div>
+
+                <div class="row mb-3" id="deploy-template-options">
+                    <div class="col-6">
                         <label for="validation-template" class="form-label">
                             <i class="fas fa-check-circle text-success"></i> Validation Template
                         </label>
-                        <select class="form-select" id="validation-template">
-                            <option value="">None - use deployed config</option>
-                        </select>
-                        <small class="text-muted">Defaults to using this template itself. Change if you need a custom validation template.</small>
+                        <div class="input-group">
+                            <select class="form-select" id="validation-template">
+                                <option value="">None - use deployed config</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" id="create-validation-template-btn" title="Create new validation template">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted d-block">Defaults to using this template itself. Change if you need a custom validation template.</small>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-6">
                         <label for="delete-template-select" class="form-label">
                             <i class="fas fa-trash-alt text-danger"></i> Delete Template
                         </label>
-                        <select class="form-select" id="delete-template-select">
-                            <option value="">None - manual cleanup</option>
-                        </select>
-                        <small class="text-muted">Template used to remove this configuration</small>
+                        <div class="input-group">
+                            <select class="form-select" id="delete-template-select">
+                                <option value="">None - manual cleanup</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" id="create-delete-template-btn" title="Create new delete template">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted d-block">Template used to remove this configuration</small>
                     </div>
                 </div>
 

@@ -59,6 +59,16 @@
     border-color: #dee2e6;
 }
 
+/* Service variables container - dark theme */
+[data-bs-theme="dark"] .service-variables-container {
+    background-color: #2a2a2a;
+}
+
+/* Service variables container - light theme */
+[data-bs-theme="light"] .service-variables-container {
+    background-color: #f8f9fa;
+}
+
 /* Alert/info boxes - neutral colors */
 [data-bs-theme="dark"] .alert-info {
     background-color: #1a3a52;
@@ -98,6 +108,67 @@
 .card {
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     margin-bottom: 1.5rem;
+}
+
+/* Template cards - compact styling */
+.template-card .card-body {
+    padding: 0.75rem;
+}
+
+.template-card .card-title {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.template-card .badge {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.4rem;
+}
+
+.template-card .template-flow {
+    margin: 0.5rem 0;
+}
+
+.template-card .action-buttons {
+    margin-top: 0.5rem;
+}
+
+.template-card p.text-muted {
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Standalone templates - even more compact */
+.template-card-mini .card-body {
+    padding: 0.5rem;
+}
+
+.template-card-mini .card-title {
+    font-size: 0.85rem;
+    margin-bottom: 0.4rem;
+}
+
+.template-card-mini .badge {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.35rem;
+}
+
+.template-card-mini .template-flow {
+    margin: 0.4rem 0;
+}
+
+.template-card-mini .action-buttons {
+    margin-top: 0.4rem;
+}
+
+.template-card-mini p.text-muted {
+    font-size: 0.75rem;
+    margin-bottom: 0.4rem;
+}
+
+.template-card-mini .btn-sm {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
 }
 
 .card-header {

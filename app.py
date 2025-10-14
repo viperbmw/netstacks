@@ -295,8 +295,91 @@ def get_all_service_instances():
     return instances
 
 
-def delete_service_instance(service_id):
-    """Delete a service instance from database"""
+def delete_service_instance(service_id, run_delete_template=False, credential_override=None):
+    """
+    Delete a service instance from database and optionally run delete template
+
+    Args:
+        service_id: The service instance ID
+        run_delete_template: If True, deploy the delete template to remove device config
+        credential_override: Optional dict with username/password
+
+    Returns:
+        Result of deletion, or dict with task_id if delete template was deployed
+    """
+    if run_delete_template:
+        # Get the service instance details first
+        service = get_service_instance(service_id)
+        if not service:
+            log.warning(f"Service instance {service_id} not found")
+            return {'success': False, 'error': 'Service not found'}
+
+        delete_template = service.get('delete_template')
+        device = service.get('device')
+        variables = service.get('variables', {})
+
+        log.info(f"Service {service_id}: delete_template='{delete_template}', device='{device}', variables={variables}")
+
+        if delete_template and device:
+            log.info(f"Running delete template '{delete_template}' on device '{device}' for service {service_id}")
+
+            try:
+                # Get device connection info
+                device_info = get_device_connection_info(device, credential_override)
+                if not device_info:
+                    log.error(f"Could not get connection info for device {device}")
+                    # Still delete from database
+                    result = db.delete_service_instance(service_id)
+                    return {'success': True, 'warning': 'Deleted from database but could not connect to device'}
+
+                # Strip .j2 extension if present - Netpalm stores templates without extension
+                template_name_clean = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
+                log.info(f"Deploying delete template '{template_name_clean}' via Netpalm with variables: {variables}")
+
+                # Use Netpalm's setconfig with j2config at top level
+                # This tells Netpalm to render the J2 template and deploy it in one operation
+                payload = {
+                    'library': 'netmiko',
+                    'connection_args': device_info['connection_args'],
+                    'j2config': {
+                        'template': template_name_clean,
+                        'args': variables
+                    },
+                    'queue_strategy': 'fifo'
+                }
+
+                log.info(f"Payload: {payload}")
+                response = requests.post(
+                    f'{NETPALM_API_URL}/setconfig',
+                    json=payload,
+                    headers=NETPALM_HEADERS,
+                    timeout=30
+                )
+                response.raise_for_status()
+                result = response.json()
+
+                task_id = result.get('data', {}).get('task_id')
+                log.info(f"Delete template deployed for service {service_id}, task_id: {task_id}")
+
+                # Save task ID to monitor
+                if task_id:
+                    save_task_id(task_id, device_name=f"delete:{device}")
+                    log.info(f"Saved delete task {task_id} to task history")
+
+                # Delete from database after successful job submission to Netpalm
+                db.delete_service_instance(service_id)
+
+                return {'success': True, 'task_id': task_id, 'message': 'Delete template deployed successfully'}
+
+            except Exception as e:
+                log.error(f"Error deploying delete template for service {service_id}: {e}")
+                # Still delete from database
+                db.delete_service_instance(service_id)
+                return {'success': True, 'warning': f'Deleted from database but failed to deploy delete template: {str(e)}'}
+        else:
+            log.warning(f"No delete template or device for service {service_id}")
+
+    # Standard database-only deletion
     result = db.delete_service_instance(service_id)
     log.info(f"Deleted service instance: {service_id}")
     return result
@@ -368,6 +451,62 @@ def render_j2_template(template_name, variables):
 
     except Exception as e:
         log.error(f"Error rendering template {template_name}: {e}")
+        return None
+
+
+def render_local_j2_template(template_name, variables):
+    """Render a Jinja2 template locally using template content from Netpalm
+
+    This is used for validation templates. We fetch the template content from Netpalm
+    and render it locally in NetStacks so we can compare against device config.
+    """
+    try:
+        from jinja2 import Environment, BaseLoader
+
+        # Fetch template content from Netpalm
+        # Template names in Netpalm are stored without .j2 extension
+        template_lookup = template_name[:-3] if template_name.endswith('.j2') else template_name
+
+        log.info(f"Fetching template content from Netpalm: {template_lookup}")
+        response = requests.get(
+            f'{NETPALM_API_URL}/j2template/config/{template_lookup}',
+            headers=NETPALM_HEADERS,
+            timeout=10
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        # Extract template content from response
+        # Netpalm returns templates as base64 encoded
+        template_data = result.get('data', {}).get('task_result', {})
+        base64_payload = template_data.get('base64_payload', '')
+
+        if not base64_payload:
+            log.error(f"No template content found for: {template_lookup}")
+            log.error(f"Response data: {template_data}")
+            return None
+
+        # Decode base64 template
+        import base64
+        template_content = base64.b64decode(base64_payload).decode('utf-8')
+        log.info(f"Retrieved and decoded template content: {len(template_content)} bytes")
+        log.info(f"Rendering locally with variables: {variables}")
+
+        # Render the template locally using Jinja2
+        env = Environment(
+            loader=BaseLoader(),
+            trim_blocks=True,
+            lstrip_blocks=True
+        )
+
+        template = env.from_string(template_content)
+        rendered = template.render(**variables)
+
+        log.info(f"Successfully rendered template locally")
+        return rendered
+
+    except Exception as e:
+        log.error(f"Error rendering local template {template_name}: {e}", exc_info=True)
         return None
 
 
@@ -1513,6 +1652,7 @@ def get_templates():
             metadata = all_metadata.get(lookup_name, {})
             enhanced_templates.append({
                 'name': template_name,
+                'type': metadata.get('type', 'deploy'),  # Default to deploy if not set
                 'validation_template': metadata.get('validation_template'),
                 'delete_template': metadata.get('delete_template'),
                 'description': metadata.get('description')
@@ -1615,21 +1755,24 @@ def create_template():
 @app.route('/api/templates/<template_name>/metadata', methods=['PUT'])
 @login_required
 def update_template_metadata(template_name):
-    """Update template metadata (validation and delete templates)"""
+    """Update template metadata (validation and delete templates, type)"""
     try:
         data = request.json
+        log.info(f"Updating template metadata for {template_name}, received data: {data}")
 
         # Strip .j2 extension for consistency
         if template_name.endswith('.j2'):
             template_name = template_name[:-3]
 
         metadata = {
+            'type': data.get('type', 'deploy'),  # deploy, delete, or validation
             'validation_template': data.get('validation_template'),
             'delete_template': data.get('delete_template'),
             'description': data.get('description'),
             'updated_at': datetime.utcnow().isoformat()
         }
 
+        log.info(f"Saving metadata: {metadata}")
         save_template_metadata(template_name, metadata)
 
         return jsonify({'success': True, 'message': 'Template metadata updated successfully'})
@@ -1651,6 +1794,7 @@ def delete_template():
 
         payload = {'name': template_name}
 
+        # Delete from Netpalm
         response = requests.delete(
             f'{NETPALM_API_URL}/j2template/config/',
             json=payload,
@@ -1658,6 +1802,12 @@ def delete_template():
             timeout=10
         )
         response.raise_for_status()
+
+        # Delete metadata from local database
+        try:
+            delete_template_metadata(template_name)
+        except Exception as db_error:
+            log.warning(f"Failed to delete template metadata for {template_name}: {db_error}")
 
         return jsonify({'success': True, 'message': 'Template deleted successfully'})
     except Exception as e:
@@ -2167,11 +2317,11 @@ def redeploy_service_instance(service_id):
         if not service:
             return jsonify({'success': False, 'error': 'Service not found'}), 404
 
-        # Check if service has rendered config
-        if not service.get('rendered_config'):
+        # Check if service has template and variables
+        if not service.get('template'):
             return jsonify({
                 'success': False,
-                'error': 'Service has no rendered configuration to redeploy'
+                'error': 'Service has no template to redeploy'
             }), 400
 
         # Get credentials from request if provided
@@ -2179,7 +2329,7 @@ def redeploy_service_instance(service_id):
         username = data.get('username')
         password = data.get('password')
 
-        log.info(f"Redeploying service {service_id} to device {service.get('device')}")
+        log.info(f"Redeploying service {service_id} to device {service.get('device')} with template {service.get('template')}")
 
         # Get device connection info
         credential_override = None
@@ -2193,14 +2343,18 @@ def redeploy_service_instance(service_id):
                 'error': f'Could not get connection info for device: {service["device"]}'
             }), 400
 
-        # Deploy configuration
+        # Deploy using j2config - let Netpalm render and deploy
         deploy_response = requests.post(
             f'{NETPALM_API_URL}/setconfig',
             headers=NETPALM_HEADERS,
             json={
                 'library': 'netmiko',
                 'connection_args': device_info['connection_args'],
-                'config': service['rendered_config'].split('\n')
+                'j2config': {
+                    'template': service['template'],
+                    'args': service.get('variables', {})
+                },
+                'queue_strategy': 'fifo'
             },
             timeout=60
         )
@@ -2214,55 +2368,18 @@ def redeploy_service_instance(service_id):
         if task_id:
             save_task_id(task_id, device_name=f"service_redeploy:{service_id}:{service.get('device')}")
 
-        # Wait for deployment to complete
-        max_wait = 60
-        waited = 0
-
-        while waited < max_wait:
-            time.sleep(2)
-            waited += 2
-
-            status_response = requests.get(
-                f'{NETPALM_API_URL}/task/{task_id}',
-                headers=NETPALM_HEADERS,
-                timeout=10
-            )
-
-            if status_response.status_code == 200:
-                task_status = status_response.json()
-                task_data = task_status.get('data', {})
-
-                if task_data.get('task_status') == 'finished':
-                    # Update service instance to deployed state
-                    service['state'] = 'deployed'
-                    service['task_id'] = task_id
-                    service['deployed_at'] = datetime.utcnow().isoformat()
-                    if 'error' in service:
-                        del service['error']
-                    save_service_instance(service)
-
-                    return jsonify({
-                        'success': True,
-                        'task_id': task_id,
-                        'message': f'Service redeployed successfully to {service["device"]}'
-                    })
-                elif task_data.get('task_status') == 'failed':
-                    error_msg = task_data.get('task_errors', 'Deployment failed')
-                    # Update service to failed state
-                    service['state'] = 'failed'
-                    service['error'] = str(error_msg)
-                    service['task_id'] = task_id
-                    save_service_instance(service)
-
-                    return jsonify({
-                        'success': False,
-                        'error': f'Deployment failed: {error_msg}'
-                    }), 500
+        # Update service state to deploying (non-blocking - let Netpalm queue handle it)
+        service['state'] = 'deploying'
+        service['task_id'] = task_id
+        if 'error' in service:
+            del service['error']
+        save_service_instance(service)
 
         return jsonify({
-            'success': False,
-            'error': 'Timeout waiting for deployment to complete'
-        }), 500
+            'success': True,
+            'task_id': task_id,
+            'message': f'Service redeploy job submitted to Netpalm. Task ID: {task_id}'
+        })
 
     except Exception as e:
         log.error(f"Error redeploying service instance: {e}", exc_info=True)
@@ -2308,23 +2425,20 @@ def delete_template_service(service_id):
                 device_info['connection_args']['username'] = username
                 device_info['connection_args']['password'] = password
 
-            # Render delete template using Netpalm
+            # Use j2config to let Netpalm render and deploy the delete template
+            # Strip .j2 extension - Netpalm stores templates without extension
             template_name = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
-            rendered_config = render_j2_template(template_name, service.get('variables', {}))
 
-            if not rendered_config:
-                return jsonify({
-                    'success': False,
-                    'error': f'Failed to render delete template: {delete_template}'
-                }), 500
+            log.info(f"Deploying delete template '{template_name}' via Netpalm with j2config")
 
-            log.info(f"Rendered delete config: {rendered_config[:200]}...")
-
-            # Push delete config to device
+            # Push delete config to device using j2config
             setconfig_payload = {
                 'library': 'netmiko',
                 'connection_args': device_info['connection_args'],
-                'config': rendered_config.split('\n'),
+                'j2config': {
+                    'template': template_name,
+                    'args': service.get('variables', {})
+                },
                 'queue_strategy': 'fifo'
             }
 
@@ -2338,7 +2452,7 @@ def delete_template_service(service_id):
             if response.status_code != 201:
                 return jsonify({
                     'success': False,
-                    'error': f'Failed to execute delete on device: {response.text}'
+                    'error': f'Failed to submit delete job to Netpalm: {response.text}'
                 }), 500
 
             result = response.json()
@@ -2346,40 +2460,9 @@ def delete_template_service(service_id):
 
             if task_id:
                 save_task_id(task_id, device_name=f"service_delete:{service_id}")
+                log.info(f"Delete job submitted to Netpalm, task_id: {task_id}")
 
-            # Wait for deletion task to complete
-            log.info(f"Waiting for deletion task {task_id} to complete...")
-            max_wait = 60
-            waited = 0
-            while waited < max_wait:
-                time.sleep(2)
-                waited += 2
-
-                task_response = requests.get(
-                    f'{NETPALM_API_URL}/task/{task_id}',
-                    headers=NETPALM_HEADERS,
-                    timeout=10
-                )
-                task_data = task_response.json()
-                task_status = task_data.get('data', {}).get('task_status')
-
-                if task_status == 'finished':
-                    log.info(f"Delete task completed successfully")
-                    break
-                elif task_status == 'failed':
-                    task_errors = task_data.get('data', {}).get('task_errors', [])
-                    return jsonify({
-                        'success': False,
-                        'error': f'Delete task failed: {task_errors}',
-                        'task_id': task_id
-                    }), 500
-
-            if waited >= max_wait:
-                return jsonify({
-                    'success': False,
-                    'error': 'Timeout waiting for delete task to complete',
-                    'task_id': task_id
-                }), 500
+            # Non-blocking: job submitted to Netpalm queue, don't wait for completion
 
         # Remove service from any stacks that reference it
         stack_id = service.get('stack_id')
@@ -2469,11 +2552,11 @@ def validate_service_instance(service_id):
                 'error': f"Cannot validate failed service: {service.get('error', 'Service deployment failed')}"
             }), 400
 
-        # Check if service has rendered config
-        if not service.get('rendered_config'):
+        # Check if service has template and variables (needed for validation)
+        if not service.get('template'):
             return jsonify({
                 'success': False,
-                'error': 'Service has no rendered configuration to validate'
+                'error': 'Service has no template defined'
             }), 400
 
         # Get credentials from request if provided
@@ -2600,22 +2683,31 @@ def validate_service_instance(service_id):
             # String format
             running_config_lines = [line.strip() for line in str(running_config).split('\n') if line.strip()]
 
-        # Get validation config - use validation template if specified, otherwise use deployed config
+        # Get validation config - use validation template if specified, otherwise use deployment template
         validation_template = service.get('validation_template')
-        if validation_template:
-            # Render validation template with service variables
-            log.info(f"Using validation template: {validation_template}")
-            template_lookup = validation_template[:-3] if validation_template.endswith('.j2') else validation_template
-            validation_config = render_j2_template(template_lookup, service.get('variables', {}))
+        template_to_use = validation_template if validation_template else service.get('template')
 
-            if not validation_config:
-                log.warning(f"Failed to render validation template, falling back to deployed config")
-                validation_config = service['rendered_config']
+        if not template_to_use:
+            log.error(f"Service {service_id} has no template for validation")
+            return jsonify({
+                'success': False,
+                'error': 'Service has no template defined for validation'
+            }), 400
 
-            rendered_lines = [line.strip() for line in validation_config.split('\n') if line.strip()]
-        else:
-            # Use deployed config for validation
-            rendered_lines = [line.strip() for line in service['rendered_config'].split('\n') if line.strip()]
+        # Render template LOCALLY with service variables
+        # Fetch template content from Netpalm and render locally
+        log.info(f"Using template for validation: {template_to_use}")
+        template_lookup = template_to_use[:-3] if template_to_use.endswith('.j2') else template_to_use
+        validation_config = render_local_j2_template(template_lookup, service.get('variables', {}))
+
+        if not validation_config:
+            log.error(f"Failed to render validation template: {template_lookup}")
+            return jsonify({
+                'success': False,
+                'error': f'Template not found or failed to render: {template_to_use}'
+            }), 500
+
+        rendered_lines = [line.strip() for line in validation_config.split('\n') if line.strip()]
 
         # Normalize config lines for comparison - handle abbreviations and whitespace
         def normalize_config_line(line):
@@ -2670,6 +2762,98 @@ def validate_service_instance(service_id):
 
     except Exception as e:
         log.error(f"Error validating service instance: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/services/instances/sync-states', methods=['POST'])
+@login_required
+def sync_service_instance_states():
+    """Sync service instance states from Netpalm task status"""
+    try:
+        updated_count = 0
+        failed_count = 0
+
+        # Get all service instances in 'deploying' state
+        all_services = get_all_service_instances()
+        deploying_services = [s for s in all_services if s.get('state') == 'deploying']
+
+        log.info(f"Found {len(deploying_services)} services in deploying state")
+
+        for service in deploying_services:
+            task_id = service.get('task_id')
+            if not task_id:
+                continue
+
+            try:
+                # Query Netpalm for task status
+                response = requests.get(
+                    f'{NETPALM_API_URL}/task/{task_id}',
+                    headers=NETPALM_HEADERS,
+                    timeout=10
+                )
+
+                if response.status_code == 200:
+                    task_data = response.json().get('data', {})
+                    task_status = task_data.get('task_status')
+
+                    if task_status == 'finished':
+                        # Update to deployed
+                        service['state'] = 'deployed'
+                        service['deployed_at'] = datetime.utcnow().isoformat()
+                        save_service_instance(service)
+                        updated_count += 1
+                        log.info(f"Updated service {service.get('service_id')} to deployed")
+
+                    elif task_status == 'failed':
+                        # Update to failed
+                        service['state'] = 'failed'
+                        service['error'] = task_data.get('task_errors', 'Deployment failed')
+                        save_service_instance(service)
+                        failed_count += 1
+                        log.info(f"Updated service {service.get('service_id')} to failed")
+
+            except Exception as e:
+                log.error(f"Error syncing service {service.get('service_id')}: {e}")
+                continue
+
+        # Update stack states based on service states
+        stacks_updated = set()
+        for service in deploying_services:
+            stack_id = service.get('stack_id')
+            if stack_id and stack_id not in stacks_updated:
+                # Get all services for this stack
+                stack_services = [s for s in all_services if s.get('stack_id') == stack_id]
+
+                # Calculate stack state based on service states
+                states = [s.get('state') for s in stack_services]
+
+                if all(state == 'deployed' for state in states):
+                    new_state = 'deployed'
+                elif any(state == 'failed' for state in states):
+                    new_state = 'partial' if any(state == 'deployed' for state in states) else 'failed'
+                elif any(state == 'deploying' for state in states):
+                    new_state = 'deploying'
+                else:
+                    new_state = 'pending'
+
+                # Update stack state
+                stack = get_service_stack(stack_id)
+                if stack and stack.get('state') != new_state:
+                    stack['state'] = new_state
+                    db.save_service_stack(stack)
+                    log.info(f"Updated stack {stack_id} state to {new_state}")
+                    stacks_updated.add(stack_id)
+
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'failed': failed_count,
+            'stacks_updated': len(stacks_updated),
+            'still_deploying': len([s for s in deploying_services if s.get('state') == 'deploying']) - updated_count - failed_count
+        })
+
+    except Exception as e:
+        log.error(f"Error syncing service states: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -2837,21 +3021,44 @@ def delete_stack(stack_id):
         if not stack:
             return jsonify({'success': False, 'error': 'Service stack not found'}), 404
 
-        # Optional: Delete associated service instances
-        delete_services = request.args.get('delete_services', 'false').lower() == 'true'
+        # Get credentials from request body for delete templates
+        data = request.json or {}
+        username = data.get('username')
+        password = data.get('password')
 
+        credential_override = None
+        if username and password:
+            credential_override = {'username': username, 'password': password}
+            log.info(f"Using provided credentials for delete operations (user: {username})")
+
+        # Optional: Delete associated service instances and run delete templates
+        delete_services = request.args.get('delete_services', 'false').lower() == 'true'
+        log.info(f"Delete stack {stack_id}: delete_services={delete_services}, deployed_services={stack.get('deployed_services', [])}")
+
+        deleted_count = 0
+        task_ids = []
         if delete_services and 'deployed_services' in stack:
+            log.info(f"Processing {len(stack.get('deployed_services', []))} deployed services for deletion")
             for service_id in stack.get('deployed_services', []):
                 try:
-                    delete_service_instance(service_id)
+                    log.info(f"Deleting service {service_id} with delete template")
+                    # Run delete template to remove config from devices
+                    result = delete_service_instance(service_id, run_delete_template=True, credential_override=credential_override)
+                    log.info(f"Delete service result: {result}")
+                    if isinstance(result, dict) and result.get('task_id'):
+                        task_ids.append(result['task_id'])
+                        log.info(f"Added task_id {result['task_id']} to task list")
+                    deleted_count += 1
                 except Exception as e:
-                    log.warning(f"Failed to delete service {service_id}: {e}")
+                    log.warning(f"Failed to delete service {service_id}: {e}", exc_info=True)
 
         delete_service_stack(stack_id)
 
         return jsonify({
             'success': True,
-            'message': f'Service stack "{stack["name"]}" deleted successfully'
+            'message': f'Service stack "{stack["name"]}" deleted successfully',
+            'deleted_services': deleted_count,
+            'task_ids': task_ids
         })
 
     except Exception as e:
@@ -2945,15 +3152,8 @@ def deploy_service_stack(stack_id):
                 # Get template metadata (validation and delete templates)
                 template_metadata = get_template_metadata(template_name) or {}
 
-                log.info(f"Rendering template: '{template_name}' with variables: {variables}")
-
-                # Render template using Netpalm
-                rendered_config = render_j2_template(template_name, variables)
-
-                if not rendered_config:
-                    raise Exception(f"Failed to render template: {template_name}")
-
-                log.info(f"Rendered config preview: {rendered_config[:200]}...")
+                # Use template name without .j2 extension (Netpalm stores templates without extension)
+                log.info(f"Deploying template '{template_name}' with variables: {variables}")
 
                 # Handle both single device (old format) and multiple devices (new format)
                 devices = service_def.get('devices', [service_def.get('device')]) if service_def.get('devices') else [service_def.get('device')]
@@ -2968,7 +3168,7 @@ def deploy_service_stack(stack_id):
                         continue
 
                     try:
-                        # Check if device already has this exact config deployed
+                        # Check if device already has this exact template+variables deployed
                         existing_service = None
                         if stack.get('deployed_services'):
                             for existing_id in stack.get('deployed_services', []):
@@ -2977,9 +3177,13 @@ def deploy_service_stack(stack_id):
                                     existing_service = existing
                                     break
 
-                        # Compare rendered config with existing service
-                        if existing_service and existing_service.get('rendered_config') == rendered_config and existing_service.get('state') == 'deployed':
-                            log.info(f"Skipping {device_name} - configuration unchanged")
+                        # Compare template and variables with existing service
+                        # Skip if same template, same variables, and already deployed
+                        if existing_service and \
+                           existing_service.get('template') == template_name and \
+                           existing_service.get('variables') == variables and \
+                           existing_service.get('state') == 'deployed':
+                            log.info(f"Skipping {device_name} - template and variables unchanged")
                             service_skipped_devices.append(device_name)
                             # Keep the existing service instance
                             deployed_service_ids.append(existing_service['service_id'])
@@ -2992,16 +3196,35 @@ def deploy_service_stack(stack_id):
                         if not device_info:
                             raise Exception(f"Could not get connection info for device '{device_name}'")
 
-                        log.info(f"Deploying configuration to {device_name} (config changed or new)")
-                        # Deploy configuration
+                        log.info(f"Deploying template to {device_name} via Netpalm (template or variables changed)")
+
+                        # Log the exact payload being sent
+                        payload = {
+                            'library': 'netmiko',
+                            'connection_args': device_info['connection_args'],
+                            'j2config': {
+                                'template': template_name,
+                                'args': variables
+                            },
+                            'queue_strategy': 'fifo'
+                        }
+
+                        # Add pre/post checks if defined in service
+                        if service_def.get('pre_checks'):
+                            payload['pre_checks'] = service_def['pre_checks']
+                            log.info(f"Adding pre-checks: {service_def['pre_checks']}")
+
+                        if service_def.get('post_checks'):
+                            payload['post_checks'] = service_def['post_checks']
+                            log.info(f"Adding post-checks: {service_def['post_checks']}")
+
+                        log.info(f"Sending payload to Netpalm: j2config.template='{template_name}', args={variables}")
+
+                        # Deploy using Netpalm's j2config - Netpalm renders and deploys in one call
                         deploy_response = requests.post(
                             f'{NETPALM_API_URL}/setconfig',
                             headers=NETPALM_HEADERS,
-                            json={
-                                'library': 'netmiko',
-                                'connection_args': device_info['connection_args'],
-                                'config': rendered_config.split('\n')
-                            },
+                            json=payload,
                             timeout=60
                         )
 
@@ -3016,42 +3239,20 @@ def deploy_service_stack(stack_id):
                         # Save task to history for monitoring
                         save_task_id(task_id, device_name=f"stack:{stack.get('name')}:{service_def['name']}:{device_name}")
 
-                        # Wait for deployment to complete (with timeout)
-                        max_wait = 60
-                        waited = 0
-                        task_error = None
-
-                        while waited < max_wait:
-                            time.sleep(2)
-                            waited += 2
-
-                            status_response = requests.get(
-                                f'{NETPALM_API_URL}/task/{task_id}',
-                                headers=NETPALM_HEADERS,
-                                timeout=10
-                            )
-
-                            if status_response.status_code == 200:
-                                task_status = status_response.json()
-                                task_data = task_status.get('data', {})
-
-                                if task_data.get('task_status') == 'finished':
-                                    break
-                                elif task_data.get('task_status') == 'failed':
-                                    task_error = task_data.get('task_errors')
-                                    raise Exception(f"Deployment task failed on {device_name}: {task_error}")
-
-                        # Create service instance record for this device
+                        # Create service instance record immediately in 'deploying' state
+                        # Let Netpalm queue handle the deployment - don't wait here
+                        # Note: rendered_config is not stored since Netpalm does the rendering
                         service_instance = {
                             'service_id': str(uuid.uuid4()),
                             'name': f"{service_def['name']} ({device_name})",
-                            'template': service_def['template'],
+                            'template': template_name,
                             'validation_template': template_metadata.get('validation_template'),
                             'delete_template': template_metadata.get('delete_template'),
                             'device': device_name,
                             'variables': variables,
-                            'rendered_config': rendered_config,
-                            'state': 'deployed',
+                            'pre_checks': service_def.get('pre_checks'),
+                            'post_checks': service_def.get('post_checks'),
+                            'state': 'deploying',  # Jobs submitted to Netpalm queue
                             'task_id': task_id,
                             'stack_id': stack_id,
                             'stack_order': service_def.get('order', 0),
@@ -3075,12 +3276,11 @@ def deploy_service_stack(stack_id):
                         failed_service_instance = {
                             'service_id': str(uuid.uuid4()),
                             'name': f"{service_def['name']} ({device_name})",
-                            'template': service_def['template'],
+                            'template': template_name,
                             'validation_template': template_metadata.get('validation_template'),
                             'delete_template': template_metadata.get('delete_template'),
                             'device': device_name,
                             'variables': variables,
-                            'rendered_config': rendered_config,
                             'state': 'failed',
                             'error': str(device_error),
                             'stack_id': stack_id,
@@ -3126,16 +3326,19 @@ def deploy_service_stack(stack_id):
                 continue
 
         # Update stack state
+        # Since services are submitted to Netpalm queue and may still be deploying,
+        # the stack state reflects job submission, not completion
         if failed_services:
-            # Check if we have ANY successful deployments
+            # Check if we have ANY successful job submissions
             has_successes = len(deployed_service_ids) > 0
             if has_successes:
-                stack['state'] = 'partial'  # Some succeeded, some failed
+                stack['state'] = 'partial'  # Some jobs submitted, some failed
             else:
-                stack['state'] = 'failed'  # Everything failed
+                stack['state'] = 'failed'  # All jobs failed to submit
             stack['deployment_errors'] = failed_services
         else:
-            stack['state'] = 'deployed'
+            # All jobs successfully submitted to Netpalm queue
+            stack['state'] = 'deploying'  # Changed from 'deployed' - jobs are queued in Netpalm
 
         stack['deployed_services'] = deployed_service_ids
         stack['deploy_completed_at'] = datetime.utcnow().isoformat()
@@ -3237,28 +3440,59 @@ def validate_service_stack(stack_id):
                 log.info(f"Validating service '{service.get('name')}' ({service_id}) with username={username}")
 
                 # Build validation request context and push it
+                log.info(f"Creating test request context for {service_id}")
                 ctx = app.test_request_context(
                     f'/api/services/instances/{service_id}/validate',
                     method='POST',
                     json={'username': username, 'password': password},
                     content_type='application/json'
                 )
+                log.info(f"Pushing context for {service_id}")
                 ctx.push()
 
                 try:
+                    # Set up session for authentication (bypass @login_required)
+                    from flask import session as flask_session
+                    flask_session['username'] = session.get('username')
+                    log.info(f"Set session username to: {flask_session.get('username')}")
+
                     # Call the service validation function directly
+                    log.info(f"Calling validate_service_instance for {service_id}")
                     response = validate_service_instance(service_id)
+                    log.info(f"Got response type: {type(response)}")
+                    log.info(f"Response is tuple: {isinstance(response, tuple)}")
 
                     # Handle None response
                     if response is None:
                         raise Exception("Validation returned None - check service instance state")
 
                     # Extract JSON data from response
+                    response_data = None
                     if isinstance(response, tuple):
+                        # Flask response with status code: (response, status_code)
                         response_obj = response[0]
-                        response_data = response_obj.get_json() if response_obj else None
+                        status_code = response[1] if len(response) > 1 else 200
+                        log.info(f"Tuple response: status_code={status_code}, obj_type={type(response_obj)}")
+                        log.info(f"Response data: {response_obj.get_data(as_text=True)[:200] if hasattr(response_obj, 'get_data') else 'no get_data'}")
+                        try:
+                            response_data = response_obj.get_json(force=True) if hasattr(response_obj, 'get_json') else response_obj
+                        except Exception as e:
+                            log.error(f"Failed to extract JSON from tuple response: {type(response_obj)}, error: {e}")
+                            raise Exception(f"Invalid response format from validation: {type(response_obj)}")
                     else:
-                        response_data = response.get_json() if response else None
+                        # Direct Flask response object
+                        log.info(f"Response status: {response.status_code if hasattr(response, 'status_code') else 'unknown'}")
+                        log.info(f"Response data: {response.get_data(as_text=True)[:200] if hasattr(response, 'get_data') else 'no get_data'}")
+                        if hasattr(response, 'get_json'):
+                            log.info(f"Calling get_json() on response")
+                            # Force processing of the response
+                            response_data = response.get_json(force=True)
+                            log.info(f"Got response_data: {response_data}")
+                        elif hasattr(response, 'json'):
+                            response_data = response.json
+                        else:
+                            log.error(f"Response type: {type(response)}, Response: {response}")
+                            raise Exception(f"Response object has no get_json method: {type(response)}")
 
                     # Check if we got valid response data
                     if not response_data:
@@ -3281,7 +3515,9 @@ def validate_service_stack(stack_id):
                     ctx.pop()
 
             except Exception as e:
+                import traceback
                 log.error(f"Error validating service {service_id}: {e}")
+                log.error(f"Traceback: {traceback.format_exc()}")
                 validation_results.append({
                     'service_id': service_id,
                     'service_name': service.get('name'),
@@ -3306,6 +3542,291 @@ def validate_service_stack(stack_id):
 
     except Exception as e:
         log.error(f"Error validating service stack: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== Scheduled Stack Operations Endpoints ====================
+
+@app.route('/api/scheduled-operations', methods=['POST'])
+@login_required
+def create_scheduled_operation():
+    """Create a new scheduled stack operation"""
+    try:
+        from database import create_scheduled_operation as db_create_schedule
+        import uuid
+        from datetime import datetime as dt, timedelta
+
+        data = request.json
+        stack_id = data.get('stack_id')
+        operation_type = data.get('operation_type')
+        schedule_type = data.get('schedule_type')
+        scheduled_time = data.get('scheduled_time')
+        day_of_week = data.get('day_of_week')
+        day_of_month = data.get('day_of_month')
+
+        if not all([stack_id, operation_type, schedule_type, scheduled_time]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        if operation_type not in ['deploy', 'validate', 'delete']:
+            return jsonify({'success': False, 'error': 'Invalid operation_type'}), 400
+
+        if schedule_type not in ['once', 'daily', 'weekly', 'monthly']:
+            return jsonify({'success': False, 'error': 'Invalid schedule_type'}), 400
+
+        schedule_id = str(uuid.uuid4())
+        username = session.get('username')
+
+        # Calculate next_run time
+        now = dt.utcnow()
+        if schedule_type == 'once':
+            next_run = dt.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+        else:
+            # For recurring schedules, calculate next occurrence
+            time_parts = scheduled_time.split(':')
+            hour = int(time_parts[0])
+            minute = int(time_parts[1])
+
+            if schedule_type == 'daily':
+                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run += timedelta(days=1)
+            elif schedule_type == 'weekly':
+                # day_of_week: 0=Monday, 6=Sunday
+                days_ahead = day_of_week - now.weekday()
+                if days_ahead < 0:
+                    days_ahead += 7
+                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days_ahead)
+                if next_run <= now:
+                    next_run += timedelta(weeks=1)
+            elif schedule_type == 'monthly':
+                next_run = now.replace(day=day_of_month, hour=hour, minute=minute, second=0, microsecond=0)
+                if next_run <= now:
+                    # Move to next month
+                    if now.month == 12:
+                        next_run = next_run.replace(year=now.year + 1, month=1)
+                    else:
+                        next_run = next_run.replace(month=now.month + 1)
+
+        db_create_schedule(
+            schedule_id=schedule_id,
+            stack_id=stack_id,
+            operation_type=operation_type,
+            schedule_type=schedule_type,
+            scheduled_time=scheduled_time,
+            day_of_week=day_of_week,
+            day_of_month=day_of_month,
+            created_by=username
+        )
+
+        # Update next_run
+        from database import update_scheduled_operation
+        update_scheduled_operation(schedule_id, next_run=next_run.isoformat())
+
+        log.info(f"Created scheduled operation: {schedule_id} for stack {stack_id}")
+        return jsonify({'success': True, 'schedule_id': schedule_id})
+
+    except Exception as e:
+        log.error(f"Error creating scheduled operation: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/scheduled-operations', methods=['GET'])
+@login_required
+def get_scheduled_operations():
+    """Get scheduled operations, optionally filtered by stack_id"""
+    try:
+        from database import get_scheduled_operations as db_get_schedules
+
+        stack_id = request.args.get('stack_id')
+        schedules = db_get_schedules(stack_id=stack_id)
+
+        return jsonify({'success': True, 'schedules': schedules})
+
+    except Exception as e:
+        log.error(f"Error getting scheduled operations: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/scheduled-operations/<schedule_id>', methods=['GET'])
+@login_required
+def get_scheduled_operation(schedule_id):
+    """Get a specific scheduled operation"""
+    try:
+        from database import get_scheduled_operation as db_get_schedule
+
+        schedule = db_get_schedule(schedule_id)
+        if not schedule:
+            return jsonify({'success': False, 'error': 'Schedule not found'}), 404
+
+        return jsonify({'success': True, 'schedule': schedule})
+
+    except Exception as e:
+        log.error(f"Error getting scheduled operation: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/scheduled-operations/<schedule_id>', methods=['PATCH', 'PUT'])
+@login_required
+def update_scheduled_operation_endpoint(schedule_id):
+    """Update a scheduled operation"""
+    try:
+        from database import update_scheduled_operation as db_update_schedule, get_scheduled_operation
+        from datetime import datetime as dt, timedelta
+
+        data = request.json
+
+        # If schedule time/type changed, recalculate next_run
+        if 'schedule_type' in data or 'scheduled_time' in data:
+            schedule = get_scheduled_operation(schedule_id)
+            if not schedule:
+                return jsonify({'success': False, 'error': 'Schedule not found'}), 404
+
+            schedule_type = data.get('schedule_type', schedule['schedule_type'])
+            scheduled_time = data.get('scheduled_time', schedule['scheduled_time'])
+            day_of_week = data.get('day_of_week', schedule.get('day_of_week'))
+            day_of_month = data.get('day_of_month', schedule.get('day_of_month'))
+
+            # Calculate new next_run
+            now = dt.utcnow()
+            if schedule_type == 'once':
+                next_run = dt.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+            else:
+                time_parts = scheduled_time.split(':')
+                hour = int(time_parts[0])
+                minute = int(time_parts[1])
+
+                if schedule_type == 'daily':
+                    next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if next_run <= now:
+                        next_run += timedelta(days=1)
+                elif schedule_type == 'weekly':
+                    days_ahead = day_of_week - now.weekday()
+                    if days_ahead < 0:
+                        days_ahead += 7
+                    next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days_ahead)
+                    if next_run <= now:
+                        next_run += timedelta(weeks=1)
+                elif schedule_type == 'monthly':
+                    next_run = now.replace(day=day_of_month, hour=hour, minute=minute, second=0, microsecond=0)
+                    if next_run <= now:
+                        if now.month == 12:
+                            next_run = next_run.replace(year=now.year + 1, month=1)
+                        else:
+                            next_run = next_run.replace(month=now.month + 1)
+
+            data['next_run'] = next_run.isoformat()
+
+        success = db_update_schedule(schedule_id, **data)
+
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Schedule not found'}), 404
+
+    except Exception as e:
+        log.error(f"Error updating scheduled operation: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/scheduled-operations/<schedule_id>', methods=['DELETE'])
+@login_required
+def delete_scheduled_operation_endpoint(schedule_id):
+    """Delete a scheduled operation"""
+    try:
+        from database import delete_scheduled_operation as db_delete_schedule
+
+        success = db_delete_schedule(schedule_id)
+
+        if success:
+            log.info(f"Deleted scheduled operation: {schedule_id}")
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Schedule not found'}), 404
+
+    except Exception as e:
+        log.error(f"Error deleting scheduled operation: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/scheduled-config-operations', methods=['POST'])
+@login_required
+def create_scheduled_config_operation():
+    """Create a scheduled config deployment operation"""
+    try:
+        from database import create_scheduled_operation as db_create_schedule
+        import uuid
+        from datetime import datetime as dt, timedelta
+        import json
+
+        data = request.json
+        operation_type = data.get('operation_type')  # should be 'config_deploy'
+        schedule_type = data.get('schedule_type')
+        scheduled_time = data.get('scheduled_time')
+        day_of_week = data.get('day_of_week')
+        day_of_month = data.get('day_of_month')
+        config_data = data.get('config')  # deployment configuration
+
+        if not all([operation_type, schedule_type, scheduled_time, config_data]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        if operation_type != 'config_deploy':
+            return jsonify({'success': False, 'error': 'Invalid operation_type'}), 400
+
+        if schedule_type not in ['once', 'daily', 'weekly', 'monthly']:
+            return jsonify({'success': False, 'error': 'Invalid schedule_type'}), 400
+
+        schedule_id = str(uuid.uuid4())
+        username = session.get('username')
+
+        # Calculate next_run time
+        now = dt.utcnow()
+        if schedule_type == 'once':
+            next_run = dt.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+        else:
+            time_parts = scheduled_time.split(':')
+            hour = int(time_parts[0])
+            minute = int(time_parts[1])
+
+            if schedule_type == 'daily':
+                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run += timedelta(days=1)
+            elif schedule_type == 'weekly':
+                days_ahead = day_of_week - now.weekday()
+                if days_ahead < 0:
+                    days_ahead += 7
+                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days_ahead)
+                if next_run <= now:
+                    next_run += timedelta(weeks=1)
+            elif schedule_type == 'monthly':
+                next_run = now.replace(day=day_of_month, hour=hour, minute=minute, second=0, microsecond=0)
+                if next_run <= now:
+                    if now.month == 12:
+                        next_run = next_run.replace(year=now.year + 1, month=1)
+                    else:
+                        next_run = next_run.replace(month=now.month + 1)
+
+        db_create_schedule(
+            schedule_id=schedule_id,
+            stack_id=None,  # No stack for config deployments
+            operation_type=operation_type,
+            schedule_type=schedule_type,
+            scheduled_time=scheduled_time,
+            day_of_week=day_of_week,
+            day_of_month=day_of_month,
+            config_data=json.dumps(config_data),
+            created_by=username
+        )
+
+        # Update next_run
+        from database import update_scheduled_operation
+        update_scheduled_operation(schedule_id, next_run=next_run.isoformat())
+
+        log.info(f"Created scheduled config operation: {schedule_id}")
+        return jsonify({'success': True, 'schedule_id': schedule_id})
+
+    except Exception as e:
+        log.error(f"Error creating scheduled config operation: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -3788,6 +4309,287 @@ def test_oidc_connection_endpoint():
     except Exception as e:
         log.error(f"Error testing OIDC configuration: {e}", exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== Background Scheduler ====================
+
+import threading
+import time as time_module
+
+def run_scheduled_operations():
+    """Background thread to execute scheduled operations"""
+    from database import get_pending_scheduled_operations, update_scheduled_operation
+    from datetime import datetime as dt, timedelta
+
+    log.info("Starting scheduled operations background thread")
+
+    while True:
+        try:
+            # Check for pending schedules every 60 seconds
+            time_module.sleep(60)
+
+            pending_schedules = get_pending_scheduled_operations()
+
+            for schedule in pending_schedules:
+                try:
+                    schedule_id = schedule['schedule_id']
+                    stack_id = schedule['stack_id']
+                    operation_type = schedule['operation_type']
+                    schedule_type = schedule['schedule_type']
+
+                    log.info(f"Executing scheduled operation: {operation_type} for stack/target {stack_id}")
+
+                    # Execute the operation
+                    if operation_type == 'deploy':
+                        # Call deploy endpoint logic
+                        log.info(f"Deploying stack {stack_id}")
+                        # TODO: Import and call deploy_service_stack_endpoint logic
+                    elif operation_type == 'validate':
+                        # Call validate endpoint logic
+                        log.info(f"Validating stack {stack_id}")
+                        # TODO: Import and call validate_service_stack_endpoint logic
+                    elif operation_type == 'delete':
+                        # Call delete endpoint logic
+                        log.info(f"Deleting stack {stack_id}")
+                        # TODO: Import and call delete_service_stack_endpoint logic
+                    elif operation_type == 'config_deploy':
+                        # Execute config deployment
+                        import json
+                        config_data_str = schedule.get('config_data')
+                        if config_data_str:
+                            config_data = json.loads(config_data_str)
+                            deploy_type = config_data.get('type')
+
+                            log.info(f"Executing scheduled {deploy_type} deployment")
+
+                            # Execute the deployment
+                            if deploy_type == 'setconfig':
+                                devices = config_data.get('devices', [])
+                                config_commands = config_data.get('config', '').split('\n')
+                                config_commands = [cmd.strip() for cmd in config_commands if cmd.strip()]
+                                username = config_data.get('username')
+                                password = config_data.get('password')
+                                dry_run = config_data.get('dry_run', False)
+
+                                log.info(f"Scheduled setconfig: {len(devices)} devices, {len(config_commands)} commands")
+
+                                # Deploy to each device
+                                for device_name in devices:
+                                    try:
+                                        # Get device connection info from Netbox
+                                        netbox_client = get_netbox_client()
+                                        device = netbox_client.get_device_by_name(device_name)
+
+                                        if not device:
+                                            log.error(f"Device {device_name} not found for scheduled deployment")
+                                            continue
+
+                                        # Get device type
+                                        nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
+                                        if not nornir_platform:
+                                            platform = device.get('platform', {})
+                                            manufacturer = device.get('device_type', {}).get('manufacturer', {})
+                                            platform_name = platform.get('name') if isinstance(platform, dict) else None
+                                            manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
+                                            from netbox_client import get_netmiko_device_type
+                                            nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
+
+                                        # Get IP address
+                                        primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
+                                        ip_address = None
+                                        if primary_ip:
+                                            ip_addr_full = primary_ip.get('address', '')
+                                            ip_address = ip_addr_full.split('/')[0] if ip_addr_full else None
+
+                                        if not ip_address:
+                                            log.error(f"No IP address found for device {device_name}")
+                                            continue
+
+                                        # Build netpalm payload
+                                        payload = {
+                                            'connection_args': {
+                                                'device_type': nornir_platform or 'cisco_ios',
+                                                'host': ip_address,
+                                                'username': username,
+                                                'password': password,
+                                                'timeout': 10
+                                            },
+                                            'config': config_commands,
+                                            'queue_strategy': 'pinned'
+                                        }
+
+                                        # Send to Netpalm
+                                        endpoint = '/setconfig/dry-run' if dry_run else '/setconfig/netmiko'
+                                        response = requests.post(
+                                            f'{NETPALM_API_URL}{endpoint}',
+                                            json=payload,
+                                            headers=NETPALM_HEADERS,
+                                            timeout=30
+                                        )
+                                        response.raise_for_status()
+                                        result = response.json()
+
+                                        # Save task ID
+                                        if result.get('status') == 'success' and result.get('data', {}).get('task_id'):
+                                            task_id = result['data']['task_id']
+                                            save_task_id(task_id, device_name)
+                                            log.info(f"Scheduled setconfig deployed to {device_name}, task: {task_id}")
+
+                                    except Exception as e:
+                                        log.error(f"Error deploying scheduled setconfig to {device_name}: {e}")
+
+                            elif deploy_type == 'template':
+                                devices = config_data.get('devices', [])
+                                template_name = config_data.get('template_name')
+                                variables = config_data.get('variables', {})
+                                username = config_data.get('username')
+                                password = config_data.get('password')
+                                dry_run = config_data.get('dry_run', False)
+
+                                log.info(f"Scheduled template deploy: {template_name} to {len(devices)} devices")
+
+                                try:
+                                    # Render template first
+                                    render_response = requests.post(
+                                        f'{NETPALM_API_URL}/j2template/render',
+                                        json={
+                                            'template_name': template_name.replace('.j2', ''),
+                                            'args': variables
+                                        },
+                                        headers=NETPALM_HEADERS,
+                                        timeout=10
+                                    )
+                                    render_response.raise_for_status()
+                                    render_result = render_response.json()
+
+                                    rendered_config = render_result.get('data', {}).get('task_result', {}).get('template_render_result', '')
+
+                                    if not rendered_config:
+                                        log.error(f"Failed to render template {template_name}")
+                                    else:
+                                        # Split into commands
+                                        config_commands = [cmd.strip() for cmd in rendered_config.split('\n') if cmd.strip()]
+
+                                        # Deploy to each device
+                                        for device_name in devices:
+                                            try:
+                                                # Get device connection info from Netbox
+                                                netbox_client = get_netbox_client()
+                                                device = netbox_client.get_device_by_name(device_name)
+
+                                                if not device:
+                                                    log.error(f"Device {device_name} not found for scheduled deployment")
+                                                    continue
+
+                                                # Get device type
+                                                nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
+                                                if not nornir_platform:
+                                                    platform = device.get('platform', {})
+                                                    manufacturer = device.get('device_type', {}).get('manufacturer', {})
+                                                    platform_name = platform.get('name') if isinstance(platform, dict) else None
+                                                    manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
+                                                    from netbox_client import get_netmiko_device_type
+                                                    nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
+
+                                                # Get IP address
+                                                primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
+                                                ip_address = None
+                                                if primary_ip:
+                                                    ip_addr_full = primary_ip.get('address', '')
+                                                    ip_address = ip_addr_full.split('/')[0] if ip_addr_full else None
+
+                                                if not ip_address:
+                                                    log.error(f"No IP address found for device {device_name}")
+                                                    continue
+
+                                                # Build netpalm payload
+                                                payload = {
+                                                    'connection_args': {
+                                                        'device_type': nornir_platform or 'cisco_ios',
+                                                        'host': ip_address,
+                                                        'username': username,
+                                                        'password': password,
+                                                        'timeout': 10
+                                                    },
+                                                    'config': config_commands,
+                                                    'queue_strategy': 'pinned'
+                                                }
+
+                                                # Send to Netpalm
+                                                endpoint = '/setconfig/dry-run' if dry_run else '/setconfig/netmiko'
+                                                response = requests.post(
+                                                    f'{NETPALM_API_URL}{endpoint}',
+                                                    json=payload,
+                                                    headers=NETPALM_HEADERS,
+                                                    timeout=30
+                                                )
+                                                response.raise_for_status()
+                                                result = response.json()
+
+                                                # Save task ID
+                                                if result.get('status') == 'success' and result.get('data', {}).get('task_id'):
+                                                    task_id = result['data']['task_id']
+                                                    save_task_id(task_id, device_name)
+                                                    log.info(f"Scheduled template deployed to {device_name}, task: {task_id}")
+
+                                            except Exception as e:
+                                                log.error(f"Error deploying scheduled template to {device_name}: {e}")
+
+                                except Exception as e:
+                                    log.error(f"Error rendering template {template_name}: {e}")
+                        else:
+                            log.warning(f"No config_data for scheduled operation {schedule_id}")
+
+                    # Update last_run and run_count
+                    now = dt.utcnow()
+                    run_count = schedule.get('run_count', 0) + 1
+                    update_scheduled_operation(schedule_id, last_run=now.isoformat(), run_count=run_count)
+
+                    # Calculate next_run for recurring schedules
+                    if schedule_type != 'once':
+                        time_parts = schedule['scheduled_time'].split(':')
+                        hour = int(time_parts[0])
+                        minute = int(time_parts[1])
+
+                        if schedule_type == 'daily':
+                            next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                            if next_run <= now:
+                                next_run += timedelta(days=1)
+                        elif schedule_type == 'weekly':
+                            day_of_week = schedule['day_of_week']
+                            days_ahead = day_of_week - now.weekday()
+                            if days_ahead <= 0:
+                                days_ahead += 7
+                            next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days_ahead)
+                        elif schedule_type == 'monthly':
+                            day_of_month = schedule['day_of_month']
+                            next_run = now.replace(day=day_of_month, hour=hour, minute=minute, second=0, microsecond=0)
+                            if next_run <= now:
+                                if now.month == 12:
+                                    next_run = next_run.replace(year=now.year + 1, month=1)
+                                else:
+                                    next_run = next_run.replace(month=now.month + 1)
+
+                        update_scheduled_operation(schedule_id, next_run=next_run.isoformat())
+                    else:
+                        # One-time schedule, disable it
+                        update_scheduled_operation(schedule_id, enabled=0)
+
+                    log.info(f"Successfully executed scheduled operation: {schedule_id}")
+
+                except Exception as e:
+                    log.error(f"Error executing scheduled operation {schedule.get('schedule_id')}: {e}", exc_info=True)
+
+        except Exception as e:
+            log.error(f"Error in scheduled operations thread: {e}", exc_info=True)
+
+# Start scheduler thread only once (not in Flask reloader parent process)
+import os
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    # We're in the reloaded child process, start the scheduler
+    scheduler_thread = threading.Thread(target=run_scheduled_operations, daemon=True)
+    scheduler_thread.start()
+    log.info("Scheduler thread started in reloaded process")
 
 
 if __name__ == '__main__':
