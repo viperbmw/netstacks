@@ -251,7 +251,7 @@
                     </div>
 
                     <!-- Services in Template -->
-                    <div class="card">
+                    <div class="card mb-3">
                         <div class="card-header">
                             <div class="d-flex justify-content-between align-items-center">
                                 <h6 class="mb-0">Services in Template</h6>
@@ -266,12 +266,118 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Detected Variables (shown after services are added) -->
+                    <div class="card" id="detected-variables-card" style="display:none;">
+                        <div class="card-header bg-info text-white">
+                            <h6 class="mb-0"><i class="fas fa-list"></i> Detected Variables</h6>
+                            <small>Variables found in the selected templates. Configure API fetching for any variable.</small>
+                        </div>
+                        <div class="card-body">
+                            <div id="detected-variables-container">
+                                <!-- Variables will be shown here with API config buttons -->
+                            </div>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="save-stack-template-btn">
                     <i class="fas fa-save"></i> Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Variable Configuration Modal -->
+<div class="modal fade" id="apiVariableConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-cloud-download-alt"></i> Configure API Fetching</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="api-config-var-name">
+
+                <div class="alert alert-info">
+                    <strong>Variable:</strong> <span id="api-config-var-display"></span>
+                </div>
+
+                <!-- API Resource Selector -->
+                <div class="mb-3">
+                    <label for="api-config-resource" class="form-label">
+                        <i class="fas fa-plug"></i> API Resource *
+                        <a href="/settings" target="_blank" class="text-decoration-none small ms-2">
+                            <i class="fas fa-cog"></i> Manage Resources
+                        </a>
+                    </label>
+                    <select class="form-select" id="api-config-resource" required>
+                        <option value="">-- Select an API Resource --</option>
+                    </select>
+                    <small class="form-text text-muted">Select a saved API resource (URL, auth configured in Settings)</small>
+                </div>
+
+                <!-- Resource Info Display -->
+                <div class="mb-3" id="api-config-resource-info" style="display:none;">
+                    <div class="alert alert-secondary small mb-0">
+                        <strong>Base URL:</strong> <span id="resource-base-url"></span><br>
+                        <strong>Auth:</strong> <span id="resource-auth-type"></span>
+                    </div>
+                </div>
+
+                <!-- Endpoint Path -->
+                <div class="mb-3">
+                    <label for="api-config-endpoint" class="form-label">Endpoint Path *</label>
+                    <input type="text" class="form-control" id="api-config-endpoint" placeholder="/api/ipam/next-available-ip" required>
+                    <small class="form-text text-muted">Path to append to the resource base URL</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="api-config-method" class="form-label">HTTP Method</label>
+                    <select class="form-select" id="api-config-method">
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label for="api-config-jsonpath" class="form-label">JSONPath</label>
+                    <input type="text" class="form-control" id="api-config-jsonpath" placeholder="$.data.ip_address">
+                    <small class="form-text text-muted">Path to extract value from API response (e.g., $.data.ip_address)</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="api-config-description" class="form-label">Description</label>
+                    <input type="text" class="form-control" id="api-config-description" placeholder="Next available IP from IPAM">
+                    <small class="form-text text-muted">Optional: Human-readable description</small>
+                </div>
+
+                <hr>
+
+                <!-- Test API Section -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0"><strong>Test API Configuration</strong></label>
+                        <button type="button" class="btn btn-sm btn-primary" id="test-api-btn">
+                            <i class="fas fa-flask"></i> Test API Call
+                        </button>
+                    </div>
+                    <div id="api-test-result" style="display:none;">
+                        <!-- Test results will be shown here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="clear-api-config-btn">
+                    <i class="fas fa-times"></i> Clear Config
+                </button>
+                <button type="button" class="btn btn-success" id="save-api-config-btn">
+                    <i class="fas fa-save"></i> Save Config
                 </button>
             </div>
         </div>

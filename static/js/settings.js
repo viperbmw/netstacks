@@ -593,3 +593,250 @@ function getUserTimezone() {
 // Export functions for use in other pages
 window.getAppSettings = getSettings;
 window.getUserTimezone = getUserTimezone;
+
+// ============================================================================
+// API Resources Management
+// ============================================================================
+
+let apiResourcesData = [];
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// Load API resources
+function loadApiResources() {
+    $.get('/api/api-resources')
+        .done(function(response) {
+            if (response.success) {
+                apiResourcesData = response.resources;
+                displayApiResources();
+            }
+        })
+        .fail(function() {
+            $('#api-resources-list').html('<div class="alert alert-danger">Failed to load API resources</div>');
+        });
+}
+
+// Display API resources
+function displayApiResources() {
+    const container = $('#api-resources-list');
+
+    if (apiResourcesData.length === 0) {
+        container.html('<p class="text-muted text-center">No API resources configured. Click "Add Resource" to create one.</p>');
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    apiResourcesData.forEach(resource => {
+        const authType = resource.auth_type || 'none';
+        const authBadge = {
+            'none': '<span class="badge bg-secondary">No Auth</span>',
+            'bearer': '<span class="badge bg-primary">Bearer Token</span>',
+            'api_key': '<span class="badge bg-primary">API Key</span>',
+            'basic': '<span class="badge bg-info">Basic Auth</span>',
+            'custom': '<span class="badge bg-warning text-dark">Custom Headers</span>'
+        }[authType];
+
+        html += `
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <h6 class="mb-1">${escapeHtml(resource.name)} ${authBadge}</h6>
+                        <p class="mb-1 small text-muted">${escapeHtml(resource.description || '')}</p>
+                        <small class="text-muted"><i class="fas fa-link"></i> ${escapeHtml(resource.base_url)}</small>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-primary edit-api-resource-btn" data-resource-id="${resource.resource_id}">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger delete-api-resource-btn" data-resource-id="${resource.resource_id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+
+    container.html(html);
+
+    // Attach event handlers
+    $('.edit-api-resource-btn').click(function() {
+        const resourceId = $(this).data('resource-id');
+        editApiResource(resourceId);
+    });
+
+    $('.delete-api-resource-btn').click(function() {
+        const resourceId = $(this).data('resource-id');
+        deleteApiResource(resourceId);
+    });
+}
+
+// Open add API resource modal
+function openAddApiResourceModal() {
+    $('#apiResourceModalTitle').text('Add API Resource');
+    $('#api-resource-id').val('');
+    $('#api-resource-name').val('');
+    $('#api-resource-description').val('');
+    $('#api-resource-base-url').val('');
+    $('#api-resource-auth-type').val('none').trigger('change');
+    $('#api-resource-token').val('');
+    $('#api-resource-username').val('');
+    $('#api-resource-password').val('');
+    $('#api-resource-custom-headers').val('');
+
+    const modal = new bootstrap.Modal(document.getElementById('apiResourceModal'));
+    modal.show();
+}
+
+// Edit API resource
+function editApiResource(resourceId) {
+    const resource = apiResourcesData.find(r => r.resource_id === resourceId);
+    if (!resource) return;
+
+    $('#apiResourceModalTitle').text('Edit API Resource');
+    $('#api-resource-id').val(resource.resource_id);
+    $('#api-resource-name').val(resource.name);
+    $('#api-resource-description').val(resource.description || '');
+    $('#api-resource-base-url').val(resource.base_url);
+    $('#api-resource-auth-type').val(resource.auth_type || 'none').trigger('change');
+    $('#api-resource-token').val(resource.auth_token || '');
+    $('#api-resource-username').val(resource.auth_username || '');
+    $('#api-resource-password').val(resource.auth_password || '');
+
+    if (resource.custom_headers) {
+        $('#api-resource-custom-headers').val(JSON.stringify(resource.custom_headers, null, 2));
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('apiResourceModal'));
+    modal.show();
+}
+
+// Save API resource
+function saveApiResource() {
+    const resourceId = $('#api-resource-id').val();
+    const name = $('#api-resource-name').val().trim();
+    const description = $('#api-resource-description').val().trim();
+    const baseUrl = $('#api-resource-base-url').val().trim();
+    const authType = $('#api-resource-auth-type').val();
+    const token = $('#api-resource-token').val().trim();
+    const username = $('#api-resource-username').val().trim();
+    const password = $('#api-resource-password').val().trim();
+    const customHeadersStr = $('#api-resource-custom-headers').val().trim();
+
+    if (!name || !baseUrl) {
+        alert('Name and Base URL are required');
+        return;
+    }
+
+    let customHeaders = null;
+    if (authType === 'custom' && customHeadersStr) {
+        try {
+            customHeaders = JSON.parse(customHeadersStr);
+        } catch (e) {
+            alert('Invalid JSON in Custom Headers field');
+            return;
+        }
+    }
+
+    const data = {
+        name,
+        description,
+        base_url: baseUrl,
+        auth_type: authType,
+        auth_token: token,
+        auth_username: username,
+        auth_password: password,
+        custom_headers: customHeaders
+    };
+
+    const isEdit = resourceId !== '';
+    const url = isEdit ? `/api/api-resources/${resourceId}` : '/api/api-resources';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    $.ajax({
+        url,
+        method,
+        contentType: 'application/json',
+        data: JSON.stringify(data)
+    })
+    .done(function(response) {
+        if (response.success) {
+            bootstrap.Modal.getInstance(document.getElementById('apiResourceModal')).hide();
+            loadApiResources();
+            showNotification(`API Resource ${isEdit ? 'updated' : 'created'} successfully`, 'success');
+        } else {
+            alert('Error: ' + response.error);
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to save API resource: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+}
+
+// Delete API resource
+function deleteApiResource(resourceId) {
+    const resource = apiResourcesData.find(r => r.resource_id === resourceId);
+    if (!resource) return;
+
+    if (!confirm(`Delete API Resource "${resource.name}"?`)) {
+        return;
+    }
+
+    $.ajax({
+        url: `/api/api-resources/${resourceId}`,
+        method: 'DELETE'
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadApiResources();
+            showNotification('API Resource deleted successfully', 'success');
+        } else {
+            alert('Error: ' + response.error);
+        }
+    })
+    .fail(function(xhr) {
+        alert('Failed to delete API resource: ' + (xhr.responseJSON?.error || 'Unknown error'));
+    });
+}
+
+// Handle auth type change to show/hide relevant fields
+function handleAuthTypeChange() {
+    const authType = $('#api-resource-auth-type').val();
+
+    // Hide all auth fields
+    $('.auth-field').hide();
+
+    // Show relevant fields based on auth type
+    if (authType === 'bearer' || authType === 'api_key') {
+        $('.auth-bearer').show();
+    } else if (authType === 'basic') {
+        $('.auth-basic').show();
+    } else if (authType === 'custom') {
+        $('.auth-custom').show();
+    }
+}
+
+// Initialize API resources when settings page loads
+$(document).ready(function() {
+    // Check if we're on the settings page
+    if ($('#api-resources-list').length > 0) {
+        // Load API resources
+        loadApiResources();
+
+        // Event handlers
+        $('#add-api-resource-btn').click(openAddApiResourceModal);
+        $('#save-api-resource-btn').click(saveApiResource);
+        $('#api-resource-auth-type').change(handleAuthTypeChange);
+    }
+});

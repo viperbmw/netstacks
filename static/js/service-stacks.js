@@ -2055,10 +2055,14 @@ function saveStackTemplate() {
         return;
     }
 
+    // Use the API variables configured via the popup modals
+    console.log('API variables:', apiVariableConfigs);
+
     const payload = {
         name: name,
         description: description,
-        services: services
+        services: services,
+        api_variables: apiVariableConfigs
     };
 
     // Include template_id if editing existing template
@@ -2128,20 +2132,40 @@ function openDeployFromTemplateModal(templateId) {
                 $('#deploy-stack-name').val('');
                 $('#deploy-stack-description').val('');
 
-                // Display required variables
+                // Display required variables with API variable support
                 const varsContainer = $('#deploy-variables-container');
+                const apiVariables = template.api_variables || {};
+                const hasApiVars = Object.keys(apiVariables).length > 0;
+
                 if (template.required_variables && template.required_variables.length > 0) {
                     let varsHtml = '<div class="row">';
                     template.required_variables.forEach(varName => {
+                        const hasApi = apiVariables.hasOwnProperty(varName);
+                        const apiConfig = apiVariables[varName];
+                        const description = hasApi ? (apiConfig.description || 'Fetched from API') : '';
+
                         varsHtml += `
-                            <div class="col-md-6 mb-2">
-                                <label class="form-label small">${varName}</label>
-                                <input type="text" class="form-control form-control-sm template-variable" data-var-name="${varName}" placeholder="Enter ${varName}">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small d-flex justify-content-between align-items-center">
+                                    <span>${varName}</span>
+                                    ${hasApi ? '<span class="badge bg-success" style="font-size: 0.65rem;"><i class="fas fa-cloud-download-alt"></i> API</span>' : ''}
+                                </label>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control template-variable" data-var-name="${varName}" placeholder="Enter ${varName}" ${hasApi ? 'data-api-var="true"' : ''}>
+                                    ${hasApi ? `<button class="btn btn-outline-primary fetch-api-var-btn" type="button" data-var-name="${varName}" title="Fetch from API"><i class="fas fa-sync-alt"></i></button>` : ''}
+                                </div>
+                                ${description ? `<small class="text-muted">${escapeHtml(description)}</small>` : ''}
+                                <div class="api-fetch-status" data-var-name="${varName}" style="display:none; font-size: 0.75rem; margin-top: 0.25rem;"></div>
                             </div>
                         `;
                     });
                     varsHtml += '</div>';
                     varsContainer.html(varsHtml);
+
+                    // Auto-fetch API variables if configured
+                    if (hasApiVars) {
+                        fetchAllApiVariables(template);
+                    }
                 } else {
                     varsContainer.html('<p class="text-muted small">No variables required</p>');
                 }
@@ -2710,3 +2734,603 @@ $(document).on('click', '.delete-schedule-btn', function() {
 });
 
 
+// ============================================================================
+// API Variable Fetching for Stack Templates
+// ============================================================================
+
+/**
+ * Fetch all API variables for a template
+ */
+function fetchAllApiVariables(template) {
+    const apiVariables = template.api_variables || {};
+
+    Object.keys(apiVariables).forEach(varName => {
+        fetchApiVariable(varName, apiVariables[varName]);
+    });
+
+    // Attach manual fetch button handlers
+    $('.fetch-api-var-btn').off('click').on('click', function() {
+        const varName = $(this).data('var-name');
+        const apiConfig = apiVariables[varName];
+        if (apiConfig) {
+            fetchApiVariable(varName, apiConfig);
+        }
+    });
+}
+
+/**
+ * Fetch a single API variable from external API
+ */
+function fetchApiVariable(varName, apiConfig) {
+    const $input = $(`.template-variable[data-var-name="${varName}"]`);
+    const $status = $(`.api-fetch-status[data-var-name="${varName}"]`);
+    const $button = $(`.fetch-api-var-btn[data-var-name="${varName}"]`);
+
+    // Show loading state
+    $button.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+    $status.show().html('<span class="text-info"><i class="fas fa-spinner fa-spin"></i> Fetching from API...</span>');
+
+    // Load resources if not cached
+    if (apiResourcesCache.length === 0) {
+        // Fetch resources synchronously
+        $.ajax({
+            url: '/api/api-resources',
+            method: 'GET',
+            async: false,
+            success: function(response) {
+                if (response.success) {
+                    apiResourcesCache = response.resources;
+                }
+            }
+        });
+    }
+
+    // Get the resource
+    const resource = apiResourcesCache.find(r => r.resource_id === apiConfig.resource_id);
+    if (!resource) {
+        $status.html(`<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> API resource not found</span>`);
+        $button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
+        return;
+    }
+
+    // Build full URL from resource base_url + endpoint
+    const baseUrl = resource.base_url.replace(/\/$/, ''); // Remove trailing slash
+    const cleanEndpoint = apiConfig.endpoint.startsWith('/') ? apiConfig.endpoint : '/' + apiConfig.endpoint;
+    const url = baseUrl + cleanEndpoint;
+
+    // Build headers based on auth type
+    let headers = {};
+    const authType = resource.auth_type || 'none';
+    if (authType === 'bearer') {
+        headers['Authorization'] = `Bearer ${resource.auth_token}`;
+    } else if (authType === 'api_key') {
+        headers['X-API-Key'] = resource.auth_token;
+    } else if (authType === 'basic') {
+        const credentials = btoa(`${resource.auth_username}:${resource.auth_password}`);
+        headers['Authorization'] = `Basic ${credentials}`;
+    } else if (authType === 'custom' && resource.custom_headers) {
+        headers = resource.custom_headers;
+    }
+
+    // Make the fetch request from browser
+    fetch(url, {
+        method: apiConfig.method || 'GET',
+        headers: headers,
+        mode: 'cors'  // Allow CORS requests
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Extract value using JSONPath
+        let value;
+        if (apiConfig.json_path) {
+            value = extractJsonPath(data, apiConfig.json_path);
+        } else {
+            // If no JSONPath, assume the response is the value
+            value = data;
+        }
+
+        if (value !== null && value !== undefined) {
+            $input.val(value);
+            $status.html('<span class="text-success"><i class="fas fa-check-circle"></i> Fetched successfully</span>');
+
+            // Hide status after 3 seconds
+            setTimeout(() => {
+                $status.fadeOut();
+            }, 3000);
+        } else {
+            throw new Error('Could not extract value from API response using JSONPath: ' + apiConfig.json_path);
+        }
+    })
+    .catch(error => {
+        console.error('API fetch error:', error);
+        $status.html(`<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error: ${error.message}</span>`);
+    })
+    .finally(() => {
+        $button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
+    });
+}
+
+/**
+ * Simple JSONPath extractor (supports basic paths like $.data.ip_address)
+ */
+function extractJsonPath(data, path) {
+    // Remove leading $. if present
+    if (path.startsWith('$.')) {
+        path = path.substring(2);
+    } else if (path.startsWith('$')) {
+        path = path.substring(1);
+    }
+
+    // Handle empty path
+    if (!path || path === '') {
+        return data;
+    }
+
+    // Split path and traverse
+    const parts = path.split('.');
+    let current = data;
+
+    for (const part of parts) {
+        // Handle array indices like [0]
+        if (part.includes('[') && part.includes(']')) {
+            const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
+            if (arrayMatch) {
+                const key = arrayMatch[1];
+                const index = parseInt(arrayMatch[2]);
+                current = current[key];
+                if (Array.isArray(current)) {
+                    current = current[index];
+                } else {
+                    return null;
+                }
+            }
+        } else {
+            if (current && current.hasOwnProperty(part)) {
+                current = current[part];
+            } else {
+                return null;
+            }
+        }
+    }
+
+    return current;
+}
+
+
+// ============================================================================
+// API Variable Configuration for Template Editor
+// ============================================================================
+
+// Store API configurations for variables
+let apiVariableConfigs = {};
+let apiResourcesCache = []; // Cache of available API resources
+
+/**
+ * Load API resources from backend
+ */
+function loadApiResources() {
+    $.get('/api/api-resources')
+        .done(function(response) {
+            if (response.success) {
+                apiResourcesCache = response.resources;
+                populateApiResourceSelector();
+            }
+        })
+        .fail(function() {
+            console.error('Failed to load API resources');
+        });
+}
+
+/**
+ * Populate the API resource selector dropdown
+ */
+function populateApiResourceSelector() {
+    const select = $('#api-config-resource');
+    const currentValue = select.val();
+
+    // Clear and re-add options
+    select.html('<option value="">-- Select an API Resource --</option>');
+
+    apiResourcesCache.forEach(resource => {
+        select.append(`<option value="${resource.resource_id}">${resource.name}</option>`);
+    });
+
+    // Restore previous selection if it still exists
+    if (currentValue) {
+        select.val(currentValue);
+    }
+}
+
+/**
+ * Handle API resource selection change
+ */
+function handleApiResourceChange() {
+    const resourceId = $('#api-config-resource').val();
+
+    if (resourceId) {
+        // Resource selected - show resource info
+        const resource = apiResourcesCache.find(r => r.resource_id === resourceId);
+        if (resource) {
+            // Show resource info
+            const authType = resource.auth_type || 'none';
+            const authLabel = {
+                'none': 'No Auth',
+                'bearer': 'Bearer Token',
+                'api_key': 'API Key',
+                'basic': 'Basic Auth',
+                'custom': 'Custom Headers'
+            }[authType] || authType;
+
+            $('#resource-base-url').text(resource.base_url);
+            $('#resource-auth-type').text(authLabel);
+            $('#api-config-resource-info').show();
+        }
+    } else {
+        // No resource selected - hide info
+        $('#api-config-resource-info').hide();
+    }
+}
+
+/**
+ * Extract variables from all selected service templates
+ */
+function extractTemplateVariables() {
+    const templates = [];
+
+    // Collect all selected templates
+    $('#template-services-container .service-template').each(function() {
+        const templateName = $(this).val();
+        if (templateName) {
+            templates.push(templateName);
+        }
+    });
+
+    if (templates.length === 0) {
+        $('#detected-variables-card').hide();
+        return;
+    }
+
+    // Fetch variables for each template
+    const variablePromises = templates.map(templateName => {
+        const cleanName = templateName.endsWith('.j2') ? templateName.slice(0, -3) : templateName;
+        return $.get(`/api/templates/${cleanName}/variables`);
+    });
+
+    Promise.all(variablePromises)
+        .then(responses => {
+            // Collect all unique variables
+            const allVariables = new Set();
+            responses.forEach(response => {
+                if (response.success && response.variables) {
+                    response.variables.forEach(v => allVariables.add(v));
+                }
+            });
+
+            if (allVariables.size > 0) {
+                displayDetectedVariables(Array.from(allVariables).sort());
+                $('#detected-variables-card').show();
+            } else {
+                $('#detected-variables-card').hide();
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching template variables:', error);
+        });
+}
+
+/**
+ * Display detected variables with API config buttons
+ */
+function displayDetectedVariables(variables) {
+    const container = $('#detected-variables-container');
+    container.empty();
+
+    const html = variables.map(varName => {
+        const hasApiConfig = apiVariableConfigs.hasOwnProperty(varName);
+        return `
+            <div class="d-flex align-items-center justify-content-between mb-2 p-2 border rounded variable-row" data-var-name="${varName}">
+                <div>
+                    <strong>${escapeHtml(varName)}</strong>
+                    ${hasApiConfig ? '<span class="badge bg-success ms-2"><i class="fas fa-cloud-download-alt"></i> API</span>' : ''}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-success config-api-btn" data-var-name="${varName}">
+                    <i class="fas fa-cog"></i> ${hasApiConfig ? 'Edit' : 'Configure'} API
+                </button>
+            </div>
+        `;
+    }).join('');
+
+    container.html(html);
+
+    // Attach click handlers for API config buttons
+    $('.config-api-btn').click(function() {
+        const varName = $(this).data('var-name');
+        openApiConfigModal(varName);
+    });
+}
+
+/**
+ * Open API configuration modal for a variable
+ */
+function openApiConfigModal(varName) {
+    $('#api-config-var-name').val(varName);
+    $('#api-config-var-display').text(varName);
+
+    // Load resources if not already loaded
+    if (apiResourcesCache.length === 0) {
+        loadApiResources();
+    } else {
+        // Resources already loaded, populate selector immediately
+        populateApiResourceSelector();
+    }
+
+    // Clear test results
+    $('#api-test-result').hide().html('');
+
+    // Load existing config if any
+    const existingConfig = apiVariableConfigs[varName];
+    if (existingConfig) {
+        $('#api-config-resource').val(existingConfig.resource_id || '');
+        $('#api-config-endpoint').val(existingConfig.endpoint || '');
+        $('#api-config-method').val(existingConfig.method || 'GET');
+        $('#api-config-jsonpath').val(existingConfig.json_path || '');
+        $('#api-config-description').val(existingConfig.description || '');
+    } else {
+        // Clear form
+        $('#api-config-resource').val('');
+        $('#api-config-endpoint').val('');
+        $('#api-config-method').val('GET');
+        $('#api-config-jsonpath').val('');
+        $('#api-config-description').val('');
+    }
+
+    // Update UI to show resource info
+    setTimeout(() => {
+        handleApiResourceChange();
+    }, 10);
+
+    const modal = new bootstrap.Modal(document.getElementById('apiVariableConfigModal'));
+    modal.show();
+}
+
+/**
+ * Save API configuration for a variable
+ */
+function saveApiConfig() {
+    const varName = $('#api-config-var-name').val();
+    const resourceId = $('#api-config-resource').val();
+    const endpoint = $('#api-config-endpoint').val().trim();
+    const method = $('#api-config-method').val();
+    const jsonPath = $('#api-config-jsonpath').val().trim();
+    const description = $('#api-config-description').val().trim();
+
+    // Validate
+    if (!resourceId) {
+        alert('Please select an API resource');
+        return;
+    }
+
+    if (!endpoint) {
+        alert('Endpoint path is required');
+        return;
+    }
+
+    // Save configuration
+    apiVariableConfigs[varName] = {
+        resource_id: resourceId,
+        endpoint: endpoint,
+        method: method,
+        json_path: jsonPath,
+        description: description
+    };
+
+    // Close modal
+    bootstrap.Modal.getInstance(document.getElementById('apiVariableConfigModal')).hide();
+
+    // Refresh variables display to show API badge
+    const variables = Array.from($('.variable-row')).map(row => $(row).data('var-name'));
+    displayDetectedVariables(variables);
+}
+
+/**
+ * Clear API configuration for a variable
+ */
+function clearApiConfig() {
+    const varName = $('#api-config-var-name').val();
+    delete apiVariableConfigs[varName];
+
+    // Close modal
+    bootstrap.Modal.getInstance(document.getElementById('apiVariableConfigModal')).hide();
+
+    // Refresh variables display to remove API badge
+    const variables = Array.from($('.variable-row')).map(row => $(row).data('var-name'));
+    displayDetectedVariables(variables);
+}
+
+/**
+ * Test API configuration
+ */
+function testApiConfig() {
+    const resourceId = $('#api-config-resource').val();
+    const endpoint = $('#api-config-endpoint').val().trim();
+    const method = $('#api-config-method').val();
+    const jsonPath = $('#api-config-jsonpath').val().trim();
+
+    const resultDiv = $('#api-test-result');
+
+    // Validate
+    if (!resourceId) {
+        resultDiv.show().html(`
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i> Please select an API resource first
+            </div>
+        `);
+        return;
+    }
+
+    const resource = apiResourcesCache.find(r => r.resource_id === resourceId);
+    if (!resource) {
+        resultDiv.show().html(`
+            <div class="alert alert-danger">
+                <i class="fas fa-times-circle"></i> Selected resource not found. Please refresh the page.
+            </div>
+        `);
+        return;
+    }
+
+    if (!endpoint) {
+        resultDiv.show().html(`
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i> Please enter an endpoint path
+            </div>
+        `);
+        return;
+    }
+
+    // Build full URL from resource base_url + endpoint
+    const baseUrl = resource.base_url.replace(/\/$/, ''); // Remove trailing slash
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
+    const url = baseUrl + cleanEndpoint;
+
+    // Build headers based on auth type
+    let headers = {};
+    const authType = resource.auth_type || 'none';
+    if (authType === 'bearer') {
+        headers['Authorization'] = `Bearer ${resource.auth_token}`;
+    } else if (authType === 'api_key') {
+        headers['X-API-Key'] = resource.auth_token;
+    } else if (authType === 'basic') {
+        const credentials = btoa(`${resource.auth_username}:${resource.auth_password}`);
+        headers['Authorization'] = `Basic ${credentials}`;
+    } else if (authType === 'custom' && resource.custom_headers) {
+        headers = resource.custom_headers;
+    }
+
+    // Show loading state
+    $('#test-api-btn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Testing...');
+    resultDiv.show().html(`
+        <div class="alert alert-info">
+            <i class="fas fa-spinner fa-spin"></i> Making API request to ${url}...
+        </div>
+    `);
+
+    // Make the fetch request
+    fetch(url, {
+        method: method,
+        headers: headers,
+        mode: 'cors'
+    })
+    .then(response => {
+        const status = response.status;
+        const statusText = response.statusText;
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${status}: ${statusText}`);
+        }
+
+        return response.json().then(data => ({data, status, statusText}));
+    })
+    .then(({data, status, statusText}) => {
+        // Extract value using JSONPath if provided
+        let extractedValue = null;
+        let extractError = null;
+
+        if (jsonPath) {
+            try {
+                extractedValue = extractJsonPath(data, jsonPath);
+            } catch (e) {
+                extractError = e.message;
+            }
+        }
+
+        // Display results
+        let html = `
+            <div class="alert alert-success">
+                <strong><i class="fas fa-check-circle"></i> API Call Successful</strong>
+                <div class="mt-2">
+                    <strong>Status:</strong> ${status} ${statusText}
+                </div>
+            </div>
+        `;
+
+        if (jsonPath) {
+            if (extractedValue !== null && extractedValue !== undefined) {
+                html += `
+                    <div class="alert alert-success">
+                        <strong><i class="fas fa-bullseye"></i> Extracted Value:</strong>
+                        <div class="mt-2">
+                            <code class="bg-white p-2 d-block border rounded">${escapeHtml(String(extractedValue))}</code>
+                        </div>
+                        <small class="text-muted">From JSONPath: ${escapeHtml(jsonPath)}</small>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="alert alert-warning">
+                        <strong><i class="fas fa-exclamation-triangle"></i> JSONPath Extraction Failed</strong>
+                        <div class="mt-2">
+                            <small>JSONPath: <code>${escapeHtml(jsonPath)}</code></small><br>
+                            <small>${extractError || 'No value found at the specified path'}</small>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        html += `
+            <div class="card">
+                <div class="card-header">
+                    <strong>Full API Response:</strong>
+                </div>
+                <div class="card-body">
+                    <pre class="mb-0" style="max-height: 300px; overflow-y: auto; font-size: 0.85rem;"><code>${escapeHtml(JSON.stringify(data, null, 2))}</code></pre>
+                </div>
+            </div>
+        `;
+
+        resultDiv.html(html);
+    })
+    .catch(error => {
+        console.error('API test error:', error);
+        resultDiv.html(`
+            <div class="alert alert-danger">
+                <strong><i class="fas fa-times-circle"></i> API Call Failed</strong>
+                <div class="mt-2">
+                    <strong>Error:</strong> ${escapeHtml(error.message)}
+                </div>
+                <div class="mt-2">
+                    <small class="text-muted">
+                        <strong>Common issues:</strong>
+                        <ul class="mb-0">
+                            <li>CORS not enabled on the API server</li>
+                            <li>Invalid authentication headers</li>
+                            <li>Network connectivity issues</li>
+                            <li>Incorrect URL</li>
+                        </ul>
+                    </small>
+                </div>
+            </div>
+        `);
+    })
+    .finally(() => {
+        $('#test-api-btn').prop('disabled', false).html('<i class="fas fa-flask"></i> Test API Call');
+    });
+}
+
+// Initialize API config modal handlers
+$(document).ready(function() {
+    $('#save-api-config-btn').click(saveApiConfig);
+    $('#clear-api-config-btn').click(clearApiConfig);
+    $('#test-api-btn').click(testApiConfig);
+    $('#api-config-resource').change(handleApiResourceChange);
+
+    // Watch for template selection changes
+    $(document).on('change', '.service-template', function() {
+        extractTemplateVariables();
+    });
+});

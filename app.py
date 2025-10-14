@@ -933,6 +933,119 @@ def api_docs():
         return jsonify({'error': 'Netpalm URL not configured. Please configure via /settings'}), 400
 
 
+# ============================================================================
+# API Resources Endpoints
+# ============================================================================
+
+@app.route('/api/api-resources', methods=['GET'])
+@login_required
+def get_api_resources():
+    """Get all API resources"""
+    try:
+        resources = db.get_all_api_resources()
+        return jsonify({'success': True, 'resources': resources})
+    except Exception as e:
+        log.error(f"Error getting API resources: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/api-resources', methods=['POST'])
+@login_required
+def create_api_resource():
+    """Create a new API resource"""
+    try:
+        data = request.json
+
+        # Validate required fields
+        if not data.get('name') or not data.get('base_url'):
+            return jsonify({'success': False, 'error': 'Name and Base URL are required'}), 400
+
+        # Generate resource ID
+        resource_id = str(uuid.uuid4())
+
+        # Get current user
+        created_by = session.get('username', 'unknown')
+
+        # Create resource
+        db.create_api_resource(
+            resource_id=resource_id,
+            name=data.get('name'),
+            description=data.get('description', ''),
+            base_url=data.get('base_url'),
+            auth_type=data.get('auth_type', 'none'),
+            auth_token=data.get('auth_token', ''),
+            auth_username=data.get('auth_username', ''),
+            auth_password=data.get('auth_password', ''),
+            custom_headers=data.get('custom_headers'),
+            created_by=created_by
+        )
+
+        log.info(f"API Resource created: {data.get('name')} by {created_by}")
+        return jsonify({'success': True, 'resource_id': resource_id})
+    except Exception as e:
+        log.error(f"Error creating API resource: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/api-resources/<resource_id>', methods=['GET'])
+@login_required
+def get_api_resource(resource_id):
+    """Get a specific API resource"""
+    try:
+        resource = db.get_api_resource(resource_id)
+        if resource:
+            return jsonify({'success': True, 'resource': resource})
+        else:
+            return jsonify({'success': False, 'error': 'Resource not found'}), 404
+    except Exception as e:
+        log.error(f"Error getting API resource {resource_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/api-resources/<resource_id>', methods=['PUT'])
+@login_required
+def update_api_resource(resource_id):
+    """Update an existing API resource"""
+    try:
+        data = request.json
+
+        # Validate required fields
+        if not data.get('name') or not data.get('base_url'):
+            return jsonify({'success': False, 'error': 'Name and Base URL are required'}), 400
+
+        # Update resource
+        db.update_api_resource(
+            resource_id=resource_id,
+            name=data.get('name'),
+            description=data.get('description', ''),
+            base_url=data.get('base_url'),
+            auth_type=data.get('auth_type', 'none'),
+            auth_token=data.get('auth_token', ''),
+            auth_username=data.get('auth_username', ''),
+            auth_password=data.get('auth_password', ''),
+            custom_headers=data.get('custom_headers')
+        )
+
+        log.info(f"API Resource updated: {resource_id}")
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error updating API resource {resource_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/api-resources/<resource_id>', methods=['DELETE'])
+@login_required
+def delete_api_resource(resource_id):
+    """Delete an API resource"""
+    try:
+        db.delete_api_resource(resource_id)
+        log.info(f"API Resource deleted: {resource_id}")
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error deleting API resource {resource_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # API Endpoints for frontend
 
 @app.route('/api/devices', methods=['GET', 'POST'])
@@ -3928,6 +4041,7 @@ def create_stack_template():
             'description': data.get('description', ''),
             'services': services,
             'required_variables': sorted(list(required_variables)),
+            'api_variables': data.get('api_variables', {}),
             'tags': data.get('tags', []),
             'created_by': session.get('username', 'unknown')
         }

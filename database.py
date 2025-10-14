@@ -133,7 +133,32 @@ def init_db():
             description TEXT,
             services TEXT NOT NULL,  -- JSON array of service definitions with device templates
             required_variables TEXT, -- JSON array of all variables needed across all device templates
+            api_variables TEXT,      -- JSON object: {var_name: {url, method, headers, json_path, description}}
             tags TEXT,               -- JSON array
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by TEXT
+        )
+    ''')
+
+    # Migration: Add api_variables column if it doesn't exist
+    try:
+        cursor.execute("SELECT api_variables FROM stack_templates LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE stack_templates ADD COLUMN api_variables TEXT")
+
+    # API Resources table (reusable API configurations)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_resources (
+            resource_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            base_url TEXT NOT NULL,
+            auth_type TEXT,              -- 'none', 'bearer', 'basic', 'header', 'api_key'
+            auth_token TEXT,             -- For bearer/api_key auth
+            auth_username TEXT,          -- For basic auth
+            auth_password TEXT,          -- For basic auth
+            custom_headers TEXT,         -- JSON object with additional headers
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             created_by TEXT
@@ -600,8 +625,47 @@ def get_all_manual_devices():
         return devices
 
 # Stack Template operations
+def create_stack_template(template_id, name, description, services, required_variables, api_variables, tags, created_by):
+    """Create a new stack template"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO stack_templates
+            (template_id, name, description, services, required_variables, api_variables, tags, created_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (
+            template_id,
+            name,
+            description,
+            json.dumps(services),
+            json.dumps(required_variables),
+            json.dumps(api_variables),
+            json.dumps(tags),
+            created_by
+        ))
+        return template_id
+
+def update_stack_template(template_id, name, description, services, required_variables, api_variables, tags):
+    """Update an existing stack template"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE stack_templates
+            SET name = ?, description = ?, services = ?, required_variables = ?, api_variables = ?, tags = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE template_id = ?
+        ''', (
+            name,
+            description,
+            json.dumps(services),
+            json.dumps(required_variables),
+            json.dumps(api_variables),
+            json.dumps(tags),
+            template_id
+        ))
+        return cursor.rowcount > 0
+
 def save_stack_template(template_data):
-    """Save a stack template"""
+    """Save a stack template (create or update)"""
     import uuid
     with get_db() as conn:
         cursor = conn.cursor()
@@ -609,14 +673,15 @@ def save_stack_template(template_data):
 
         cursor.execute('''
             INSERT OR REPLACE INTO stack_templates
-            (template_id, name, description, services, required_variables, tags, created_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (template_id, name, description, services, required_variables, api_variables, tags, created_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             template_id,
             template_data['name'],
             template_data.get('description', ''),
             json.dumps(template_data['services']),
             json.dumps(template_data.get('required_variables', [])),
+            json.dumps(template_data.get('api_variables', {})),
             json.dumps(template_data.get('tags', [])),
             template_data.get('created_by', '')
         ))
@@ -632,6 +697,7 @@ def get_stack_template(template_id):
             template = dict(row)
             template['services'] = json.loads(template['services'])
             template['required_variables'] = json.loads(template['required_variables']) if template['required_variables'] else []
+            template['api_variables'] = json.loads(template['api_variables']) if template.get('api_variables') else {}
             template['tags'] = json.loads(template['tags']) if template['tags'] else []
             return template
         return None
@@ -646,6 +712,7 @@ def get_all_stack_templates():
             template = dict(row)
             template['services'] = json.loads(template['services'])
             template['required_variables'] = json.loads(template['required_variables']) if template['required_variables'] else []
+            template['api_variables'] = json.loads(template['api_variables']) if template.get('api_variables') else {}
             template['tags'] = json.loads(template['tags']) if template['tags'] else []
             templates.append(template)
         return templates
@@ -916,3 +983,81 @@ def get_pending_scheduled_operations():
         ''')
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+
+# API Resource operations
+def create_api_resource(resource_id, name, description, base_url, auth_type, auth_token, auth_username, auth_password, custom_headers, created_by):
+    """Create a new API resource"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO api_resources
+            (resource_id, name, description, base_url, auth_type, auth_token, auth_username, auth_password, custom_headers, created_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (
+            resource_id,
+            name,
+            description,
+            base_url,
+            auth_type,
+            auth_token,
+            auth_username,
+            auth_password,
+            json.dumps(custom_headers) if custom_headers else None,
+            created_by
+        ))
+        return resource_id
+
+def update_api_resource(resource_id, name, description, base_url, auth_type, auth_token, auth_username, auth_password, custom_headers):
+    """Update an existing API resource"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE api_resources
+            SET name = ?, description = ?, base_url = ?, auth_type = ?, auth_token = ?,
+                auth_username = ?, auth_password = ?, custom_headers = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE resource_id = ?
+        ''', (
+            name,
+            description,
+            base_url,
+            auth_type,
+            auth_token,
+            auth_username,
+            auth_password,
+            json.dumps(custom_headers) if custom_headers else None,
+            resource_id
+        ))
+        return cursor.rowcount > 0
+
+def get_api_resource(resource_id):
+    """Get a specific API resource"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM api_resources WHERE resource_id = ?', (resource_id,))
+        row = cursor.fetchone()
+        if row:
+            resource = dict(row)
+            if resource.get('custom_headers'):
+                resource['custom_headers'] = json.loads(resource['custom_headers'])
+            return resource
+        return None
+
+def get_all_api_resources():
+    """Get all API resources"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM api_resources ORDER BY name')
+        resources = []
+        for row in cursor.fetchall():
+            resource = dict(row)
+            if resource.get('custom_headers'):
+                resource['custom_headers'] = json.loads(resource['custom_headers'])
+            resources.append(resource)
+        return resources
+
+def delete_api_resource(resource_id):
+    """Delete an API resource"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM api_resources WHERE resource_id = ?', (resource_id,))
+        return cursor.rowcount > 0
