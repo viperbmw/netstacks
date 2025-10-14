@@ -410,49 +410,86 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
     const taskIds = [];
     let completed = 0;
     const endpoint = dryRun ? '/api/deploy/setconfig/dry-run' : '/api/deploy/setconfig';
-    const getConfigEndpoint = '/api/deploy/getconfig';
 
     // Send config to each device
     devices.forEach(function(device) {
         // Fetch device connection info first
         $.get('/api/device/' + encodeURIComponent(device) + '/connection-info')
             .done(function(deviceInfo) {
-                const connectionArgs = {
-                    device_type: deviceInfo.device_type || "cisco_ios",
-                    host: deviceInfo.ip_address || device,
-                    username: finalUsername,
-                    password: finalPassword,
-                    timeout: 10
+                const payload = {
+                    connection_args: {
+                        device_type: deviceInfo.device_type || "cisco_ios",
+                        host: deviceInfo.ip_address || device,
+                        username: finalUsername,
+                        password: finalPassword,
+                        timeout: 10
+                    },
+                    config: commands,
+                    queue_strategy: "pinned"
                 };
 
-                // Execute deployment workflow with pre/post checks
-                executeDeploymentWithChecks(
-                    device,
-                    library,
-                    commands,
-                    connectionArgs,
-                    checkOptions,
-                    endpoint,
-                    getConfigEndpoint,
-                    function(success, taskId) {
-                        if (taskId) {
-                            taskIds.push(taskId);
-                        }
-                        completed++;
+                // Add Netpalm pre_checks if enabled
+                if (checkOptions.preCheck && checkOptions.preCheckCommand) {
+                    payload.pre_checks = [{
+                        get_config_args: {
+                            command: checkOptions.preCheckCommand
+                        },
+                        match_type: "include",  // Match if command output includes this string
+                        match_str: []  // Empty array means just capture output, don't validate
+                    }];
+                }
 
-                        if (completed === devices.length) {
-                            if (taskIds.length > 0) {
-                                showStatus('success', { taskId: `${taskIds.length} deployment tasks created` });
-                                // Redirect to job monitor after 3 seconds
-                                setTimeout(function() {
-                                    window.location.href = '/monitor';
-                                }, 3000);
-                            } else {
-                                showStatus('error', { message: `All deployments failed` });
-                            }
-                        }
+                // Add Netpalm post_checks if enabled
+                if (checkOptions.postCheck && checkOptions.postCheckCommand) {
+                    payload.post_checks = [{
+                        get_config_args: {
+                            command: checkOptions.postCheckCommand
+                        },
+                        match_type: "include",
+                        match_str: []  // Empty array means just capture output, don't validate
+                    }];
+                }
+
+                $.ajax({
+                    url: endpoint,
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        library: library,
+                        payload: payload,
+                        device_name: device  // Include device name for tracking
+                    }),
+                    timeout: 30000
+                })
+                .done(function(data) {
+                    // Netpalm returns: {status: 'success', data: {task_id: '...', ...}}
+                    const taskId = data.data?.task_id || data.task_id || data.id;
+                    if (taskId) {
+                        taskIds.push(taskId);
                     }
-                );
+                    completed++;
+
+                    if (completed === devices.length) {
+                        showStatus('success', { taskId: `${taskIds.length} tasks created` });
+
+                        // Redirect to job monitor after 3 seconds
+                        setTimeout(function() {
+                            window.location.href = '/monitor';
+                        }, 3000);
+                    }
+                })
+                .fail(function(xhr, status, error) {
+                    completed++;
+                    let errorMsg = 'Failed to deploy to ' + device;
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg += ': ' + xhr.responseJSON.error;
+                    }
+                    console.error(errorMsg);
+
+                    if (completed === devices.length) {
+                        showStatus('error', { message: `Completed with errors. ${taskIds.length} of ${devices.length} successful` });
+                    }
+                });
             })
             .fail(function() {
                 completed++;
@@ -462,121 +499,6 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
                 }
             });
     });
-}
-
-// Helper function to execute deployment with pre/post checks
-function executeDeploymentWithChecks(device, library, commands, connectionArgs, checkOptions, deployEndpoint, getConfigEndpoint, callback) {
-    const tasks = {
-        preCheck: null,
-        deploy: null,
-        postCheck: null
-    };
-
-    // Step 1: Execute pre-check if enabled
-    if (checkOptions.preCheck) {
-        const preCheckPayload = {
-            connection_args: connectionArgs,
-            command: checkOptions.preCheckCommand,
-            queue_strategy: "pinned"
-        };
-
-        $.ajax({
-            url: getConfigEndpoint,
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                library: library,
-                payload: preCheckPayload,
-                device_name: device + ' (PRE-CHECK)'
-            }),
-            timeout: 30000
-        })
-        .done(function(data) {
-            tasks.preCheck = data.data?.task_id || data.task_id;
-            console.log(`Pre-check task created for ${device}: ${tasks.preCheck}`);
-            // Wait a moment for pre-check to complete before deployment
-            setTimeout(function() {
-                executeDeployment();
-            }, 2000);
-        })
-        .fail(function(xhr) {
-            console.error(`Pre-check failed for ${device}:`, xhr.responseJSON?.error || 'Unknown error');
-            callback(false, null);
-        });
-    } else {
-        // No pre-check, proceed directly to deployment
-        executeDeployment();
-    }
-
-    // Step 2: Execute deployment
-    function executeDeployment() {
-        const deployPayload = {
-            connection_args: connectionArgs,
-            config: commands,
-            queue_strategy: "pinned"
-        };
-
-        $.ajax({
-            url: deployEndpoint,
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                library: library,
-                payload: deployPayload,
-                device_name: device
-            }),
-            timeout: 30000
-        })
-        .done(function(data) {
-            tasks.deploy = data.data?.task_id || data.task_id;
-            console.log(`Deployment task created for ${device}: ${tasks.deploy}`);
-
-            // Step 3: Execute post-check if enabled
-            if (checkOptions.postCheck) {
-                // Wait for deployment to complete before post-check
-                setTimeout(function() {
-                    executePostCheck();
-                }, 5000);
-            } else {
-                callback(true, tasks.deploy);
-            }
-        })
-        .fail(function(xhr) {
-            console.error(`Deployment failed for ${device}:`, xhr.responseJSON?.error || 'Unknown error');
-            callback(false, null);
-        });
-    }
-
-    // Step 3: Execute post-check
-    function executePostCheck() {
-        const postCheckPayload = {
-            connection_args: connectionArgs,
-            command: checkOptions.postCheckCommand,
-            queue_strategy: "pinned"
-        };
-
-        $.ajax({
-            url: getConfigEndpoint,
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                library: library,
-                payload: postCheckPayload,
-                device_name: device + ' (POST-CHECK)'
-            }),
-            timeout: 30000
-        })
-        .done(function(data) {
-            tasks.postCheck = data.data?.task_id || data.task_id;
-            console.log(`Post-check task created for ${device}: ${tasks.postCheck}`);
-            callback(true, tasks.deploy);
-        })
-        .fail(function(xhr) {
-            console.error(`Post-check failed for ${device}:`, xhr.responseJSON?.error || 'Unknown error');
-            // Still consider deployment successful even if post-check fails
-            callback(true, tasks.deploy);
-        });
-    }
 }
 
 function oldExecuteSetConfigSingle() {
