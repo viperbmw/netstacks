@@ -72,37 +72,21 @@ $(document).ready(function() {
         deployTemplate();
     });
 
-    // Toggle pre/post check command fields for Set Config
-    $('#set-pre-check').change(function() {
+    // Toggle pre/post check fields for Set Config
+    $('#set-enable-checks').change(function() {
         if ($(this).is(':checked')) {
-            $('#set-pre-check-command-container').show();
+            $('#set-checks-container').show();
         } else {
-            $('#set-pre-check-command-container').hide();
+            $('#set-checks-container').hide();
         }
     });
 
-    $('#set-post-check').change(function() {
+    // Toggle pre/post check fields for Template
+    $('#template-enable-checks').change(function() {
         if ($(this).is(':checked')) {
-            $('#set-post-check-command-container').show();
+            $('#template-checks-container').show();
         } else {
-            $('#set-post-check-command-container').hide();
-        }
-    });
-
-    // Toggle pre/post check command fields for Template
-    $('#template-pre-check').change(function() {
-        if ($(this).is(':checked')) {
-            $('#template-pre-check-command-container').show();
-        } else {
-            $('#template-pre-check-command-container').hide();
-        }
-    });
-
-    $('#template-post-check').change(function() {
-        if ($(this).is(':checked')) {
-            $('#template-post-check-command-container').show();
-        } else {
-            $('#template-post-check-command-container').hide();
+            $('#template-checks-container').hide();
         }
     });
 });
@@ -361,27 +345,24 @@ function executeSetConfig() {
     }
 
     // Collect pre/post check options
-    const preCheck = $('#set-pre-check').is(':checked');
-    const postCheck = $('#set-post-check').is(':checked');
+    const enableChecks = $('#set-enable-checks').is(':checked');
     const preCheckCommand = $('#set-pre-check-command').val().trim();
-    const postCheckCommand = $('#set-post-check-command').val().trim() || preCheckCommand;
+    const preCheckMatch = $('#set-pre-check-match').val().trim();
+    const postCheckCommand = $('#set-post-check-command').val().trim();
+    const postCheckMatch = $('#set-post-check-match').val().trim();
 
-    if (preCheck && !preCheckCommand) {
-        showStatus('error', { message: 'Please enter a pre-check command or disable pre-check' });
-        return;
-    }
-
-    if (postCheck && !postCheckCommand) {
-        showStatus('error', { message: 'Please enter a post-check command or disable post-check' });
+    if (enableChecks && !preCheckCommand && !postCheckCommand) {
+        showStatus('error', { message: 'Please enter at least one pre or post-check command' });
         return;
     }
 
     const commands = config.split('\n').filter(cmd => cmd.trim() !== '');
     const checkOptions = {
-        preCheck: preCheck,
-        postCheck: postCheck,
+        enabled: enableChecks,
         preCheckCommand: preCheckCommand,
-        postCheckCommand: postCheckCommand
+        preCheckMatch: preCheckMatch,
+        postCheckCommand: postCheckCommand,
+        postCheckMatch: postCheckMatch
     };
     deployToDevices(devices, library, commands, username, password, dryRun, checkOptions);
 }
@@ -401,10 +382,11 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
 
     // Default check options
     checkOptions = checkOptions || {
-        preCheck: false,
-        postCheck: false,
+        enabled: false,
         preCheckCommand: '',
-        postCheckCommand: ''
+        preCheckMatch: '',
+        postCheckCommand: '',
+        postCheckMatch: ''
     };
 
     const taskIds = [];
@@ -428,25 +410,33 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
                     queue_strategy: "pinned"
                 };
 
-                // Add Netpalm pre_checks if enabled
-                if (checkOptions.preCheck && checkOptions.preCheckCommand) {
+                // Add Netpalm pre_checks if enabled and command is provided
+                if (checkOptions.enabled && checkOptions.preCheckCommand) {
+                    const matchArray = checkOptions.preCheckMatch ?
+                        checkOptions.preCheckMatch.split(',').map(s => s.trim()).filter(s => s) :
+                        [];
+
                     payload.pre_checks = [{
                         get_config_args: {
                             command: checkOptions.preCheckCommand
                         },
-                        match_type: "include",  // Match if command output includes this string
-                        match_str: []  // Empty array means just capture output, don't validate
+                        match_type: "include",
+                        match_str: matchArray  // Array of strings that must be in output (empty = just capture)
                     }];
                 }
 
-                // Add Netpalm post_checks if enabled
-                if (checkOptions.postCheck && checkOptions.postCheckCommand) {
+                // Add Netpalm post_checks if enabled and command is provided
+                if (checkOptions.enabled && checkOptions.postCheckCommand) {
+                    const matchArray = checkOptions.postCheckMatch ?
+                        checkOptions.postCheckMatch.split(',').map(s => s.trim()).filter(s => s) :
+                        [];
+
                     payload.post_checks = [{
                         get_config_args: {
                             command: checkOptions.postCheckCommand
                         },
                         match_type: "include",
-                        match_str: []  // Empty array means just capture output, don't validate
+                        match_str: matchArray
                     }];
                 }
 
@@ -639,18 +629,14 @@ function deployTemplate() {
     }
 
     // Collect pre/post check options
-    const preCheck = $('#template-pre-check').is(':checked');
-    const postCheck = $('#template-post-check').is(':checked');
+    const enableChecks = $('#template-enable-checks').is(':checked');
     const preCheckCommand = $('#template-pre-check-command').val().trim();
-    const postCheckCommand = $('#template-post-check-command').val().trim() || preCheckCommand;
+    const preCheckMatch = $('#template-pre-check-match').val().trim();
+    const postCheckCommand = $('#template-post-check-command').val().trim();
+    const postCheckMatch = $('#template-post-check-match').val().trim();
 
-    if (preCheck && !preCheckCommand) {
-        showStatus('error', { message: 'Please enter a pre-check command or disable pre-check' });
-        return;
-    }
-
-    if (postCheck && !postCheckCommand) {
-        showStatus('error', { message: 'Please enter a post-check command or disable post-check' });
+    if (enableChecks && !preCheckCommand && !postCheckCommand) {
+        showStatus('error', { message: 'Please enter at least one pre or post-check command' });
         return;
     }
 
@@ -667,10 +653,11 @@ function deployTemplate() {
     showStatus('loading');
 
     const checkOptions = {
-        preCheck: preCheck,
-        postCheck: postCheck,
+        enabled: enableChecks,
         preCheckCommand: preCheckCommand,
-        postCheckCommand: postCheckCommand
+        preCheckMatch: preCheckMatch,
+        postCheckCommand: postCheckCommand,
+        postCheckMatch: postCheckMatch
     };
 
     // Render template first
