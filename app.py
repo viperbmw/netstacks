@@ -1046,6 +1046,74 @@ def delete_api_resource(resource_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/proxy-api-call', methods=['POST'])
+@login_required
+def proxy_api_call():
+    """Proxy API calls to bypass CORS restrictions"""
+    try:
+        import requests
+        import base64
+
+        data = request.json
+        resource_id = data.get('resource_id')
+        endpoint = data.get('endpoint')
+        method = data.get('method', 'GET')
+
+        if not resource_id or not endpoint:
+            return jsonify({'success': False, 'error': 'resource_id and endpoint are required'}), 400
+
+        # Get the resource
+        resource = db.get_api_resource(resource_id)
+        if not resource:
+            return jsonify({'success': False, 'error': 'Resource not found'}), 404
+
+        # Build full URL
+        base_url = resource['base_url'].rstrip('/')
+        clean_endpoint = endpoint if endpoint.startswith('/') else '/' + endpoint
+        url = base_url + clean_endpoint
+
+        # Build headers based on auth type
+        headers = {}
+        auth_type = resource.get('auth_type', 'none')
+
+        if auth_type == 'bearer':
+            headers['Authorization'] = f"Bearer {resource['auth_token']}"
+        elif auth_type == 'api_key':
+            headers['X-API-Key'] = resource['auth_token']
+        elif auth_type == 'basic':
+            credentials = f"{resource['auth_username']}:{resource['auth_password']}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            headers['Authorization'] = f"Basic {encoded}"
+        elif auth_type == 'custom' and resource.get('custom_headers'):
+            headers = resource['custom_headers']
+
+        # Make the request
+        log.info(f"Proxying API call: {method} {url}")
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            timeout=30,
+            verify=False  # Allow self-signed certs
+        )
+
+        # Return the response
+        return jsonify({
+            'success': True,
+            'status': response.status_code,
+            'statusText': response.reason,
+            'data': response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
+        })
+
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Request timeout (30s)'}), 504
+    except requests.exceptions.ConnectionError as e:
+        return jsonify({'success': False, 'error': f'Connection error: {str(e)}'}), 503
+    except Exception as e:
+        log.error(f"Error proxying API call: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # API Endpoints for frontend
 
 @app.route('/api/devices', methods=['GET', 'POST'])

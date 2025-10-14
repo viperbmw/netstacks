@@ -1879,6 +1879,11 @@ function openStackTemplateModal(templateId = null) {
     $('#stack-template-description').val('');
     $('#template-services-container').html('<p class="text-muted">No services added yet. Click "Add Service" to define services for this template.</p>');
 
+    // Clear API variable configs and hide detected variables card
+    apiVariableConfigs = {};
+    $('#detected-variables-card').hide();
+    $('#detected-variables-container').empty();
+
     $('#stackTemplateModalTitle').text(templateId ? 'Edit Stack Template' : 'Create Stack Template');
 
     const modal = new bootstrap.Modal(document.getElementById('stackTemplateModal'));
@@ -2364,6 +2369,10 @@ function editStackTemplate(templateId) {
                 $('#stack-template-name').val(template.name);
                 $('#stack-template-description').val(template.description || '');
 
+                // Load API variable configurations
+                apiVariableConfigs = template.api_variables || {};
+                console.log('Loaded API variable configs:', apiVariableConfigs);
+
                 // Clear and populate services
                 $('#template-services-container').empty();
 
@@ -2419,6 +2428,11 @@ function editStackTemplate(templateId) {
                 $('#stackTemplateModalTitle').text('Edit Stack Template');
                 const modal = new bootstrap.Modal(document.getElementById('stackTemplateModal'));
                 modal.show();
+
+                // Extract variables from templates to show detected variables with API configs
+                setTimeout(() => {
+                    extractTemplateVariables();
+                }, 100);
             }
         })
         .fail(function(xhr) {
@@ -2812,19 +2826,24 @@ function fetchApiVariable(varName, apiConfig) {
         headers = resource.custom_headers;
     }
 
-    // Make the fetch request from browser
-    fetch(url, {
-        method: apiConfig.method || 'GET',
-        headers: headers,
-        mode: 'cors'  // Allow CORS requests
+    // Make the request via backend proxy (bypasses CORS)
+    $.ajax({
+        url: '/api/proxy-api-call',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            resource_id: apiConfig.resource_id,
+            endpoint: apiConfig.endpoint,
+            method: apiConfig.method || 'GET'
+        })
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .done(function(response) {
+        if (!response.success) {
+            throw new Error(response.error || 'API call failed');
         }
-        return response.json();
-    })
-    .then(data => {
+
+        const data = response.data;
+
         // Extract value using JSONPath
         let value;
         if (apiConfig.json_path) {
@@ -2846,11 +2865,12 @@ function fetchApiVariable(varName, apiConfig) {
             throw new Error('Could not extract value from API response using JSONPath: ' + apiConfig.json_path);
         }
     })
-    .catch(error => {
-        console.error('API fetch error:', error);
-        $status.html(`<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error: ${error.message}</span>`);
+    .fail(function(xhr) {
+        const errorMsg = xhr.responseJSON ? xhr.responseJSON.error : 'API call failed';
+        console.error('API fetch error:', errorMsg);
+        $status.html(`<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error: ${errorMsg}</span>`);
     })
-    .finally(() => {
+    .always(function() {
         $button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
     });
 }
@@ -3211,31 +3231,45 @@ function testApiConfig() {
         headers = resource.custom_headers;
     }
 
-    // Show loading state
+    // Show loading state with debug info
     $('#test-api-btn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Testing...');
-    resultDiv.show().html(`
-        <div class="alert alert-info">
-            <i class="fas fa-spinner fa-spin"></i> Making API request to ${url}...
-        </div>
-    `);
 
-    // Make the fetch request
-    fetch(url, {
-        method: method,
-        headers: headers,
-        mode: 'cors'
+    // Show what we're about to call
+    const debugInfo = `
+        <div class="alert alert-info mb-2">
+            <i class="fas fa-spinner fa-spin"></i> Making API request via backend proxy...
+        </div>
+        <div class="card mb-2">
+            <div class="card-body py-2">
+                <small><strong>URL:</strong> <code>${escapeHtml(url)}</code></small><br>
+                <small><strong>Method:</strong> ${method}</small><br>
+                <small><strong>Auth:</strong> ${escapeHtml(resource.auth_type || 'none')}</small>
+            </div>
+        </div>
+    `;
+    resultDiv.show().html(debugInfo);
+
+    // Make the request via backend proxy (bypasses CORS)
+    $.ajax({
+        url: '/api/proxy-api-call',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            resource_id: resourceId,
+            endpoint: endpoint,
+            method: method
+        })
     })
-    .then(response => {
+    .done(function(response) {
+        if (!response.success) {
+            throw new Error(response.error || 'Unknown error');
+        }
+
+        const data = response.data;
         const status = response.status;
         const statusText = response.statusText;
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${status}: ${statusText}`);
-        }
 
-        return response.json().then(data => ({data, status, statusText}));
-    })
-    .then(({data, status, statusText}) => {
         // Extract value using JSONPath if provided
         let extractedValue = null;
         let extractError = null;
@@ -3295,29 +3329,37 @@ function testApiConfig() {
 
         resultDiv.html(html);
     })
-    .catch(error => {
-        console.error('API test error:', error);
+    .fail(function(xhr) {
+        const errorMsg = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+        console.error('API test error:', errorMsg);
+        console.error('Failed URL:', url);
+
         resultDiv.html(`
             <div class="alert alert-danger">
                 <strong><i class="fas fa-times-circle"></i> API Call Failed</strong>
                 <div class="mt-2">
-                    <strong>Error:</strong> ${escapeHtml(error.message)}
+                    <strong>Error:</strong> ${escapeHtml(errorMsg)}
                 </div>
                 <div class="mt-2">
-                    <small class="text-muted">
-                        <strong>Common issues:</strong>
-                        <ul class="mb-0">
-                            <li>CORS not enabled on the API server</li>
-                            <li>Invalid authentication headers</li>
-                            <li>Network connectivity issues</li>
-                            <li>Incorrect URL</li>
-                        </ul>
-                    </small>
+                    <small><strong>URL:</strong> <code>${escapeHtml(url)}</code></small><br>
+                    <small><strong>Method:</strong> ${method}</small><br>
+                    <small><strong>Resource:</strong> ${escapeHtml(resource.name)}</small>
                 </div>
+            </div>
+            <div class="alert alert-secondary mt-2">
+                <small class="text-muted">
+                    <strong>Common issues:</strong>
+                    <ul class="mb-0">
+                        <li><strong>Invalid URL</strong> - Check base URL + endpoint path combination</li>
+                        <li><strong>Invalid auth</strong> - Check authentication credentials in resource</li>
+                        <li><strong>Network issue</strong> - API server unreachable from NetStacks backend</li>
+                        <li><strong>Timeout</strong> - API took longer than 30 seconds to respond</li>
+                    </ul>
+                </small>
             </div>
         `);
     })
-    .finally(() => {
+    .always(function() {
         $('#test-api-btn').prop('disabled', false).html('<i class="fas fa-flask"></i> Test API Call');
     });
 }
