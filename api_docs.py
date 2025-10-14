@@ -6,18 +6,19 @@ Swagger/OpenAPI documentation for all NetStacks Pro REST APIs
 from flask import Blueprint
 from flask_restx import Api, Resource, fields, Namespace
 
-# Create blueprint for API docs
-api_bp = Blueprint('api_docs', __name__)
+# Create blueprint for API docs with URL prefix to avoid root path conflicts
+api_bp = Blueprint('api_docs', __name__, url_prefix='/docs')
 
 # Initialize Flask-RESTX API
 # Note: add_api_spec_resource=False prevents Flask-RESTX from creating actual API endpoints
 # We only want the Swagger documentation UI, not duplicate API routes
+# The doc='/' means the Swagger UI will be at /docs/ (blueprint prefix + doc path)
 api = Api(
     api_bp,
     version='1.0',
     title='NetStacks Pro API',
     description='Network Automation and Configuration Management REST API',
-    doc='/api-docs',
+    doc='/',
     add_api_spec_resource=False
 )
 
