@@ -436,6 +436,102 @@ def swagger_spec():
                         "200": {"description": "Template created"}
                     }
                 }
+            },
+            "/stack-templates": {
+                "get": {
+                    "tags": ["stack-templates"],
+                    "summary": "List stack templates",
+                    "description": "Get all reusable service stack templates",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "success": {"type": "boolean"},
+                                    "templates": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/StackTemplate"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["stack-templates"],
+                    "summary": "Create stack template",
+                    "description": "Create a new reusable service stack template with API variables",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {"$ref": "#/definitions/StackTemplate"}
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Template created",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "success": {"type": "boolean"},
+                                    "template_id": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/stack-templates/{template_id}": {
+                "get": {
+                    "tags": ["stack-templates"],
+                    "summary": "Get stack template",
+                    "description": "Get a specific stack template by ID",
+                    "parameters": [{
+                        "name": "template_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/StackTemplate"}
+                        }
+                    }
+                },
+                "put": {
+                    "tags": ["stack-templates"],
+                    "summary": "Update stack template",
+                    "parameters": [
+                        {
+                            "name": "template_id",
+                            "in": "path",
+                            "required": True,
+                            "type": "string"
+                        },
+                        {
+                            "in": "body",
+                            "name": "body",
+                            "schema": {"$ref": "#/definitions/StackTemplate"}
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Template updated"}
+                    }
+                },
+                "delete": {
+                    "tags": ["stack-templates"],
+                    "summary": "Delete stack template",
+                    "parameters": [{
+                        "name": "template_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Template deleted"}
+                    }
+                }
             }
         },
         "definitions": {
@@ -501,6 +597,52 @@ def swagger_spec():
                     "service_variables": {"type": "object"},
                     "created_at": {"type": "string", "format": "date-time"}
                 }
+            },
+            "StackTemplate": {
+                "type": "object",
+                "properties": {
+                    "template_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "services": {
+                        "type": "array",
+                        "description": "Array of service definitions",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "service_name": {"type": "string"},
+                                "device_template": {"type": "string"},
+                                "device_filters": {"type": "object"}
+                            }
+                        }
+                    },
+                    "required_variables": {
+                        "type": "array",
+                        "description": "List of required variable names",
+                        "items": {"type": "string"}
+                    },
+                    "api_variables": {
+                        "type": "object",
+                        "description": "API variable configurations for browser-side fetching",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "url": {"type": "string", "description": "API endpoint URL"},
+                                "method": {"type": "string", "description": "HTTP method (GET/POST/PUT)"},
+                                "headers": {"type": "object", "description": "HTTP headers"},
+                                "json_path": {"type": "string", "description": "JSONPath to extract value"},
+                                "description": {"type": "string", "description": "Variable description"}
+                            }
+                        }
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "updated_at": {"type": "string", "format": "date-time"},
+                    "created_by": {"type": "string"}
+                }
             }
         },
         "tags": [
@@ -509,6 +651,7 @@ def swagger_spec():
             {"name": "workers", "description": "Worker management"},
             {"name": "templates", "description": "Configuration templates"},
             {"name": "stacks", "description": "Service stack operations"},
+            {"name": "stack-templates", "description": "Reusable stack templates with API variables"},
             {"name": "schedules", "description": "Scheduled operations"},
             {"name": "deploy", "description": "Configuration deployment"}
         ]
