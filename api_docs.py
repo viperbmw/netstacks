@@ -1,95 +1,516 @@
 """
 NetStacks Pro API Documentation
 Swagger/OpenAPI documentation for all NetStacks Pro REST APIs
+Uses a custom Swagger UI with manually defined OpenAPI spec to avoid route conflicts
 """
 
-from flask import Blueprint
-from flask_restx import Api, Resource, fields, Namespace
+from flask import Blueprint, jsonify, render_template_string
 
 # Create blueprint for API docs with URL prefix to avoid root path conflicts
 api_bp = Blueprint('api_docs', __name__, url_prefix='/docs')
 
-# Initialize Flask-RESTX API
-# Note: add_api_spec_resource=False prevents Flask-RESTX from creating actual API endpoints
-# We only want the Swagger documentation UI, not duplicate API routes
-# The doc='/' means the Swagger UI will be at /docs/ (blueprint prefix + doc path)
-api = Api(
-    api_bp,
-    version='1.0',
-    title='NetStacks Pro API',
-    description='Network Automation and Configuration Management REST API',
-    doc='/',
-    add_api_spec_resource=False
-)
+@api_bp.route('/')
+def swagger_ui():
+    """Render Swagger UI with custom spec URL"""
+    return render_template_string('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NetStacks Pro API</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { margin:0; padding:0; }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+    <script>
+    window.onload = function() {
+        window.ui = SwaggerUIBundle({
+            url: "/docs/swagger.json",
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIStandalonePreset
+            ],
+            plugins: [
+                SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: "StandaloneLayout"
+        });
+    };
+    </script>
+</body>
+</html>
+    ''')
 
-# Define namespaces for documentation only
-# NOTE: These namespaces are for documentation purposes only
-# They do NOT create actual API endpoints (add_api_spec_resource=False)
-# The actual API endpoints are defined in app.py
-ns_devices = api.namespace('devices', description='Device management operations')
-ns_tasks = api.namespace('tasks', description='Task and job monitoring')
-ns_templates = api.namespace('templates', description='Configuration templates')
-ns_stacks = api.namespace('stacks', description='Service stack operations')
-ns_schedules = api.namespace('schedules', description='Scheduled operations')
-ns_deploy = api.namespace('deploy', description='Configuration deployment')
-ns_auth = api.namespace('auth', description='Authentication')
-ns_settings = api.namespace('settings', description='Settings management')
+# Flask-RESTX imports no longer needed - we use custom Swagger spec
+# All API documentation is defined in the swagger.json route below
 
-# Define models
-device_model = api.model('Device', {
-    'name': fields.String(required=True, description='Device name'),
-    'ip_address': fields.String(description='IP address'),
-    'device_type': fields.String(description='Device type (e.g., cisco_ios)'),
-    'manufacturer': fields.String(description='Manufacturer'),
-    'platform': fields.String(description='Platform'),
-    'site': fields.String(description='Site location'),
-    'status': fields.String(description='Device status'),
-})
+# ============================================================================
+# API Endpoint Documentation
+# ============================================================================
+# Since the actual endpoints are in app.py, we manually define the swagger spec
+# This prevents route conflicts while still providing comprehensive documentation
 
-task_model = api.model('Task', {
-    'task_id': fields.String(description='Unique task identifier'),
-    'task_status': fields.String(description='Task status (queued, running, finished, failed)'),
-    'created_on': fields.DateTime(description='Task creation timestamp'),
-    'task_result': fields.Raw(description='Task execution result'),
-    'task_errors': fields.Raw(description='Task errors if any'),
-})
-
-template_model = api.model('Template', {
-    'template_id': fields.String(description='Unique template identifier'),
-    'template_name': fields.String(required=True, description='Template name'),
-    'template_type': fields.String(required=True, description='Template type (deploy, delete, validate)'),
-    'template_content': fields.String(required=True, description='Jinja2 template content'),
-    'variables': fields.Raw(description='Template variables schema'),
-    'created_at': fields.DateTime(description='Creation timestamp'),
-})
-
-schedule_model = api.model('Schedule', {
-    'schedule_id': fields.String(description='Unique schedule identifier'),
-    'operation_type': fields.String(required=True, description='Operation type (deploy, validate, delete, config_deploy)'),
-    'schedule_type': fields.String(required=True, description='Schedule type (once, daily, weekly, monthly)'),
-    'scheduled_time': fields.String(required=True, description='Schedule time (ISO 8601 format)'),
-    'enabled': fields.Boolean(description='Schedule enabled status'),
-    'next_run': fields.DateTime(description='Next execution time'),
-    'last_run': fields.DateTime(description='Last execution time'),
-    'run_count': fields.Integer(description='Number of times executed'),
-})
-
-service_stack_model = api.model('ServiceStack', {
-    'stack_id': fields.String(description='Unique stack identifier'),
-    'stack_name': fields.String(required=True, description='Stack name'),
-    'description': fields.String(description='Stack description'),
-    'deploy_template_id': fields.String(description='Deploy template ID'),
-    'delete_template_id': fields.String(description='Delete template ID'),
-    'validation_template_id': fields.String(description='Validation template ID'),
-    'target_devices': fields.List(fields.String, description='Target device list'),
-    'service_variables': fields.Raw(description='Service-specific variables'),
-    'created_at': fields.DateTime(description='Creation timestamp'),
-})
-
-# NOTE: Resource classes have been removed to prevent route conflicts
-# Flask-RESTX creates actual routes when Resource classes are defined
-# Since we only want documentation (Swagger UI), not duplicate endpoints,
-# we've removed all Resource class definitions.
-#
-# The actual API endpoints are implemented in app.py
-# This file only provides the Swagger UI for documentation purposes
+@api_bp.route('/swagger.json')
+def swagger_spec():
+    """Return custom Swagger/OpenAPI specification"""
+    spec = {
+        "swagger": "2.0",
+        "basePath": "/api",
+        "info": {
+            "title": "NetStacks Pro API",
+            "version": "1.0",
+            "description": "Network Automation and Configuration Management REST API"
+        },
+        "paths": {
+            "/devices": {
+                "post": {
+                    "tags": ["devices"],
+                    "summary": "Get list of all devices",
+                    "description": "Fetches devices from Netbox based on configured filters",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "filters": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "key": {"type": "string"},
+                                            "value": {"type": "string"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "success": {"type": "boolean"},
+                                    "devices": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/Device"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/tasks": {
+                "get": {
+                    "tags": ["tasks"],
+                    "summary": "Get all task IDs",
+                    "description": "Retrieves list of all task IDs from Netpalm",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "data": {
+                                        "type": "object",
+                                        "properties": {
+                                            "task_id": {
+                                                "type": "array",
+                                                "items": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/tasks/{task_id}": {
+                "get": {
+                    "tags": ["tasks"],
+                    "summary": "Get task details",
+                    "description": "Fetch detailed information about a specific task",
+                    "parameters": [{
+                        "name": "task_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string",
+                        "description": "Task identifier"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/Task"}
+                        }
+                    }
+                }
+            },
+            "/tasks/metadata": {
+                "get": {
+                    "tags": ["tasks"],
+                    "summary": "Get task metadata",
+                    "description": "Retrieve metadata for all tasks (device names, timestamps, etc.)",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "metadata": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": "object",
+                                            "properties": {
+                                                "device_name": {"type": "string"},
+                                                "timestamp": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/workers": {
+                "get": {
+                    "tags": ["workers"],
+                    "summary": "Get all workers",
+                    "description": "Fetch list of active Netpalm workers",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "hostname": {"type": "string"},
+                                        "pid": {"type": "string"},
+                                        "last_heartbeat": {"type": "string"},
+                                        "successful_job_count": {"type": "integer"},
+                                        "failed_job_count": {"type": "integer"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/service-stacks": {
+                "get": {
+                    "tags": ["stacks"],
+                    "summary": "List service stacks",
+                    "description": "Get all service stack definitions",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "array",
+                                "items": {"$ref": "#/definitions/ServiceStack"}
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["stacks"],
+                    "summary": "Create service stack",
+                    "description": "Create a new service stack definition",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {"$ref": "#/definitions/ServiceStack"}
+                    }],
+                    "responses": {
+                        "200": {"description": "Success"}
+                    }
+                }
+            },
+            "/service-stacks/{stack_id}": {
+                "get": {
+                    "tags": ["stacks"],
+                    "summary": "Get service stack",
+                    "parameters": [{
+                        "name": "stack_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/ServiceStack"}
+                        }
+                    }
+                },
+                "put": {
+                    "tags": ["stacks"],
+                    "summary": "Update service stack",
+                    "parameters": [
+                        {
+                            "name": "stack_id",
+                            "in": "path",
+                            "required": True,
+                            "type": "string"
+                        },
+                        {
+                            "in": "body",
+                            "name": "body",
+                            "schema": {"$ref": "#/definitions/ServiceStack"}
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Success"}
+                    }
+                },
+                "delete": {
+                    "tags": ["stacks"],
+                    "summary": "Delete service stack",
+                    "parameters": [{
+                        "name": "stack_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Success"}
+                    }
+                }
+            },
+            "/service-stacks/{stack_id}/deploy": {
+                "post": {
+                    "tags": ["stacks"],
+                    "summary": "Deploy service stack",
+                    "parameters": [{
+                        "name": "stack_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Deployment initiated"}
+                    }
+                }
+            },
+            "/service-stacks/{stack_id}/validate": {
+                "post": {
+                    "tags": ["stacks"],
+                    "summary": "Validate service stack",
+                    "parameters": [{
+                        "name": "stack_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Validation initiated"}
+                    }
+                }
+            },
+            "/scheduled-operations": {
+                "get": {
+                    "tags": ["schedules"],
+                    "summary": "List scheduled operations",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "array",
+                                "items": {"$ref": "#/definitions/Schedule"}
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["schedules"],
+                    "summary": "Create scheduled operation",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {"$ref": "#/definitions/Schedule"}
+                    }],
+                    "responses": {
+                        "200": {"description": "Schedule created"}
+                    }
+                }
+            },
+            "/scheduled-operations/{schedule_id}": {
+                "put": {
+                    "tags": ["schedules"],
+                    "summary": "Update schedule",
+                    "parameters": [
+                        {
+                            "name": "schedule_id",
+                            "in": "path",
+                            "required": True,
+                            "type": "string"
+                        },
+                        {
+                            "in": "body",
+                            "name": "body",
+                            "schema": {"$ref": "#/definitions/Schedule"}
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Schedule updated"}
+                    }
+                },
+                "delete": {
+                    "tags": ["schedules"],
+                    "summary": "Delete schedule",
+                    "parameters": [{
+                        "name": "schedule_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Schedule deleted"}
+                    }
+                }
+            },
+            "/deploy/setconfig": {
+                "post": {
+                    "tags": ["deploy"],
+                    "summary": "Deploy configuration",
+                    "description": "Deploy configuration commands to device(s)",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "devices": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                },
+                                "config": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                }
+                            }
+                        }
+                    }],
+                    "responses": {
+                        "200": {"description": "Deployment initiated"}
+                    }
+                }
+            },
+            "/templates": {
+                "get": {
+                    "tags": ["templates"],
+                    "summary": "List templates",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "array",
+                                "items": {"$ref": "#/definitions/Template"}
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["templates"],
+                    "summary": "Create template",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {"$ref": "#/definitions/Template"}
+                    }],
+                    "responses": {
+                        "200": {"description": "Template created"}
+                    }
+                }
+            }
+        },
+        "definitions": {
+            "Device": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "ip_address": {"type": "string"},
+                    "device_type": {"type": "string"},
+                    "manufacturer": {"type": "string"},
+                    "platform": {"type": "string"},
+                    "site": {"type": "string"},
+                    "status": {"type": "string"}
+                }
+            },
+            "Task": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "task_status": {"type": "string"},
+                    "created_on": {"type": "string", "format": "date-time"},
+                    "task_result": {"type": "object"},
+                    "task_errors": {"type": "object"}
+                }
+            },
+            "Template": {
+                "type": "object",
+                "properties": {
+                    "template_id": {"type": "string"},
+                    "template_name": {"type": "string"},
+                    "template_type": {"type": "string"},
+                    "template_content": {"type": "string"},
+                    "variables": {"type": "object"},
+                    "created_at": {"type": "string", "format": "date-time"}
+                }
+            },
+            "Schedule": {
+                "type": "object",
+                "properties": {
+                    "schedule_id": {"type": "string"},
+                    "operation_type": {"type": "string"},
+                    "schedule_type": {"type": "string"},
+                    "scheduled_time": {"type": "string"},
+                    "enabled": {"type": "boolean"},
+                    "next_run": {"type": "string", "format": "date-time"},
+                    "last_run": {"type": "string", "format": "date-time"},
+                    "run_count": {"type": "integer"}
+                }
+            },
+            "ServiceStack": {
+                "type": "object",
+                "properties": {
+                    "stack_id": {"type": "string"},
+                    "stack_name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "deploy_template_id": {"type": "string"},
+                    "delete_template_id": {"type": "string"},
+                    "validation_template_id": {"type": "string"},
+                    "target_devices": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "service_variables": {"type": "object"},
+                    "created_at": {"type": "string", "format": "date-time"}
+                }
+            }
+        },
+        "tags": [
+            {"name": "devices", "description": "Device management operations"},
+            {"name": "tasks", "description": "Task and job monitoring"},
+            {"name": "workers", "description": "Worker management"},
+            {"name": "templates", "description": "Configuration templates"},
+            {"name": "stacks", "description": "Service stack operations"},
+            {"name": "schedules", "description": "Scheduled operations"},
+            {"name": "deploy", "description": "Configuration deployment"}
+        ]
+    }
+    return jsonify(spec)
