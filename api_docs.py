@@ -1,6 +1,6 @@
 """
-NetStacks Pro API Documentation
-Swagger/OpenAPI documentation for all NetStacks Pro REST APIs
+NetStacks API Documentation
+Swagger/OpenAPI documentation for all NetStacks REST APIs
 Uses a custom Swagger UI with manually defined OpenAPI spec to avoid route conflicts
 """
 
@@ -17,7 +17,7 @@ def swagger_ui():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>NetStacks Pro API</title>
+    <title>NetStacks API</title>
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
     <style>
         html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
@@ -66,7 +66,7 @@ def swagger_spec():
         "swagger": "2.0",
         "basePath": "/api",
         "info": {
-            "title": "NetStacks Pro API",
+            "title": "NetStacks API",
             "version": "1.0",
             "description": "Network Automation and Configuration Management REST API"
         },

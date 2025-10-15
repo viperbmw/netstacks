@@ -1,4 +1,4 @@
-// Timezone utilities for NetStacks Pro
+// Timezone utilities for NetStacks
 
 /**
  * Get user's preferred timezone from settings

@@ -1,5 +1,5 @@
 """
-LDAP Authentication Module for NetStacks Pro
+LDAP Authentication Module for NetStacks
 Provides LDAP/Active Directory authentication
 """
 import ldap

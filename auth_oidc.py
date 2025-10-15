@@ -1,5 +1,5 @@
 """
-OIDC (OpenID Connect) Authentication Module for NetStacks Pro
+OIDC (OpenID Connect) Authentication Module for NetStacks
 Provides OAuth2/OIDC authentication for providers like Okta, Azure AD, Keycloak, etc.
 """
 import logging

@@ -1,14 +1,13 @@
-# NetStacks Pro
+# NetStacks
 
-**Professional Web-based Service Stack Management for Network Automation**
+**Web-based Service Stack Management for Network Automation**
 
-NetStacks Pro is the commercial version of NetStacks, offering advanced features for enterprise network automation. It provides a modern web UI for managing network device configurations using template-based service stacks, with professional features including licensing, enhanced security, and enterprise-grade capabilities.
+NetStacks is an open-source web application that provides a modern interface for managing network device configurations using template-based service stacks. It simplifies network automation with an intuitive UI for deploying, validating, and managing configuration services across your network infrastructure.
 
-This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for network automation and provides an intuitive interface for deploying, validating, and managing configuration services across your network infrastructure.
+This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for network automation and provides powerful features for enterprise network management.
 
 ## 🚀 Features
 
-### Core Features
 - **Template-Based Services**: Deploy configurations using Jinja2 templates with variable substitution
 - **Service Stacks**: Group related services and deploy them as a stack with dependency management
 - **Validation**: Automatically validate deployed configurations against device running configs
@@ -17,21 +16,11 @@ This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for ne
 - **Netbox Integration**: Automatically fetch device inventory from Netbox
 - **Real-time Monitoring**: Track deployment progress and job status
 - **Template Metadata**: Link validation and delete templates to service templates
-
-### Professional Features
-- **🔑 License Management**: Flexible licensing system with trial, standard, professional, and enterprise tiers
-  - Single license policy (only one active license at a time)
-  - Secure offline license generation
-  - License history tracking
 - **🔐 Enterprise Authentication**: Multiple authentication methods
   - Local database authentication
   - LDAP / Active Directory integration
   - OAuth2 / OpenID Connect (OIDC) support
   - Auto-provisioning for external users
-- **📊 Feature Flags**: Enable/disable features based on license type
-- **👥 User & Device Limits**: Control deployment scale based on license
-- **🛡️ License Validation**: Automatic license validation and expiration warnings
-- **📈 Usage Tracking**: Monitor device and user counts against license limits
 - **🌐 Offline Operation**: Fully functional without internet connectivity
 
 ## 📋 Prerequisites
@@ -209,84 +198,12 @@ NetStacks uses the following Netpalm API endpoints:
 
 - `netstacks-data:/data` - Persistent SQLite database storage for settings and service data
 
-## 🔑 Licensing
-
-NetStacks Pro requires a valid license to operate. The application includes a comprehensive licensing system with multiple tiers.
-
-### License Tiers
-
-| Tier | Duration | Max Devices | Max Users | Features |
-|------|----------|-------------|-----------|----------|
-| **Trial** | 30 days | 10 | 3 | Basic deployment, Service stacks |
-| **Standard** | 1 year | Unlimited | Unlimited | + Advanced validation, API access |
-| **Professional** | 1 year | Unlimited | Unlimited | + Scheduled deployments, Audit logging, Backup/restore, Webhooks |
-| **Enterprise** | 1 year | Unlimited | Unlimited | All features |
-
-### Getting Started with Licensing
-
-1. **Start a Trial**: Navigate to `/license` and click "Start 30-Day Trial"
-2. **Install a License**: If you have a license key, enter it on the `/license` page
-
-**Note:** Only ONE license can be active at a time. Installing a new license will automatically deactivate any previous licenses.
-
-### License Generation
-
-**License generation has been moved to a separate secure tool for security reasons.**
-
-The license generator is located at: `../netstacks-license-generator/`
-
-To generate licenses:
-```bash
-cd ../netstacks-license-generator
-python3 generate_license.py "Company Name" <license_type>
-
-# Examples:
-python3 generate_license.py "Acme Corp" trial
-python3 generate_license.py "Big Corp" enterprise --duration 730
-```
-
-See `../netstacks-license-generator/README.md` for complete documentation.
-
-### Managing Licenses
-
-Access the license management interface at `http://localhost:8088/license` (Administration → License) where you can:
-- View current license status and expiration
-- Install new license keys
-- Start a 30-day trial
-- View license history
-- Monitor device and user limits
-
-### License Key Format
-
-License keys follow the format: `NSPRO-XXXXX-XXXXX-XXXXX-XXXXX`
-
-Example:
-```
-NSPRO-ABCDE-12345-FGHIJ-67890
-```
-
-### Feature Flags
-
-Different license tiers enable different features:
-- `basic_deployment` - Core service deployment
-- `service_stacks` - Service stack management
-- `advanced_validation` - Enhanced validation features
-- `scheduled_deployments` - Schedule deployments
-- `audit_logging` - Detailed audit trails
-- `backup_restore` - Automatic config backups
-- `change_management` - Approval workflows
-- `advanced_reporting` - Analytics and reports
-- `api_access` - REST API access
-- `webhooks` - Custom webhook integration
-- `rbac` - Role-based access control
-- `multi_tenancy` - Multiple organizations
-
 ## 🔄 Updating
 
-To update NetStacks Pro:
+To update NetStacks:
 
 ```bash
-cd netstacks-pro
+cd netstacks
 git pull
 docker-compose down
 docker-compose up -d --build
@@ -356,7 +273,7 @@ NetStacks is designed to work with the upstream Netpalm project. When contributi
 
 ## 📄 License
 
-NetStacks is provided as-is for network automation purposes. See LICENSE file for details.
+NetStacks is open-source software released under the MIT License. See LICENSE file for details.
 
 ## 🔗 Related Projects
 
