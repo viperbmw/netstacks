@@ -46,6 +46,35 @@ sudo apt-get install -y docker-compose-plugin
 docker compose version
 ```
 
+### If "docker: 'compose' is not a docker command" Error
+
+If the plugin is installed but Docker can't find it, run this fix:
+
+```bash
+# Download and run the fix script
+curl -O https://raw.githubusercontent.com/yourusername/netstacks/main/fix-docker-compose.sh
+chmod +x fix-docker-compose.sh
+./fix-docker-compose.sh
+```
+
+**Or manually fix it:**
+
+```bash
+# Create CLI plugins directory
+sudo mkdir -p /usr/libexec/docker/cli-plugins
+
+# Download compose binary directly
+COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep 'tag_name' | cut -d\" -f4)
+sudo curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+
+# Make it executable
+sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+# Test
+docker compose version
+```
+
 ## After Installation
 
 **Important**: Use `docker compose` (with a space), NOT `docker-compose` (with a hyphen)
