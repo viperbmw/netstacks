@@ -25,85 +25,105 @@ This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for ne
 
 ## 📋 Prerequisites
 
-1. **Netstacker Instance**: A running Netstacker installation that NetStacks can reach via HTTP/HTTPS
-2. **Docker & Docker Compose**: For containerized deployment
-3. **(Optional) Netbox**: For automatic device inventory management
+1. **Docker & Docker Compose**: For containerized deployment
+2. **(Optional) Netbox**: For automatic device inventory management
 
-## 🔧 Quick Start
+## 🚀 Quick Start
 
-### 1. Clone or Download NetStacks
+**NetStacks now includes the complete platform!** The unified docker-compose deploys both:
+- **NetStacks Web UI** (port 8089) - Frontend interface
+- **Netstacker Backend** (port 9000) - API automation engine
+
+### 1. Clone the Repository
 
 ```bash
-git clone <your-netstacks-repo>
+git clone https://github.com/viperbmw/netstacks.git
 cd netstacks
 ```
 
-### 2. (Optional) Customize Port
-
-By default, NetStacks runs on port 8088. To change:
+### 2. (Optional) Customize Configuration
 
 ```bash
 cp .env.example .env
-# Edit .env and set NETSTACKS_PORT if desired
+# Edit .env to customize API keys and ports if needed
 ```
 
-### 3. Deploy NetStacks
+### 3. Deploy the Complete Platform
 
 ```bash
 docker-compose up -d
 ```
 
-### 4. Configure via Web Interface
+This will start 5 containers:
+- `netstacks` - Web UI
+- `netstacker-controller` - API server
+- `netstacker-worker-pinned` - Task worker (pinned queue)
+- `netstacker-worker-fifo` - Task worker (FIFO queue)
+- `netstacker-redis` - Queue and cache
 
-Open your browser to: `http://localhost:8088/settings`
+### 4. Access the Platform
 
-Configure your connections:
-- **Netstacker URL**: Point to your Netstacker server (e.g., `http://netstacker.example.com:9000`)
-- **Netstacker API Key**: Your Netstacker authentication key
-- **Netbox URL**: (Optional) Your Netbox server URL
-- **Netbox Token**: (Optional) Your Netbox API token
+- **NetStacks Web UI**: `http://localhost:8089`
+- **Netstacker API**: `http://localhost:9000`
+- **Netstacker Swagger UI**: `http://localhost:9000`
 
-All settings are saved to SQLite database and persist across restarts.
+The Web UI is pre-configured to connect to the backend API automatically!
 
-### 5. Start Using NetStacks
+### 5. (Optional) Configure Netbox Integration
 
-Navigate to the Dashboard: `http://localhost:8088`
+1. Go to `http://localhost:8089/settings`
+2. Add your Netbox connection details:
+   - **Netbox URL**: Your Netbox server URL
+   - **Netbox Token**: Your Netbox API token
 
 ## 🌐 Architecture
 
-NetStacks is a **standalone application** that connects to external services:
+NetStacks is a **complete network automation platform** with integrated frontend and backend:
 
 ```
-┌─────────────┐      HTTP/HTTPS       ┌─────────────┐
-│  NetStacks  │ ───────────────────> │ Netstacker  │
-│  + SQLite   │                       │   Server    │
-└─────────────┘                       └─────────────┘
-       │
-       │ HTTP/HTTPS (optional)
-       │
-       ▼
-┌─────────────┐
-│   Netbox    │
-│   Server    │
-└─────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    NetStacks Platform                    │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌──────────────┐         ┌──────────────────────────┐ │
+│  │  NetStacks   │  REST   │  Netstacker Backend      │ │
+│  │   Web UI     │ ◄─────► │  ┌────────────────────┐  │ │
+│  │  (Flask)     │   API   │  │ FastAPI Controller │  │ │
+│  │  + SQLite    │         │  ├────────────────────┤  │ │
+│  └──────────────┘         │  │ Pinned Worker      │  │ │
+│       Port 8089           │  ├────────────────────┤  │ │
+│                           │  │ FIFO Worker        │  │ │
+│                           │  ├────────────────────┤  │ │
+│                           │  │ Redis Queue/Cache  │  │ │
+│                           │  └────────────────────┘  │ │
+│                           │       Port 9000          │ │
+│                           └──────────────────────────┘ │
+│                                       │                 │
+└───────────────────────────────────────┼─────────────────┘
+                                        │ SSH/Telnet
+                                        ▼
+                              Network Devices
+
+                 Optional: Netbox Integration ◄────────┘
 ```
 
 **Key Points:**
-- NetStacks runs standalone with embedded SQLite database
-- Connects to Netstacker via HTTP/HTTPS API calls
-- No Docker network requirements
-- Configure all connections via the GUI at `/settings`
+- **Unified Platform**: Both frontend and backend deploy together
+- **Pre-integrated**: Web UI automatically connects to backend API
+- **Microservices**: Scalable worker architecture for task processing
+- **Persistent Storage**: SQLite for UI data, Redis for task queuing
+- **Network Automation**: Direct device access via Netmiko (SSH/Telnet)
 
 ## 📁 Directory Structure
 
 ```
 netstacks/
-├── app.py                      # Flask application
+├── app.py                      # Flask application (Web UI)
 ├── database.py                 # SQLite database layer
 ├── netbox_client.py            # Netbox API client
 ├── requirements.txt            # Python dependencies
-├── Dockerfile                  # Docker container definition
-├── docker-compose.yml          # Standalone deployment
+├── Dockerfile                  # NetStacks Web UI container
+├── docker-compose.yml          # Complete platform deployment
 ├── .env.example                # Environment variable template
 ├── templates/                  # HTML templates (Flask)
 │   ├── base.html
@@ -111,16 +131,27 @@ netstacks/
 │   ├── services.html
 │   ├── service-stacks.html
 │   └── ...
-└── static/                     # Static assets (CSS, JS)
-    ├── css/
-    │   └── style.css
-    └── js/
-        ├── services.js
-        ├── service-stacks.js
-        └── ...
+├── static/                     # Static assets (CSS, JS)
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       ├── services.js
+│       ├── service-stacks.js
+│       └── ...
+└── netstacker/                 # Backend API platform
+    ├── docker-compose.yml      # Backend-only deployment (optional)
+    ├── netstacker/             # Backend Python code
+    │   ├── netstacker_controller.py
+    │   ├── backend/
+    │   │   ├── core/
+    │   │   └── plugins/
+    │   └── routers/
+    ├── dockerfiles/            # Backend Dockerfiles
+    ├── config/                 # Backend configuration
+    └── tests/                  # Backend tests
 ```
 
-**Note**: Jinja2 configuration templates are stored in Netstacker, not in the local filesystem.
+**Note**: Jinja2 configuration templates are stored in the Netstacker backend under `netstacker/netstacker/backend/plugins/extensibles/j2_config_templates/`
 
 ## 🛠️ Usage
 
@@ -187,16 +218,39 @@ NetStacks uses the following Netstacker API endpoints:
 
 ### Environment Variables
 
+Create a `.env` file from the template:
+
+```bash
+cp .env.example .env
+```
+
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `NETSTACKER_API_KEY` | `2a84465a-cf38-46b2-9d86-b84Q7d57f288` | API key for backend authentication |
 | `DB_FILE` | `/data/netstacks.db` | SQLite database file path |
-| `NETSTACKS_PORT` | `8088` | Port to expose NetStacks on |
 
-**Note**: Netstacker and Netbox connections are configured via the GUI at `/settings` and stored in SQLite database. Templates are managed via GUI and stored in Netstacker.
+**Note**: The Web UI is pre-configured to connect to the backend API at `http://netstacker-controller:9000`. Netbox connections are configured via the GUI at `/settings`.
+
+### Ports
+
+| Service | Port | Description |
+|---------|------|-------------|
+| NetStacks Web UI | 8089 | Main web interface |
+| Netstacker API | 9000 | Backend REST API / Swagger UI |
 
 ### Volumes
 
 - `netstacks-data:/data` - Persistent SQLite database storage for settings and service data
+
+### Services
+
+The unified docker-compose deploys 5 services:
+
+1. **netstacks** - Flask web UI for managing configurations
+2. **netstacker-controller** - FastAPI backend server
+3. **netstacker-worker-pinned** - RQ worker for pinned tasks
+4. **netstacker-worker-fifo** - RQ worker for FIFO tasks
+5. **redis** - Task queue and caching layer
 
 ## 🔄 Updating
 
