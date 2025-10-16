@@ -19,9 +19,7 @@ services:
       # Mount database directory for persistence
       - netstacks-data:/data
     networks:
-      - netstacker-network
-    depends_on:
-      - netstacker-controller
+      - netstacks-network
     restart: unless-stopped
 
   # Netstacker API Controller (Backend)
@@ -37,7 +35,7 @@ services:
     ports:
       - "9000:9000"
     networks:
-      - netstacker-network
+      - netstacks-network
     depends_on:
       - redis
     restart: always
@@ -55,7 +53,7 @@ services:
     depends_on:
       - redis
     networks:
-      - netstacker-network
+      - netstacks-network
     restart: always
 
   # Netstacker FIFO Worker
@@ -71,7 +69,7 @@ services:
     depends_on:
       - redis
     networks:
-      - netstacker-network
+      - netstacks-network
     restart: always
 
   # Redis (Queue/Cache for Netstacker)
@@ -81,12 +79,12 @@ services:
       dockerfile: ./dockerfiles/netstacker_redis_dockerfile
     container_name: netstacker-redis
     networks:
-      - netstacker-network
+      - netstacks-network
     restart: always
 
 networks:
-  netstacker-network:
-    name: netstacker-network
+  netstacks-network:
+    name: netstacks-network
 
 volumes:
   netstacks-data:
