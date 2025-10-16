@@ -14,6 +14,20 @@ $(document).ready(function() {
     // Start auto-sync for deploying services (every 5 seconds)
     startAutoSync();
 
+    // Update server time display every second
+    updateServerTime();
+    setInterval(updateServerTime, 1000);
+
+    // Update timezone labels when modal opens
+    $('#scheduleStackModal').on('show.bs.modal', function() {
+        updateTimezoneLabels();
+    });
+
+    // Set current time button
+    $('#set-current-time-btn').click(function() {
+        setCurrentServerTime();
+    });
+
     // Event handlers
     $('#create-stack-btn').click(function() {
         openStackModal();
@@ -278,7 +292,7 @@ function renderServiceStacks(stacks) {
 
                         <div class="mt-3">
                             <small class="text-muted">
-                                Created: ${new Date(stack.created_at).toLocaleString()}
+                                Created: ${formatDate(stack.created_at)}
                             </small>
                         </div>
                     </div>
@@ -1051,7 +1065,7 @@ function renderStackDetails(stack) {
             ${stack.has_pending_changes ? `
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle"></i> This stack has pending changes that require redeployment.
-                    ${stack.pending_since ? `<br><small>Changes made: ${new Date(stack.pending_since).toLocaleString()}</small>` : ''}
+                    ${stack.pending_since ? `<br><small>Changes made: ${formatDate(stack.pending_since)}</small>` : ''}
                 </div>
             ` : ''}
         </div>
@@ -1064,7 +1078,7 @@ function renderStackDetails(stack) {
                 <strong>Deployed Instances:</strong> ${deployedServiceCount}
             </div>
             <div class="col-md-4">
-                <strong>Created:</strong> ${new Date(stack.created_at).toLocaleString()}
+                <strong>Created:</strong> ${formatDate(stack.created_at)}
             </div>
         </div>
 
@@ -1185,7 +1199,7 @@ function loadDeployedServices(serviceIds) {
                                     <i class="fas fa-server"></i> ${service.device} |
                                     <i class="fas fa-file-code"></i> ${service.template}
                                 </small>
-                                ${service.deployed_at ? `<br><small class="text-muted">Deployed: ${new Date(service.deployed_at).toLocaleString()}</small>` : ''}
+                                ${service.deployed_at ? `<br><small class="text-muted">Deployed: ${formatDate(service.deployed_at)}</small>` : ''}
                                 ${service.state === 'failed' && service.error ? `<br><small class="text-danger"><i class="fas fa-exclamation-triangle"></i> ${service.error}</small>` : ''}
                             </div>
                             <div class="btn-group btn-group-sm">
@@ -1366,24 +1380,24 @@ function renderServiceInstanceDetails(service) {
                 <table class="table table-sm">
                     <tr>
                         <th style="width: 40%;">Created:</th>
-                        <td>${new Date(service.created_at).toLocaleString()}</td>
+                        <td>${formatDate(service.created_at)}</td>
                     </tr>
                     ${service.deployed_at ? `
                     <tr>
                         <th>Deployed:</th>
-                        <td>${new Date(service.deployed_at).toLocaleString()}</td>
+                        <td>${formatDate(service.deployed_at)}</td>
                     </tr>
                     ` : ''}
                     ${service.last_validated ? `
                     <tr>
                         <th>Last Validated:</th>
-                        <td>${new Date(service.last_validated).toLocaleString()}</td>
+                        <td>${formatDate(service.last_validated)}</td>
                     </tr>
                     ` : ''}
                     ${service.updated_at ? `
                     <tr>
                         <th>Updated:</th>
-                        <td>${new Date(service.updated_at).toLocaleString()}</td>
+                        <td>${formatDate(service.updated_at)}</td>
                     </tr>
                     ` : ''}
                 </table>
@@ -2203,6 +2217,9 @@ function openDeployFromTemplateModal(templateId) {
                 });
                 servicesContainer.html(servicesHtml);
 
+                // Store template API variables for auto-fetch on device selection
+                $('#deployFromTemplateModal').data('template-api-vars', template.api_variables || {});
+
                 // Initialize each service with one device dropdown
                 template.services.forEach((service, index) => {
                     addDeployDeviceDropdown(index, null);
@@ -2246,6 +2263,29 @@ function addDeployDeviceDropdown(serviceIndex, selectedDevice) {
     `;
 
     $devicesList.append(deviceHtml);
+
+    // Attach change handler to auto-fetch API variables when device is selected
+    $devicesList.find('.deploy-service-device-select').last().change(function() {
+        const selectedDevice = $(this).val();
+        if (selectedDevice) {
+            console.log('Device selected:', selectedDevice, '- Auto-fetching API variables...');
+
+            // Get stored API variable configs
+            const apiVariables = $('#deployFromTemplateModal').data('template-api-vars') || {};
+
+            // Find all API variables and fetch them
+            $('.fetch-api-var-btn').each(function() {
+                const $btn = $(this);
+                const varName = $btn.data('var-name');
+                const apiConfig = apiVariables[varName];
+
+                if (apiConfig) {
+                    // Trigger the fetch
+                    fetchApiVariable(varName, apiConfig);
+                }
+            });
+        }
+    });
 
     // Attach remove handler (only for additional devices, not the first one)
     if (deviceCount > 0) {
@@ -2555,6 +2595,48 @@ $(document).on('click', '#create-schedule-btn', function() {
             alert('Please select a date and time');
             return;
         }
+        // datetime-local returns format: "2025-10-15T15:30"
+        // User entered this time in the system timezone, need to convert to UTC
+        const systemTz = (typeof systemTimezone !== 'undefined') ? systemTimezone : 'UTC';
+
+        try {
+            // Parse the input
+            const [datePart, timePart] = scheduledTime.split('T');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const [hour, minute] = timePart.split(':').map(Number);
+
+            // Create a reference date at epoch in system TZ and UTC to find offset
+            const refDate = new Date('2025-01-01T12:00:00Z');
+            const refSystemStr = refDate.toLocaleString('en-US', { timeZone: systemTz, hour12: false });
+            const refUTCStr = refDate.toLocaleString('en-US', { timeZone: 'UTC', hour12: false });
+
+            // Find the offset for our specific date (accounting for DST)
+            const testDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+            const testSystemStr = testDate.toLocaleString('en-US', { timeZone: systemTz, hour12: false });
+            const testUTCStr = testDate.toLocaleString('en-US', { timeZone: 'UTC', hour12: false });
+
+            // Parse both strings to get times
+            const parseDateTime = (str) => {
+                const parts = str.match(/(\d+)\/(\d+)\/(\d+),\s+(\d+):(\d+):(\d+)/);
+                if (!parts) return null;
+                return new Date(parts[3], parts[1] - 1, parts[2], parts[4], parts[5], parts[6]);
+            };
+
+            const testSystemDate = parseDateTime(testSystemStr);
+            const testUTCDate = parseDateTime(testUTCStr);
+            const offsetMs = testUTCDate - testSystemDate;
+
+            // Now apply this offset to our input time
+            // Input is in system TZ, we need UTC
+            const inputAsLocal = new Date(year, month - 1, day, hour, minute, 0);
+            const utcTime = new Date(inputAsLocal.getTime() + offsetMs);
+
+            scheduledTime = utcTime.toISOString();
+        } catch (e) {
+            console.error('Error converting timezone:', e);
+            // Fallback: treat as UTC
+            scheduledTime = scheduledTime + ':00Z';
+        }
     } else {
         scheduledTime = $('#schedule-time').val();
         if (!scheduledTime) {
@@ -2653,7 +2735,9 @@ function renderSchedulesList(schedules) {
 
         let scheduleDetails = '';
         if (schedule.schedule_type === 'once') {
-            scheduleDetails = new Date(schedule.scheduled_time).toLocaleString();
+            console.log('DEBUG: schedule.scheduled_time =', schedule.scheduled_time);
+            scheduleDetails = formatDate(schedule.scheduled_time);
+            console.log('DEBUG: scheduleDetails after formatDate =', scheduleDetails);
         } else if (schedule.schedule_type === 'daily') {
             scheduleDetails = `Every day at ${schedule.scheduled_time}`;
         } else if (schedule.schedule_type === 'weekly') {
@@ -2662,7 +2746,9 @@ function renderSchedulesList(schedules) {
             scheduleDetails = `Day ${schedule.day_of_month} of each month at ${schedule.scheduled_time}`;
         }
 
-        const nextRun = schedule.next_run ? new Date(schedule.next_run).toLocaleString() : 'Not scheduled';
+        console.log('DEBUG: schedule.next_run =', schedule.next_run);
+        const nextRun = schedule.next_run ? formatDate(schedule.next_run) : 'Not scheduled';
+        console.log('DEBUG: nextRun after formatDate =', nextRun);
 
         html += `
             <div class="list-group-item">
@@ -2675,7 +2761,7 @@ function renderSchedulesList(schedules) {
                         </h6>
                         <p class="mb-1"><small>${scheduleDetails}</small></p>
                         <p class="mb-1"><small class="text-muted">Next run: ${nextRun}</small></p>
-                        ${schedule.last_run ? `<p class="mb-0"><small class="text-muted">Last run: ${new Date(schedule.last_run).toLocaleString()} (${schedule.run_count} times)</small></p>` : ''}
+                        ${schedule.last_run ? `<p class="mb-0"><small class="text-muted">Last run: ${formatDate(schedule.last_run)} (${schedule.run_count} times)</small></p>` : ''}
                     </div>
                     <div class="btn-group-vertical btn-group-sm">
                         <button class="btn btn-sm btn-outline-${enabled ? 'warning' : 'success'} toggle-schedule-btn"
@@ -2807,26 +2893,46 @@ function fetchApiVariable(varName, apiConfig) {
         return;
     }
 
-    // Build full URL from resource base_url + endpoint
-    const baseUrl = resource.base_url.replace(/\/$/, ''); // Remove trailing slash
+    // Collect all available variables for substitution
+    const variables = {};
+
+    // Get device name from the deploy service device select (if in deployment modal)
+    const $deviceSelect = $('.deploy-service-device-select').first();
+    if ($deviceSelect.length && $deviceSelect.val()) {
+        variables.device = $deviceSelect.val();
+    }
+
+    // Collect all other template variables
+    $('.template-variable').each(function() {
+        const vName = $(this).data('var-name');
+        const vValue = $(this).val();
+        if (vValue && vName !== varName) {  // Don't include the variable we're currently fetching
+            variables[vName] = vValue;
+        }
+    });
+
+    // Check if endpoint requires variables that aren't available
+    const endpointVars = (apiConfig.endpoint.match(/\{\{(\w+)\}\}/g) || []).map(v => v.slice(2, -2));
+    const bodyVars = apiConfig.body ? (apiConfig.body.match(/\{\{(\w+)\}\}/g) || []).map(v => v.slice(2, -2)) : [];
+    const requiredVars = [...new Set([...endpointVars, ...bodyVars])];
+    const missingVars = requiredVars.filter(v => !variables.hasOwnProperty(v));
+
+    if (missingVars.length > 0) {
+        $status.html(`<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> Missing required variable(s): ${missingVars.join(', ')}. ${missingVars.includes('device') ? 'Please select a device first.' : 'Please fill in required fields.'}</span>`);
+        $button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
+        return;
+    }
+
+    // Build full URL for display (with unsubstituted variables)
+    const baseUrl = resource.base_url.replace(/\/$/, '');
     const cleanEndpoint = apiConfig.endpoint.startsWith('/') ? apiConfig.endpoint : '/' + apiConfig.endpoint;
     const url = baseUrl + cleanEndpoint;
 
-    // Build headers based on auth type
-    let headers = {};
-    const authType = resource.auth_type || 'none';
-    if (authType === 'bearer') {
-        headers['Authorization'] = `Bearer ${resource.auth_token}`;
-    } else if (authType === 'api_key') {
-        headers['X-API-Key'] = resource.auth_token;
-    } else if (authType === 'basic') {
-        const credentials = btoa(`${resource.auth_username}:${resource.auth_password}`);
-        headers['Authorization'] = `Basic ${credentials}`;
-    } else if (authType === 'custom' && resource.custom_headers) {
-        headers = resource.custom_headers;
-    }
-
     // Make the request via backend proxy (bypasses CORS)
+    console.log('Fetching API variable:', varName);
+    console.log('API config:', apiConfig);
+    console.log('Variables for substitution:', variables);
+
     $.ajax({
         url: '/api/proxy-api-call',
         method: 'POST',
@@ -2834,20 +2940,26 @@ function fetchApiVariable(varName, apiConfig) {
         data: JSON.stringify({
             resource_id: apiConfig.resource_id,
             endpoint: apiConfig.endpoint,
-            method: apiConfig.method || 'GET'
+            method: apiConfig.method || 'GET',
+            body: apiConfig.body,
+            variables: variables  // Pass variables for substitution
         })
     })
     .done(function(response) {
+        console.log('API response:', response);
         if (!response.success) {
             throw new Error(response.error || 'API call failed');
         }
 
         const data = response.data;
+        console.log('Response data structure:', data);
 
         // Extract value using JSONPath
         let value;
         if (apiConfig.json_path) {
+            console.log('Extracting with JSONPath:', apiConfig.json_path);
             value = extractJsonPath(data, apiConfig.json_path);
+            console.log('Extracted value:', value);
         } else {
             // If no JSONPath, assume the response is the value
             value = data;
@@ -2862,6 +2974,7 @@ function fetchApiVariable(varName, apiConfig) {
                 $status.fadeOut();
             }, 3000);
         } else {
+            console.error('Failed to extract value. Data structure:', JSON.stringify(data, null, 2));
             throw new Error('Could not extract value from API response using JSONPath: ' + apiConfig.json_path);
         }
     })
@@ -2896,13 +3009,19 @@ function extractJsonPath(data, path) {
     let current = data;
 
     for (const part of parts) {
-        // Handle array indices like [0]
+        // Handle array indices like [0] or results[0]
         if (part.includes('[') && part.includes(']')) {
-            const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
+            const arrayMatch = part.match(/^(\w+)?\[(\d+)\]$/);
             if (arrayMatch) {
                 const key = arrayMatch[1];
                 const index = parseInt(arrayMatch[2]);
-                current = current[key];
+
+                // If there's a key, navigate to it first
+                if (key) {
+                    current = current[key];
+                }
+
+                // Then access the array index
                 if (Array.isArray(current)) {
                     current = current[index];
                 } else {
@@ -2993,6 +3112,55 @@ function handleApiResourceChange() {
     } else {
         // No resource selected - hide info
         $('#api-config-resource-info').hide();
+    }
+}
+
+/**
+ * Handle API method change - show/hide request body for POST/PUT
+ */
+function handleApiMethodChange() {
+    const method = $('#api-config-method').val();
+
+    if (method === 'POST' || method === 'PUT') {
+        $('#api-config-body-group').show();
+    } else {
+        $('#api-config-body-group').hide();
+    }
+
+    // Re-detect variables since body might have been shown
+    detectAndShowTestVariables();
+}
+
+/**
+ * Detect variables in endpoint and body, show test inputs
+ */
+function detectAndShowTestVariables() {
+    const endpoint = $('#api-config-endpoint').val() || '';
+    const body = $('#api-config-body').val() || '';
+    const combined = endpoint + ' ' + body;
+
+    // Find all {{variable}} patterns (double braces)
+    const varMatches = combined.match(/\{\{(\w+)\}\}/g);
+
+    if (varMatches && varMatches.length > 0) {
+        // Get unique variable names (remove {{ and }})
+        const varNames = [...new Set(varMatches.map(m => m.slice(2, -2)))];
+
+        let html = '';
+        varNames.forEach(varName => {
+            html += `
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text" style="min-width: 120px;">{{${varName}}}</span>
+                    <input type="text" class="form-control test-var-input" data-var-name="${varName}"
+                           placeholder="test_${varName}" value="test_${varName}">
+                </div>
+            `;
+        });
+
+        $('#test-variables-inputs').html(html);
+        $('#test-variables-container').show();
+    } else {
+        $('#test-variables-container').hide();
     }
 }
 
@@ -3098,6 +3266,7 @@ function openApiConfigModal(varName) {
         $('#api-config-resource').val(existingConfig.resource_id || '');
         $('#api-config-endpoint').val(existingConfig.endpoint || '');
         $('#api-config-method').val(existingConfig.method || 'GET');
+        $('#api-config-body').val(existingConfig.body || '');
         $('#api-config-jsonpath').val(existingConfig.json_path || '');
         $('#api-config-description').val(existingConfig.description || '');
     } else {
@@ -3105,13 +3274,16 @@ function openApiConfigModal(varName) {
         $('#api-config-resource').val('');
         $('#api-config-endpoint').val('');
         $('#api-config-method').val('GET');
+        $('#api-config-body').val('');
         $('#api-config-jsonpath').val('');
         $('#api-config-description').val('');
     }
 
-    // Update UI to show resource info
+    // Update UI to show resource info and handle method change
     setTimeout(() => {
         handleApiResourceChange();
+        handleApiMethodChange();
+        detectAndShowTestVariables();
     }, 10);
 
     const modal = new bootstrap.Modal(document.getElementById('apiVariableConfigModal'));
@@ -3126,6 +3298,7 @@ function saveApiConfig() {
     const resourceId = $('#api-config-resource').val();
     const endpoint = $('#api-config-endpoint').val().trim();
     const method = $('#api-config-method').val();
+    const body = $('#api-config-body').val().trim();
     const jsonPath = $('#api-config-jsonpath').val().trim();
     const description = $('#api-config-description').val().trim();
 
@@ -3140,11 +3313,22 @@ function saveApiConfig() {
         return;
     }
 
+    // Validate JSON body if provided
+    if (body) {
+        try {
+            JSON.parse(body);
+        } catch (e) {
+            alert('Invalid JSON in request body: ' + e.message);
+            return;
+        }
+    }
+
     // Save configuration
     apiVariableConfigs[varName] = {
         resource_id: resourceId,
         endpoint: endpoint,
         method: method,
+        body: body || undefined,  // Only save if not empty
         json_path: jsonPath,
         description: description
     };
@@ -3234,16 +3418,52 @@ function testApiConfig() {
     // Show loading state with debug info
     $('#test-api-btn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Testing...');
 
+    // Collect test variable values from inputs
+    const testVariables = {};
+    $('.test-var-input').each(function() {
+        const varName = $(this).data('var-name');
+        const varValue = $(this).val().trim();
+        if (varValue) {
+            testVariables[varName] = varValue;
+        }
+    });
+
+    // Build display URL with test values (double braces)
+    let displayUrl = url;
+    Object.keys(testVariables).forEach(varName => {
+        displayUrl = displayUrl.replace(new RegExp(`\\{\\{${varName}\\}\\}`, 'g'), testVariables[varName]);
+    });
+
+    // Get and substitute variables in request body (double braces)
+    const body = $('#api-config-body').val().trim();
+    let displayBody = body;
+    if (body) {
+        Object.keys(testVariables).forEach(varName => {
+            displayBody = displayBody.replace(new RegExp(`\\{\\{${varName}\\}\\}`, 'g'), testVariables[varName]);
+        });
+    }
+
     // Show what we're about to call
-    const debugInfo = `
+    let debugInfo = `
         <div class="alert alert-info mb-2">
             <i class="fas fa-spinner fa-spin"></i> Making API request via backend proxy...
         </div>
         <div class="card mb-2">
             <div class="card-body py-2">
-                <small><strong>URL:</strong> <code>${escapeHtml(url)}</code></small><br>
+                <small><strong>URL:</strong> <code>${escapeHtml(displayUrl)}</code></small><br>
                 <small><strong>Method:</strong> ${method}</small><br>
                 <small><strong>Auth:</strong> ${escapeHtml(resource.auth_type || 'none')}</small>
+    `;
+
+    if (displayBody) {
+        debugInfo += `<br><small><strong>Body:</strong> <code>${escapeHtml(displayBody.substring(0, 100))}${displayBody.length > 100 ? '...' : ''}</code></small>`;
+    }
+
+    if (Object.keys(testVariables).length > 0) {
+        debugInfo += `<br><small class="text-warning"><strong>Variables:</strong> ${escapeHtml(JSON.stringify(testVariables))}</small>`;
+    }
+
+    debugInfo += `
             </div>
         </div>
     `;
@@ -3257,7 +3477,9 @@ function testApiConfig() {
         data: JSON.stringify({
             resource_id: resourceId,
             endpoint: endpoint,
-            method: method
+            method: method,
+            body: displayBody || undefined,  // Send substituted body
+            variables: testVariables  // Pass test variables for substitution
         })
     })
     .done(function(response) {
@@ -3365,14 +3587,119 @@ function testApiConfig() {
 }
 
 // Initialize API config modal handlers
-$(document).ready(function() {
-    $('#save-api-config-btn').click(saveApiConfig);
-    $('#clear-api-config-btn').click(clearApiConfig);
-    $('#test-api-btn').click(testApiConfig);
-    $('#api-config-resource').change(handleApiResourceChange);
+// Using direct binding when modal opens to ensure handlers work with Bootstrap modals
+$(document).on('shown.bs.modal', '#apiVariableConfigModal', function() {
+    // Attach handlers directly to ensure they work properly
+    $('#save-api-config-btn').off('click').on('click', function(e) {
+        e.preventDefault();
+        saveApiConfig();
+    });
 
-    // Watch for template selection changes
-    $(document).on('change', '.service-template', function() {
-        extractTemplateVariables();
+    $('#clear-api-config-btn').off('click').on('click', function(e) {
+        e.preventDefault();
+        clearApiConfig();
+    });
+
+    $('#test-api-btn').off('click').on('click', function(e) {
+        e.preventDefault();
+        testApiConfig();
     });
 });
+
+$(document).on('change', '#api-config-resource', handleApiResourceChange);
+$(document).on('change', '#api-config-method', handleApiMethodChange);
+
+// Watch for endpoint and body changes to detect variables
+$(document).on('input', '#api-config-endpoint, #api-config-body', detectAndShowTestVariables);
+
+// Watch for template selection changes
+$(document).on('change', '.service-template', function() {
+    extractTemplateVariables();
+});
+
+// Update timezone labels in schedule modal
+function updateTimezoneLabels() {
+    const systemTz = (typeof systemTimezone !== 'undefined') ? systemTimezone : 'UTC';
+    const tzLabel = systemTz === 'UTC' ? 'UTC' : systemTz;
+
+    $('#schedule-datetime-label').text(`Date and Time (${tzLabel}) *`);
+    $('#schedule-time-label').text(`Time (${tzLabel}) *`);
+}
+
+// Set datetime-local input to current server time
+function setCurrentServerTime() {
+    const systemTz = (typeof systemTimezone !== 'undefined') ? systemTimezone : 'UTC';
+    const now = new Date();
+
+    try {
+        // Format current time in system timezone as datetime-local format
+        const options = {
+            timeZone: systemTz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        };
+
+        const formatter = new Intl.DateTimeFormat('en-CA', options);
+        const parts = formatter.formatToParts(now);
+        const dateMap = {};
+        parts.forEach(part => {
+            dateMap[part.type] = part.value;
+        });
+
+        // Create datetime-local format: YYYY-MM-DDTHH:MM
+        const datetimeLocal = `${dateMap.year}-${dateMap.month}-${dateMap.day}T${dateMap.hour}:${dateMap.minute}`;
+        $('#schedule-datetime').val(datetimeLocal);
+    } catch (e) {
+        console.error('Error setting current time:', e);
+        // Fallback to browser local time
+        const localString = now.toISOString().slice(0, 16);
+        $('#schedule-datetime').val(localString);
+    }
+}
+
+// Update server time display using system timezone
+function updateServerTime() {
+    const now = new Date();
+    let timeString;
+
+    // Get system timezone from global variable set in base.html
+    const systemTz = (typeof systemTimezone !== 'undefined') ? systemTimezone : 'UTC';
+
+    try {
+        // Format time in the configured timezone
+        const options = {
+            timeZone: systemTz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        };
+        const formatter = new Intl.DateTimeFormat('en-CA', options);
+        const parts = formatter.formatToParts(now);
+        const dateMap = {};
+        parts.forEach(part => {
+            dateMap[part.type] = part.value;
+        });
+        timeString = `${dateMap.year}-${dateMap.month}-${dateMap.day} ${dateMap.hour}:${dateMap.minute}:${dateMap.second}`;
+
+        // Add timezone abbreviation
+        if (systemTz === 'UTC') {
+            timeString += ' UTC';
+        } else {
+            timeString += ` (${systemTz})`;
+        }
+    } catch (e) {
+        // Fallback to UTC if timezone is invalid
+        timeString = now.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+    }
+
+    $('#server-time-display').text(timeString);
+    $('#server-time-display-daily').text(timeString);
+}

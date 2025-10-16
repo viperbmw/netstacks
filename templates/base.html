@@ -58,8 +58,8 @@
                             <li><a class="dropdown-item" href="/docs" target="_blank">
                                 <i class="fas fa-layer-group"></i> NetStacks API
                             </a></li>
-                            <li><a class="dropdown-item" href="{{ netpalm_url }}" target="_blank">
-                                <i class="fas fa-network-wired"></i> Netpalm API
+                            <li><a class="dropdown-item" href="{{ netstacker_url }}" target="_blank">
+                                <i class="fas fa-network-wired"></i> Netstacker API
                             </a></li>
                         </ul>
                     </li>
@@ -68,6 +68,11 @@
                     <li class="nav-item">
                         <span class="nav-link text-light">
                             <i class="fas fa-user"></i> {{ session.username }}
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link text-light" id="system-time-container" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Loading...">
+                            <i class="fas fa-clock"></i>
                         </span>
                     </li>
                     <li class="nav-item">
@@ -87,6 +92,94 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="{{ url_for('static', filename='js/timezone-utils.js') }}"></script>
+    <script>
+        let systemTimezone = 'UTC';
+
+        // Fetch system timezone from settings
+        function loadSystemTimezone() {
+            $.ajax({
+                url: '/api/settings',
+                method: 'GET',
+                success: function(response) {
+                    if (response.success && response.settings.system_timezone) {
+                        systemTimezone = response.settings.system_timezone;
+                    }
+                },
+                error: function() {
+                    systemTimezone = 'UTC';
+                }
+            });
+        }
+
+        // Update system time tooltip every second
+        function updateSystemTime() {
+            const now = new Date();
+            let timeString;
+
+            try {
+                // Format time in the configured timezone
+                const options = {
+                    timeZone: systemTimezone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                const formatter = new Intl.DateTimeFormat('en-CA', options);
+                const parts = formatter.formatToParts(now);
+                const dateMap = {};
+                parts.forEach(part => {
+                    dateMap[part.type] = part.value;
+                });
+                timeString = `${dateMap.year}-${dateMap.month}-${dateMap.day} ${dateMap.hour}:${dateMap.minute}:${dateMap.second}`;
+
+                // Add timezone abbreviation
+                if (systemTimezone === 'UTC') {
+                    timeString += ' UTC';
+                } else {
+                    timeString += ` (${systemTimezone})`;
+                }
+            } catch (e) {
+                // Fallback to UTC if timezone is invalid
+                timeString = now.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+            }
+
+            const $container = $('#system-time-container');
+            $container.attr('data-bs-original-title', 'Server Time: ' + timeString);
+            $container.attr('title', 'Server Time: ' + timeString);
+        }
+
+        // Load timezone IMMEDIATELY (synchronously) before anything else
+        $.ajax({
+            url: '/api/settings',
+            method: 'GET',
+            async: false,  // Synchronous to ensure it loads first
+            success: function(response) {
+                if (response.success && response.settings.system_timezone) {
+                    systemTimezone = response.settings.system_timezone;
+                    console.log('System timezone loaded:', systemTimezone);
+                }
+            },
+            error: function() {
+                systemTimezone = 'UTC';
+                console.log('Failed to load system timezone, using UTC');
+            }
+        });
+
+        $(document).ready(function() {
+            // Initialize Bootstrap tooltips
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+
+            updateSystemTime();
+            setInterval(updateSystemTime, 1000);
+        });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

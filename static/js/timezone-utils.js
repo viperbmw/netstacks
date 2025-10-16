@@ -1,24 +1,29 @@
 // Timezone utilities for NetStacks
 
 /**
- * Get user's preferred timezone from settings
+ * Get system timezone from global variable (set in base.html)
  * @returns {string} IANA timezone string (e.g., 'America/New_York')
  */
 function getUserTimezone() {
     try {
-        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
-        const tzSetting = settings.timezone || 'auto';
-
-        if (tzSetting === 'auto') {
-            // Return browser timezone
-            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        // Use global systemTimezone variable if available (set in base.html)
+        if (typeof systemTimezone !== 'undefined' && systemTimezone) {
+            return systemTimezone;
         }
 
-        return tzSetting;
+        // Fallback to localStorage for backwards compatibility
+        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
+        const tzSetting = settings.system_timezone || settings.timezone;
+
+        if (tzSetting && tzSetting !== 'auto') {
+            return tzSetting;
+        }
+
+        // Final fallback to UTC
+        return 'UTC';
     } catch (e) {
         console.error('Error getting timezone:', e);
-        // Fallback to browser timezone
-        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return 'UTC';
     }
 }
 
@@ -52,6 +57,32 @@ function formatDateInUserTimezone(utcDateString, options = {}) {
     } catch (e) {
         console.error('Error formatting date:', e);
         return utcDateString;
+    }
+}
+
+/**
+ * Simple wrapper to format any date in system timezone
+ * @param {Date|string} date - Date object or ISO string
+ * @returns {string} Formatted datetime string in system timezone
+ */
+function formatDate(date) {
+    if (!date) return 'N/A';
+    try {
+        const dateObj = date instanceof Date ? date : new Date(date);
+        const systemTz = getUserTimezone();
+        return dateObj.toLocaleString('en-US', {
+            timeZone: systemTz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return String(date);
     }
 }
 
@@ -143,6 +174,7 @@ function getTimezoneAbbreviation() {
 // Export to window for global access
 if (typeof window !== 'undefined') {
     window.getUserTimezone = getUserTimezone;
+    window.formatDate = formatDate;
     window.formatDateInUserTimezone = formatDateInUserTimezone;
     window.formatDateShort = formatDateShort;
     window.localToUTC = localToUTC;

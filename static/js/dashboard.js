@@ -211,7 +211,7 @@ function displayRecentTasks(tasks, queuedCount, runningCount) {
             else if (status === 'failed') statusBadge = 'badge-failed';
 
             const deviceName = task.deviceName || 'Unknown Device';
-            const createdDate = task.created ? new Date(task.created).toLocaleString() : 'N/A';
+            const createdDate = task.created ? formatDate(task.created) : 'N/A';
 
             tbody.append(`
                 <tr class="task-row" data-task-id="${task.taskId}" style="cursor: pointer;">

@@ -86,7 +86,7 @@ function displayTaskHistory(tasks) {
         tasks.slice(0, 20).forEach(function(item) {
             const status = item.status;
             const taskId = item.taskId;
-            const endedDate = item.ended ? new Date(item.ended).toLocaleString() : 'N/A';
+            const endedDate = item.ended ? formatDate(item.ended) : 'N/A';
 
             let statusBadge = 'secondary';
             if (status === 'finished' || status === 'completed') statusBadge = 'badge-completed';

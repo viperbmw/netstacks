@@ -118,7 +118,7 @@ function loadTasks() {
                                 else if (status === 'finished' || status === 'completed') statusBadge = 'badge-completed';
                                 else if (status === 'failed') statusBadge = 'badge-failed';
 
-                                const createdDate = created !== 'N/A' ? new Date(created).toLocaleString() : 'N/A';
+                                const createdDate = created !== 'N/A' ? formatDate(created) : 'N/A';
 
                                 tbody.append(`
                                     <tr data-task-id="${taskId}">
@@ -246,9 +246,9 @@ function viewTaskDetails(taskId) {
             $('#detail-worker').text(meta.assigned_worker || 'Not assigned');
 
             // Timing info
-            $('#detail-created').text(task.created_on ? new Date(task.created_on).toLocaleString() : 'N/A');
-            $('#detail-started').text(meta.started_at ? new Date(meta.started_at).toLocaleString() : 'Not started');
-            $('#detail-ended').text(meta.ended_at ? new Date(meta.ended_at).toLocaleString() : 'Not finished');
+            $('#detail-created').text(task.created_on ? formatDate(task.created_on) : 'N/A');
+            $('#detail-started').text(meta.started_at ? formatDate(meta.started_at) : 'Not started');
+            $('#detail-ended').text(meta.ended_at ? formatDate(meta.ended_at) : 'Not finished');
 
             const duration = meta.total_elapsed_seconds || '0';
             $('#detail-duration').text(duration + ' seconds');

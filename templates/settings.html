@@ -31,9 +31,9 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="timezone-select" class="form-label">Local Timezone</label>
-                        <select class="form-select" id="timezone-select">
-                            <option value="auto">Auto-detect (Browser Timezone)</option>
+                        <label for="system-timezone" class="form-label">System Timezone</label>
+                        <select class="form-select" id="system-timezone">
+                            <option value="UTC">UTC (Default)</option>
                             <optgroup label="US Timezones">
                                 <option value="America/New_York">Eastern Time (ET)</option>
                                 <option value="America/Chicago">Central Time (CT)</option>
@@ -44,14 +44,13 @@
                                 <option value="Pacific/Honolulu">Hawaii Time (HST)</option>
                             </optgroup>
                             <optgroup label="Common Timezones">
-                                <option value="UTC">UTC</option>
                                 <option value="Europe/London">London (GMT/BST)</option>
                                 <option value="Europe/Paris">Paris (CET/CEST)</option>
                                 <option value="Asia/Tokyo">Tokyo (JST)</option>
                                 <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
                             </optgroup>
                         </select>
-                        <small class="form-text text-muted">All scheduled times will be displayed in this timezone. Current: <span id="current-timezone-display">Auto-detect</span></small>
+                        <small class="form-text text-muted">All times displayed and scheduled operations will use this timezone</small>
                     </div>
 
                     <!-- Netbox Settings -->
@@ -133,26 +132,26 @@
                         <small class="form-text text-muted">Default password for device connections (optional)</small>
                     </div>
 
-                    <!-- Netpalm Connection Settings -->
-                    <h6 class="border-bottom pb-2 mb-3 mt-4">Netpalm Connection</h6>
+                    <!-- Netstacker Connection Settings -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Netstacker Connection</h6>
 
                     <div class="mb-3">
-                        <label for="netpalm-url" class="form-label">Netpalm API URL</label>
-                        <input type="text" class="form-control" id="netpalm-url" placeholder="http://netpalm-controller:9000">
-                        <small class="form-text text-muted">URL of your Netpalm API instance</small>
+                        <label for="netstacker-url" class="form-label">Netstacker API URL</label>
+                        <input type="text" class="form-control" id="netstacker-url" placeholder="http://netstacker-controller:9000">
+                        <small class="form-text text-muted">URL of your Netstacker API instance</small>
                     </div>
 
                     <div class="mb-3">
-                        <label for="netpalm-api-key" class="form-label">Netpalm API Key</label>
-                        <input type="password" class="form-control" id="netpalm-api-key" placeholder="Enter API key">
-                        <small class="form-text text-muted">API key for Netpalm authentication</small>
+                        <label for="netstacker-api-key" class="form-label">Netstacker API Key</label>
+                        <input type="password" class="form-control" id="netstacker-api-key" placeholder="Enter API key">
+                        <small class="form-text text-muted">API key for Netstacker authentication</small>
                     </div>
 
                     <div class="mb-3">
-                        <button type="button" class="btn btn-secondary" id="test-netpalm-btn">
-                            <i class="fas fa-plug"></i> Test Netpalm Connection
+                        <button type="button" class="btn btn-secondary" id="test-netstacker-btn">
+                            <i class="fas fa-plug"></i> Test Netstacker Connection
                         </button>
-                        <div id="netpalm-test-result" class="mt-2"></div>
+                        <div id="netstacker-test-result" class="mt-2"></div>
                     </div>
 
                     <!-- Cache Settings -->

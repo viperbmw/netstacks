@@ -8,8 +8,8 @@ const DEFAULT_SETTINGS = {
     netbox_filters: [],
     default_username: '',
     default_password: '',
-    netpalm_url: 'http://netpalm-controller:9000',
-    netpalm_api_key: '2a84465a-cf38-46b2-9d86-b84Q7d57f288',
+    netstacker_url: 'http://netstacker-controller:9000',
+    netstacker_api_key: '2a84465a-cf38-46b2-9d86-b84Q7d57f288',
     cache_ttl: 300,
     timezone: 'auto'
 };
@@ -59,9 +59,9 @@ $(document).ready(function() {
         testNetboxConnection();
     });
 
-    // Test Netpalm connection button
-    $('#test-netpalm-btn').click(function() {
-        testNetpalmConnection();
+    // Test Netstacker connection button
+    $('#test-netstacker-btn').click(function() {
+        testNetstackerConnection();
     });
 });
 
@@ -80,7 +80,7 @@ function loadSettings() {
             const settings = {
                 ...localSettings,
                 netbox_url: data.settings.netbox_url || localSettings.netbox_url,
-                netpalm_url: data.settings.netpalm_url || localSettings.netpalm_url,
+                netstacker_url: data.settings.netstacker_url || localSettings.netstacker_url,
                 netbox_verify_ssl: data.settings.verify_ssl !== undefined ? data.settings.verify_ssl : localSettings.netbox_verify_ssl
             };
 
@@ -89,8 +89,8 @@ function loadSettings() {
             if (!localSettings.netbox_token && data.settings.netbox_token !== '****') {
                 settings.netbox_token = data.settings.netbox_token;
             }
-            if (!localSettings.netpalm_api_key && data.settings.netpalm_api_key !== '****') {
-                settings.netpalm_api_key = data.settings.netpalm_api_key;
+            if (!localSettings.netstacker_api_key && data.settings.netstacker_api_key !== '****') {
+                settings.netstacker_api_key = data.settings.netstacker_api_key;
             }
 
             populateForm(settings);
@@ -111,10 +111,11 @@ function populateForm(settings) {
     $('#netbox-verify-ssl').prop('checked', settings.netbox_verify_ssl);
     $('#default-username').val(settings.default_username);
     $('#default-password').val(settings.default_password);
-    $('#netpalm-url').val(settings.netpalm_url);
-    $('#netpalm-api-key').val(settings.netpalm_api_key);
+    $('#netstacker-url').val(settings.netstacker_url);
+    $('#netstacker-api-key').val(settings.netstacker_api_key);
     $('#cache-ttl').val(settings.cache_ttl);
     $('#timezone-select').val(settings.timezone || 'auto');
+    $('#system-timezone').val(settings.system_timezone || 'UTC');
 
     // Load filters
     loadFilters(settings.netbox_filters || []);
@@ -141,15 +142,16 @@ function saveSettings() {
         netbox_filters: filters,
         default_username: $('#default-username').val().trim(),
         default_password: $('#default-password').val().trim(),
-        netpalm_url: $('#netpalm-url').val().trim(),
-        netpalm_api_key: $('#netpalm-api-key').val().trim(),
+        netstacker_url: $('#netstacker-url').val().trim(),
+        netstacker_api_key: $('#netstacker-api-key').val().trim(),
         cache_ttl: parseInt($('#cache-ttl').val()),
-        timezone: $('#timezone-select').val()
+        timezone: $('#timezone-select').val(),
+        system_timezone: $('#system-timezone').val()
     };
 
     // Validate
-    if (!settings.netpalm_url) {
-        alert('Netpalm URL is required');
+    if (!settings.netstacker_url) {
+        alert('Netstacker URL is required');
         return;
     }
 
@@ -161,13 +163,16 @@ function saveSettings() {
     // Save to localStorage (for user preferences like filters, credentials)
     localStorage.setItem('netstacks_settings', JSON.stringify(settings));
 
-    // Save backend settings (Netbox/Netpalm URLs) to Redis via API
+    // Save backend settings (Netbox/Netstacker URLs) to Redis via API
     const backendSettings = {
         netbox_url: settings.netbox_url,
         netbox_token: settings.netbox_token,
-        netpalm_url: settings.netpalm_url,
-        netpalm_api_key: settings.netpalm_api_key,
-        verify_ssl: settings.netbox_verify_ssl
+        netstacker_url: settings.netstacker_url,
+        netstacker_api_key: settings.netstacker_api_key,
+        verify_ssl: settings.netbox_verify_ssl,
+        default_username: settings.default_username,
+        default_password: settings.default_password,
+        system_timezone: settings.system_timezone
     };
 
     $.ajax({
@@ -210,8 +215,8 @@ function resetToDefaults() {
     $('#netbox-verify-ssl').prop('checked', DEFAULT_SETTINGS.netbox_verify_ssl);
     $('#default-username').val(DEFAULT_SETTINGS.default_username);
     $('#default-password').val(DEFAULT_SETTINGS.default_password);
-    $('#netpalm-url').val(DEFAULT_SETTINGS.netpalm_url);
-    $('#netpalm-api-key').val(DEFAULT_SETTINGS.netpalm_api_key);
+    $('#netstacker-url').val(DEFAULT_SETTINGS.netstacker_url);
+    $('#netstacker-api-key').val(DEFAULT_SETTINGS.netstacker_api_key);
     $('#cache-ttl').val(DEFAULT_SETTINGS.cache_ttl);
 
     // Clear filters
@@ -457,36 +462,36 @@ function testNetboxConnection() {
     });
 }
 
-function testNetpalmConnection() {
-    const btn = $('#test-netpalm-btn');
-    const resultDiv = $('#netpalm-test-result');
+function testNetstackerConnection() {
+    const btn = $('#test-netstacker-btn');
+    const resultDiv = $('#netstacker-test-result');
 
     // Get current values from form
-    const netpalmUrl = $('#netpalm-url').val().trim();
-    const netpalmApiKey = $('#netpalm-api-key').val().trim();
+    const netstackerUrl = $('#netstacker-url').val().trim();
+    const netstackerApiKey = $('#netstacker-api-key').val().trim();
 
-    if (!netpalmUrl) {
-        resultDiv.html('<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please enter a Netpalm URL first</div>').show();
+    if (!netstackerUrl) {
+        resultDiv.html('<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please enter a Netstacker URL first</div>').show();
         return;
     }
 
-    if (!netpalmApiKey) {
-        resultDiv.html('<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please enter a Netpalm API key first</div>').show();
+    if (!netstackerApiKey) {
+        resultDiv.html('<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please enter a Netstacker API key first</div>').show();
         return;
     }
 
     // Disable button and show loading
     btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Testing...');
-    resultDiv.html('<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Connecting to Netpalm API...</div>').show();
+    resultDiv.html('<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Connecting to Netstacker API...</div>').show();
 
     // Send test request
     $.ajax({
-        url: '/api/test-netpalm',
+        url: '/api/test-netstacker',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
-            netpalm_url: netpalmUrl,
-            netpalm_api_key: netpalmApiKey
+            netstacker_url: netstackerUrl,
+            netstacker_api_key: netstackerApiKey
         }),
         timeout: 15000
     })
@@ -495,7 +500,7 @@ function testNetpalmConnection() {
             resultDiv.html(`
                 <div class="alert alert-success">
                     <i class="fas fa-check-circle"></i> <strong>Connection Successful!</strong><br>
-                    <small>Found ${data.worker_count} Netpalm worker(s)</small><br>
+                    <small>Found ${data.worker_count} Netstacker worker(s)</small><br>
                     <small class="text-muted">Response time: ${data.response_time}ms</small>
                 </div>
             `);
@@ -524,7 +529,7 @@ function testNetpalmConnection() {
         `);
     })
     .always(function() {
-        btn.prop('disabled', false).html('<i class="fas fa-plug"></i> Test Netpalm Connection');
+        btn.prop('disabled', false).html('<i class="fas fa-plug"></i> Test Netstacker Connection');
     });
 }
 

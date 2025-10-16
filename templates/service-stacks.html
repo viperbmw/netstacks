@@ -331,8 +331,11 @@
                 <!-- Endpoint Path -->
                 <div class="mb-3">
                     <label for="api-config-endpoint" class="form-label">Endpoint Path *</label>
-                    <input type="text" class="form-control" id="api-config-endpoint" placeholder="/api/ipam/next-available-ip" required>
-                    <small class="form-text text-muted">Path to append to the resource base URL</small>
+                    <input type="text" class="form-control" id="api-config-endpoint" placeholder="/api/dcim/devices/?name={{device}}" required>
+                    <small class="form-text text-muted">
+                        Path to append to the resource base URL<br>
+                        <i class="fas fa-lightbulb text-warning"></i> <strong>Tip:</strong> Use <code>{% raw %}{{device}}{% endraw %}</code> to insert the device name, or <code>{% raw %}{{variable_name}}{% endraw %}</code> for any template variable
+                    </small>
                 </div>
 
                 <div class="mb-3">
@@ -342,6 +345,16 @@
                         <option value="POST">POST</option>
                         <option value="PUT">PUT</option>
                     </select>
+                </div>
+
+                <!-- Request Body (shown for POST/PUT) -->
+                <div class="mb-3" id="api-config-body-group" style="display:none;">
+                    <label for="api-config-body" class="form-label">Request Body (JSON)</label>
+                    <textarea class="form-control" id="api-config-body" rows="4" placeholder='{"name": "{{device}}", "device_type": 12, "site": "{{site_id}}"}'></textarea>
+                    <small class="form-text text-muted">
+                        JSON body to send with POST/PUT requests<br>
+                        <i class="fas fa-lightbulb text-warning"></i> <strong>Tip:</strong> Use <code>{% raw %}{{device}}{% endraw %}</code> or <code>{% raw %}{{variable_name}}{% endraw %}</code> for dynamic substitution in values
+                    </small>
                 </div>
 
                 <div class="mb-3">
@@ -362,10 +375,18 @@
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label mb-0"><strong>Test API Configuration</strong></label>
-                        <button type="button" class="btn btn-sm btn-primary" id="test-api-btn">
-                            <i class="fas fa-flask"></i> Test API Call
-                        </button>
                     </div>
+
+                    <!-- Test variable values -->
+                    <div class="mb-2" id="test-variables-container" style="display:none;">
+                        <label class="form-label small">Test Variable Values</label>
+                        <div id="test-variables-inputs"></div>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-primary w-100" id="test-api-btn">
+                        <i class="fas fa-flask"></i> Test API Call
+                    </button>
+
                     <div id="api-test-result" style="display:none;">
                         <!-- Test results will be shown here -->
                     </div>
@@ -483,14 +504,25 @@
 
                     <!-- One-time schedule -->
                     <div class="mb-3" id="schedule-datetime-section">
-                        <label for="schedule-datetime" class="form-label">Date and Time *</label>
-                        <input type="datetime-local" class="form-control" id="schedule-datetime" required>
+                        <label for="schedule-datetime" class="form-label" id="schedule-datetime-label">Date and Time (System Timezone) *</label>
+                        <div class="input-group">
+                            <input type="datetime-local" class="form-control" id="schedule-datetime" required>
+                            <button class="btn btn-outline-secondary" type="button" id="set-current-time-btn" title="Set to current server time">
+                                <i class="fas fa-clock"></i> Now
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">
+                            <strong>Server time: <span id="server-time-display">Loading...</span></strong>
+                        </small>
                     </div>
 
                     <!-- Daily schedule -->
                     <div class="mb-3" id="schedule-time-section" style="display: none;">
-                        <label for="schedule-time" class="form-label">Time *</label>
+                        <label for="schedule-time" class="form-label" id="schedule-time-label">Time *</label>
                         <input type="time" class="form-control" id="schedule-time">
+                        <small class="form-text text-muted">
+                            Current server time: <strong id="server-time-display-daily">Loading...</strong>
+                        </small>
                     </div>
 
                     <!-- Weekly schedule -->
@@ -527,6 +559,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/form-utils.js') }}"></script>
-<script src="{{ url_for('static', filename='js/service-stacks.js') }}"></script>
+<script src="{{ url_for('static', filename='js/form-utils.js') }}?v=1760566148"></script>
+<script src="{{ url_for('static', filename='js/service-stacks.js') }}?v=1760566148"></script>
 {% endblock %}

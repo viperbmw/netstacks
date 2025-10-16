@@ -1,6 +1,6 @@
 """
 NetStacks - Web-based Service Stack Management for Network Automation
-Connects to Netpalm API for network device automation
+Connects to Netstacker API for network device automation
 """
 from flask import Flask, render_template, request, jsonify, redirect, session, url_for
 from functools import wraps
@@ -33,22 +33,22 @@ except Exception as e:
     logging.error(f"Failed to register API docs blueprint: {e}")
 
 # Configuration
-NETPALM_API_URL = os.environ.get('NETPALM_API_URL', 'http://netpalm-controller:9000')
-NETPALM_API_KEY = os.environ.get('NETPALM_API_KEY', '2a84465a-cf38-46b2-9d86-b84Q7d57f288')
+NETSTACKER_API_URL = os.environ.get('NETSTACKER_API_URL', 'http://netstacker-controller:9000')
+NETSTACKER_API_KEY = os.environ.get('NETSTACKER_API_KEY', '2a84465a-cf38-46b2-9d86-b84Q7d57f288')
 NETBOX_URL = os.environ.get('NETBOX_URL', 'https://netbox.example.com')
 NETBOX_TOKEN = os.environ.get('NETBOX_TOKEN', '')
 VERIFY_SSL = os.environ.get('VERIFY_SSL', 'false').lower() == 'true'
 TASK_HISTORY_FILE = os.environ.get('TASK_HISTORY_FILE', '/tmp/netstacks_tasks.json')
 # Database initialized in database.py
-# Templates are stored in Netpalm - no local template directory needed
+# Templates are stored in Netstacker - no local template directory needed
 
 # Setup logging first
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# Headers for netpalm API calls
-NETPALM_HEADERS = {
-    'x-api-key': NETPALM_API_KEY,
+# Headers for netstacker API calls
+NETSTACKER_HEADERS = {
+    'x-api-key': NETSTACKER_API_KEY,
     'Content-Type': 'application/json'
 }
 
@@ -63,13 +63,13 @@ log.info("SQLite database initialized")
 try:
     stored_settings = db.get_all_settings()
     if stored_settings:
-        NETPALM_API_URL = stored_settings.get('netpalm_url', NETPALM_API_URL).rstrip('/')
-        NETPALM_API_KEY = stored_settings.get('netpalm_api_key', NETPALM_API_KEY)
-        NETPALM_HEADERS = {
-            'x-api-key': NETPALM_API_KEY,
+        NETSTACKER_API_URL = stored_settings.get('netstacker_url', NETSTACKER_API_URL).rstrip('/')
+        NETSTACKER_API_KEY = stored_settings.get('netstacker_api_key', NETSTACKER_API_KEY)
+        NETSTACKER_HEADERS = {
+            'x-api-key': NETSTACKER_API_KEY,
             'Content-Type': 'application/json'
         }
-        log.info("Loaded Netpalm settings from database")
+        log.info("Loaded Netstacker settings from database")
     else:
         log.warning("No settings found in database. Please configure via /settings")
 except Exception as e:
@@ -202,8 +202,8 @@ def get_settings():
     """Get application settings from database"""
     # Default empty settings (must be configured via GUI)
     settings = {
-        'netpalm_url': '',
-        'netpalm_api_key': '',
+        'netstacker_url': '',
+        'netstacker_api_key': '',
         'netbox_url': '',
         'netbox_token': '',
         'verify_ssl': False
@@ -301,12 +301,12 @@ def delete_service_instance(service_id, run_delete_template=False, credential_ov
                     result = db.delete_service_instance(service_id)
                     return {'success': True, 'warning': 'Deleted from database but could not connect to device'}
 
-                # Strip .j2 extension if present - Netpalm stores templates without extension
+                # Strip .j2 extension if present - Netstacker stores templates without extension
                 template_name_clean = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
-                log.info(f"Deploying delete template '{template_name_clean}' via Netpalm with variables: {variables}")
+                log.info(f"Deploying delete template '{template_name_clean}' via Netstacker with variables: {variables}")
 
-                # Use Netpalm's setconfig with j2config at top level
-                # This tells Netpalm to render the J2 template and deploy it in one operation
+                # Use Netstacker's setconfig with j2config at top level
+                # This tells Netstacker to render the J2 template and deploy it in one operation
                 payload = {
                     'library': 'netmiko',
                     'connection_args': device_info['connection_args'],
@@ -319,9 +319,9 @@ def delete_service_instance(service_id, run_delete_template=False, credential_ov
 
                 log.info(f"Payload: {payload}")
                 response = requests.post(
-                    f'{NETPALM_API_URL}/setconfig',
+                    f'{NETSTACKER_API_URL}/setconfig',
                     json=payload,
-                    headers=NETPALM_HEADERS,
+                    headers=NETSTACKER_HEADERS,
                     timeout=30
                 )
                 response.raise_for_status()
@@ -335,7 +335,7 @@ def delete_service_instance(service_id, run_delete_template=False, credential_ov
                     save_task_id(task_id, device_name=f"delete:{device}")
                     log.info(f"Saved delete task {task_id} to task history")
 
-                # Delete from database after successful job submission to Netpalm
+                # Delete from database after successful job submission to Netstacker
                 db.delete_service_instance(service_id)
 
                 return {'success': True, 'task_id': task_id, 'message': 'Delete template deployed successfully'}
@@ -400,13 +400,13 @@ def delete_service_stack(stack_id):
 
 
 def render_j2_template(template_name, variables):
-    """Render a Jinja2 template using Netpalm's template system"""
+    """Render a Jinja2 template using Netstacker's template system"""
     try:
-        # Call Netpalm's j2template render endpoint
+        # Call Netstacker's j2template render endpoint
         response = requests.post(
-            f'{NETPALM_API_URL}/j2template/render/config/{template_name}',
+            f'{NETSTACKER_API_URL}/j2template/render/config/{template_name}',
             json=variables,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -424,29 +424,29 @@ def render_j2_template(template_name, variables):
 
 
 def render_local_j2_template(template_name, variables):
-    """Render a Jinja2 template locally using template content from Netpalm
+    """Render a Jinja2 template locally using template content from Netstacker
 
-    This is used for validation templates. We fetch the template content from Netpalm
+    This is used for validation templates. We fetch the template content from Netstacker
     and render it locally in NetStacks so we can compare against device config.
     """
     try:
         from jinja2 import Environment, BaseLoader
 
-        # Fetch template content from Netpalm
-        # Template names in Netpalm are stored without .j2 extension
+        # Fetch template content from Netstacker
+        # Template names in Netstacker are stored without .j2 extension
         template_lookup = template_name[:-3] if template_name.endswith('.j2') else template_name
 
-        log.info(f"Fetching template content from Netpalm: {template_lookup}")
+        log.info(f"Fetching template content from Netstacker: {template_lookup}")
         response = requests.get(
-            f'{NETPALM_API_URL}/j2template/config/{template_lookup}',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/j2template/config/{template_lookup}',
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
         result = response.json()
 
         # Extract template content from response
-        # Netpalm returns templates as base64 encoded
+        # Netstacker returns templates as base64 encoded
         template_data = result.get('data', {}).get('task_result', {})
         base64_payload = template_data.get('base64_payload', '')
 
@@ -482,15 +482,30 @@ def render_local_j2_template(template_name, variables):
 
 
 def get_device_connection_info(device_name, credential_override=None):
-    """Get device connection info from Netbox"""
+    """Get device connection info from Netbox or cache"""
     try:
-        # Get Netbox client with current settings
-        netbox = get_netbox_client()
+        device = None
 
-        # Get device from Netbox
-        device = netbox.get_device_by_name(device_name)
+        # Try to get device from cache first (faster and more reliable)
+        # device_cache is a dict, iterate through all cache entries
+        if device_cache:
+            for cache_key, cache_entry in device_cache.items():
+                if cache_entry and isinstance(cache_entry, dict) and 'devices' in cache_entry:
+                    cached_devices = cache_entry.get('devices', [])
+                    if cached_devices:
+                        device = next((d for d in cached_devices if d.get('name') == device_name), None)
+                        if device:
+                            log.info(f"Found device {device_name} in cache (key: {cache_key})")
+                            break
+
+        # Fallback to Netbox if not in cache
+        if not device:
+            log.info(f"Device {device_name} not in cache, fetching from Netbox")
+            netbox = get_netbox_client()
+            device = netbox.get_device_by_name(device_name)
+
         if not device or not device.get('name'):
-            log.error(f"Device {device_name} not found in Netbox")
+            log.error(f"Device {device_name} not found in Netbox or cache")
             return None
 
         # Get platform from config_context.nornir.platform (preferred)
@@ -499,7 +514,14 @@ def get_device_connection_info(device_name, credential_override=None):
         # Fallback to netbox platform if nornir platform not set
         if not nornir_platform:
             platform = device.get('platform', {})
-            manufacturer = device.get('device_type', {}).get('manufacturer', {})
+            device_type = device.get('device_type', {})
+
+            # Handle device_type being either dict or string
+            if isinstance(device_type, dict):
+                manufacturer = device_type.get('manufacturer', {})
+            else:
+                manufacturer = {}
+
             platform_name = platform.get('name') if isinstance(platform, dict) else None
             manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
 
@@ -750,15 +772,15 @@ def inject_theme():
 
 
 @app.context_processor
-def inject_netpalm_url():
-    """Inject Netpalm URL from settings into all templates"""
+def inject_netstacker_url():
+    """Inject Netstacker URL from settings into all templates"""
     try:
         settings = db.get_all_settings()
-        netpalm_url = settings.get('netpalm_url', 'http://localhost:9000')
-        return {'netpalm_url': netpalm_url}
+        netstacker_url = settings.get('netstacker_url', 'http://localhost:9000')
+        return {'netstacker_url': netstacker_url}
     except Exception as e:
-        log.error(f"Error loading Netpalm URL: {e}")
-        return {'netpalm_url': 'http://localhost:9000'}
+        log.error(f"Error loading Netstacker URL: {e}")
+        return {'netstacker_url': 'http://localhost:9000'}
 
 
 @app.route('/')
@@ -826,11 +848,12 @@ def get_settings_api():
         settings = get_settings()
         # Don't expose sensitive data in full
         safe_settings = {
-            'netpalm_url': settings.get('netpalm_url'),
-            'netpalm_api_key': '****' if settings.get('netpalm_api_key') else '',  # Masked
+            'netstacker_url': settings.get('netstacker_url'),
+            'netstacker_api_key': '****' if settings.get('netstacker_api_key') else '',  # Masked
             'netbox_url': settings.get('netbox_url'),
             'netbox_token': '****' if settings.get('netbox_token') else '',  # Masked
-            'verify_ssl': settings.get('verify_ssl', False)
+            'verify_ssl': settings.get('verify_ssl', False),
+            'system_timezone': settings.get('system_timezone', 'UTC')
         }
         return jsonify({'success': True, 'settings': safe_settings})
     except Exception as e:
@@ -844,33 +867,42 @@ def get_settings_api():
 def save_settings_api():
     """Save settings to database and update global variables"""
     try:
-        global NETPALM_API_URL, NETPALM_API_KEY, NETPALM_HEADERS
+        global NETSTACKER_API_URL, NETSTACKER_API_KEY, NETSTACKER_HEADERS
 
         data = request.json
 
+        log.info(f"[SETTINGS] Received settings save request")
+        log.info(f"[SETTINGS] default_username in request: {data.get('default_username', 'NOT PRESENT')}")
+        log.info(f"[SETTINGS] default_password in request: {'***' if data.get('default_password') else 'NOT PRESENT/EMPTY'}")
+
         # Validate required fields
-        required_fields = ['netpalm_url', 'netbox_url']
+        required_fields = ['netstacker_url', 'netbox_url']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'success': False, 'error': f'{field} is required'}), 400
 
         # Prepare settings to save
         settings_to_save = {
-            'netpalm_url': data.get('netpalm_url'),
-            'netpalm_api_key': data.get('netpalm_api_key'),
+            'netstacker_url': data.get('netstacker_url'),
+            'netstacker_api_key': data.get('netstacker_api_key'),
             'netbox_url': data.get('netbox_url'),
             'netbox_token': data.get('netbox_token'),
-            'verify_ssl': data.get('verify_ssl', False)
+            'verify_ssl': data.get('verify_ssl', False),
+            'default_username': data.get('default_username', ''),
+            'default_password': data.get('default_password', ''),
+            'system_timezone': data.get('system_timezone', 'UTC')
         }
+
+        log.info(f"[SETTINGS] Saving default_username: {settings_to_save['default_username']}")
 
         # Save to database
         save_settings(settings_to_save)
 
         # Update global variables so all endpoints use new settings immediately
-        NETPALM_API_URL = settings_to_save['netpalm_url'].rstrip('/')
-        NETPALM_API_KEY = settings_to_save['netpalm_api_key']
-        NETPALM_HEADERS = {
-            'x-api-key': NETPALM_API_KEY,
+        NETSTACKER_API_URL = settings_to_save['netstacker_url'].rstrip('/')
+        NETSTACKER_API_KEY = settings_to_save['netstacker_api_key']
+        NETSTACKER_HEADERS = {
+            'x-api-key': NETSTACKER_API_KEY,
             'Content-Type': 'application/json'
         }
 
@@ -885,12 +917,12 @@ def save_settings_api():
 @login_required
 @login_required
 def api_docs():
-    """Redirect to Netpalm API documentation using configured Netpalm URL"""
-    # Use the Netpalm URL from settings (configured via GUI) exactly as entered
-    if NETPALM_API_URL:
-        return redirect(f'{NETPALM_API_URL}/', code=302)
+    """Redirect to Netstacker API documentation using configured Netstacker URL"""
+    # Use the Netstacker URL from settings (configured via GUI) exactly as entered
+    if NETSTACKER_API_URL:
+        return redirect(f'{NETSTACKER_API_URL}/', code=302)
     else:
-        return jsonify({'error': 'Netpalm URL not configured. Please configure via /settings'}), 400
+        return jsonify({'error': 'Netstacker URL not configured. Please configure via /settings'}), 400
 
 
 # ============================================================================
@@ -1018,6 +1050,7 @@ def proxy_api_call():
         resource_id = data.get('resource_id')
         endpoint = data.get('endpoint')
         method = data.get('method', 'GET')
+        variables = data.get('variables', {})  # For variable substitution
 
         if not resource_id or not endpoint:
             return jsonify({'success': False, 'error': 'resource_id and endpoint are required'}), 400
@@ -1027,9 +1060,34 @@ def proxy_api_call():
         if not resource:
             return jsonify({'success': False, 'error': 'Resource not found'}), 404
 
+        # Substitute variables in endpoint (e.g., {{device}}, {{site_id}})
+        substituted_endpoint = endpoint
+        substituted_body = data.get('body')
+
+        if variables:
+            import re
+            for var_name, var_value in variables.items():
+                # Replace {{variable_name}} with actual value (double braces)
+                pattern = f'{{{{{var_name}}}}}'  # {{var_name}}
+                substituted_endpoint = substituted_endpoint.replace(pattern, str(var_value))
+
+                # Also substitute in body if present
+                if substituted_body:
+                    substituted_body = substituted_body.replace(pattern, str(var_value))
+
+            # Log any remaining unsubstituted variables for debugging
+            remaining_vars = re.findall(r'\{\{(\w+)\}\}', substituted_endpoint)
+            if remaining_vars:
+                log.warning(f"Unsubstituted variables in endpoint: {remaining_vars}")
+
+            if substituted_body:
+                remaining_body_vars = re.findall(r'\{\{(\w+)\}\}', substituted_body)
+                if remaining_body_vars:
+                    log.warning(f"Unsubstituted variables in body: {remaining_body_vars}")
+
         # Build full URL
         base_url = resource['base_url'].rstrip('/')
-        clean_endpoint = endpoint if endpoint.startswith('/') else '/' + endpoint
+        clean_endpoint = substituted_endpoint if substituted_endpoint.startswith('/') else '/' + substituted_endpoint
         url = base_url + clean_endpoint
 
         # Build headers based on auth type
@@ -1047,12 +1105,26 @@ def proxy_api_call():
         elif auth_type == 'custom' and resource.get('custom_headers'):
             headers = resource['custom_headers']
 
+        # Get request body if provided (for POST/PUT) - use substituted version
+        request_data = None
+        if substituted_body:
+            try:
+                # Parse JSON body (variables already substituted)
+                request_data = json.loads(substituted_body) if isinstance(substituted_body, str) else substituted_body
+                headers['Content-Type'] = 'application/json'
+            except json.JSONDecodeError as e:
+                return jsonify({'success': False, 'error': f'Invalid JSON body: {str(e)}'}), 400
+
         # Make the request
         log.info(f"Proxying API call: {method} {url}")
+        if request_data:
+            log.info(f"Request body: {json.dumps(request_data)}")
+
         response = requests.request(
             method=method,
             url=url,
             headers=headers,
+            json=request_data if request_data else None,
             timeout=30,
             verify=False  # Allow self-signed certs
         )
@@ -1419,31 +1491,31 @@ def test_netbox_connection():
         }), 500
 
 
-@app.route('/api/test-netpalm', methods=['POST'])
+@app.route('/api/test-netstacker', methods=['POST'])
 @login_required
-def test_netpalm_connection():
-    """Test Netpalm API connection with provided credentials"""
+def test_netstacker_connection():
+    """Test Netstacker API connection with provided credentials"""
     try:
         import time
 
         data = request.json
-        netpalm_url = data.get('netpalm_url', '').strip()
-        netpalm_api_key = data.get('netpalm_api_key', '').strip()
+        netstacker_url = data.get('netstacker_url', '').strip()
+        netstacker_api_key = data.get('netstacker_api_key', '').strip()
 
-        if not netpalm_url:
-            return jsonify({'success': False, 'error': 'Netpalm URL is required'}), 400
+        if not netstacker_url:
+            return jsonify({'success': False, 'error': 'Netstacker URL is required'}), 400
 
-        if not netpalm_api_key:
-            return jsonify({'success': False, 'error': 'Netpalm API key is required'}), 400
+        if not netstacker_api_key:
+            return jsonify({'success': False, 'error': 'Netstacker API key is required'}), 400
 
         # Build the test URL (check workers endpoint as a simple test)
-        test_url = f"{netpalm_url.rstrip('/')}/workers"
+        test_url = f"{netstacker_url.rstrip('/')}/workers"
 
-        log.info(f"Testing Netpalm connection to: {test_url}")
+        log.info(f"Testing Netstacker connection to: {test_url}")
 
         # Prepare headers
         test_headers = {
-            'x-api-key': netpalm_api_key,
+            'x-api-key': netstacker_api_key,
             'Content-Type': 'application/json'
         }
 
@@ -1479,49 +1551,49 @@ def test_netpalm_connection():
             # Count workers
             worker_count = len(workers) if isinstance(workers, list) else 0
 
-            log.info(f"Netpalm test successful: {worker_count} workers found")
+            log.info(f"Netstacker test successful: {worker_count} workers found")
 
             return jsonify({
                 'success': True,
                 'worker_count': worker_count,
                 'response_time': response_time,
-                'message': 'Successfully connected to Netpalm API',
+                'message': 'Successfully connected to Netstacker API',
                 'api_url': test_url,
-                'has_api_key': bool(netpalm_api_key)
+                'has_api_key': bool(netstacker_api_key)
             })
         elif response.status_code == 401:
             return jsonify({
                 'success': False,
-                'error': 'Authentication failed. Check your Netpalm API key.',
+                'error': 'Authentication failed. Check your Netstacker API key.',
                 'api_url': test_url,
                 'status_code': response.status_code
             }), 401
         else:
             return jsonify({
                 'success': False,
-                'error': f'Netpalm API returned status code {response.status_code}',
+                'error': f'Netstacker API returned status code {response.status_code}',
                 'api_url': test_url,
                 'status_code': response.status_code,
                 'details': response.text[:200]
             }), 500
 
     except requests.exceptions.ConnectionError as e:
-        log.error(f"Connection Error testing Netpalm: {e}")
+        log.error(f"Connection Error testing Netstacker: {e}")
         return jsonify({
             'success': False,
-            'error': 'Could not connect to Netpalm. Check the URL and network connectivity.',
+            'error': 'Could not connect to Netstacker. Check the URL and network connectivity.',
             'api_url': test_url if 'test_url' in locals() else 'N/A',
             'details': str(e)
         }), 500
     except requests.exceptions.Timeout as e:
-        log.error(f"Timeout testing Netpalm: {e}")
+        log.error(f"Timeout testing Netstacker: {e}")
         return jsonify({
             'success': False,
-            'error': 'Connection to Netpalm timed out after 10 seconds.',
+            'error': 'Connection to Netstacker timed out after 10 seconds.',
             'api_url': test_url if 'test_url' in locals() else 'N/A'
         }), 500
     except Exception as e:
-        log.error(f"Error testing Netpalm connection: {e}")
+        log.error(f"Error testing Netstacker connection: {e}")
         return jsonify({
             'success': False,
             'error': str(e),
@@ -1559,7 +1631,14 @@ def api_get_device_connection_info(device_name):
         # Fallback to netbox platform if nornir platform not set
         if not nornir_platform:
             platform = device.get('platform', {})
-            manufacturer = device.get('device_type', {}).get('manufacturer', {})
+            device_type = device.get('device_type', {})
+
+            # Handle device_type being either dict or string
+            if isinstance(device_type, dict):
+                manufacturer = device_type.get('manufacturer', {})
+            else:
+                manufacturer = {}
+
             platform_name = platform.get('name') if isinstance(platform, dict) else None
             manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
 
@@ -1590,8 +1669,8 @@ def api_get_device_connection_info(device_name):
 def get_tasks():
     """Get all tasks - combines queue and history, sorted by creation time (newest first)"""
     try:
-        # Get currently queued tasks from netpalm
-        response = requests.get(f'{NETPALM_API_URL}/taskqueue/', headers=NETPALM_HEADERS, timeout=5)
+        # Get currently queued tasks from netstacker
+        response = requests.get(f'{NETSTACKER_API_URL}/taskqueue/', headers=NETSTACKER_HEADERS, timeout=5)
         response.raise_for_status()
         queued_data = response.json()
 
@@ -1622,7 +1701,7 @@ def get_tasks():
             reverse=True
         )
 
-        # Return in same format as netpalm
+        # Return in same format as netstacker
         return jsonify({
             'status': 'success',
             'data': {
@@ -1667,7 +1746,7 @@ def get_tasks_metadata():
 def get_task(task_id):
     """Get specific task details"""
     try:
-        response = requests.get(f'{NETPALM_API_URL}/task/{task_id}', headers=NETPALM_HEADERS, timeout=5)
+        response = requests.get(f'{NETSTACKER_API_URL}/task/{task_id}', headers=NETSTACKER_HEADERS, timeout=5)
         response.raise_for_status()
         return jsonify(response.json())
     except Exception as e:
@@ -1678,9 +1757,9 @@ def get_task(task_id):
 @app.route('/api/workers')
 @login_required
 def get_workers():
-    """Get all workers from netpalm"""
+    """Get all workers from netstacker"""
     try:
-        response = requests.get(f'{NETPALM_API_URL}/workers', headers=NETPALM_HEADERS, timeout=5)
+        response = requests.get(f'{NETSTACKER_API_URL}/workers', headers=NETSTACKER_HEADERS, timeout=5)
         response.raise_for_status()
 
         # Return the data in a consistent format
@@ -1704,20 +1783,28 @@ def deploy_getconfig():
     """Deploy getconfig to device"""
     try:
         data = request.json
+        log.info(f"Received getconfig request: {data}")
 
         # Extract device name if provided
         device_name = data.get('device_name')
 
-        # Forward request to netpalm
+        # Forward request to netstacker
         library = data.get('library', 'netmiko')
         endpoint = f'/getconfig/{library}' if library != 'auto' else '/getconfig'
 
+        payload = data.get('payload')
+        log.info(f"Sending to netstacker {NETSTACKER_API_URL}{endpoint}: {payload}")
+
         response = requests.post(
-            f'{NETPALM_API_URL}{endpoint}',
-            json=data.get('payload'),
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}{endpoint}',
+            json=payload,
+            headers=NETSTACKER_HEADERS,
             timeout=30
         )
+
+        log.info(f"Netstacker response status: {response.status_code}")
+        log.info(f"Netstacker response body: {response.text}")
+
         response.raise_for_status()
         result = response.json()
 
@@ -1741,14 +1828,14 @@ def deploy_setconfig():
         # Extract device name if provided
         device_name = data.get('device_name')
 
-        # Forward request to netpalm
+        # Forward request to netstacker
         library = data.get('library', 'netmiko')
         endpoint = f'/setconfig/{library}' if library != 'auto' else '/setconfig'
 
         response = requests.post(
-            f'{NETPALM_API_URL}{endpoint}',
+            f'{NETSTACKER_API_URL}{endpoint}',
             json=data.get('payload'),
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=30
         )
         response.raise_for_status()
@@ -1772,9 +1859,9 @@ def deploy_setconfig_dryrun():
         data = request.json
 
         response = requests.post(
-            f'{NETPALM_API_URL}/setconfig/dry-run',
+            f'{NETSTACKER_API_URL}/setconfig/dry-run',
             json=data.get('payload'),
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=30
         )
         response.raise_for_status()
@@ -1792,8 +1879,8 @@ def get_templates():
     """List all J2 config templates with metadata"""
     try:
         response = requests.get(
-            f'{NETPALM_API_URL}/j2template/config/',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/j2template/config/',
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -1831,15 +1918,15 @@ def get_templates():
 def get_template(template_name):
     """Get specific J2 template content"""
     try:
-        # Strip .j2 extension if present (Netpalm adds it automatically)
+        # Strip .j2 extension if present (Netstacker adds it automatically)
         if template_name.endswith('.j2'):
             template_name_without_ext = template_name[:-3]
         else:
             template_name_without_ext = template_name
 
         response = requests.get(
-            f'{NETPALM_API_URL}/j2template/config/{template_name_without_ext}',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/j2template/config/{template_name_without_ext}',
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -1864,7 +1951,7 @@ def get_template(template_name):
 @app.route('/api/templates', methods=['POST'])
 @login_required
 def create_template():
-    """Create/update J2 template - saves to Netpalm only"""
+    """Create/update J2 template - saves to Netstacker only"""
     try:
         data = request.json
         template_name = data.get('name')
@@ -1873,37 +1960,37 @@ def create_template():
         if not template_name or not base64_payload:
             return jsonify({'success': False, 'error': 'Missing name or base64_payload'}), 400
 
-        # Strip .j2 extension if present (Netpalm handles this)
+        # Strip .j2 extension if present (Netstacker handles this)
         if template_name.endswith('.j2'):
             template_name_no_ext = template_name[:-3]
         else:
             template_name_no_ext = template_name
 
-        # Push to Netpalm (primary storage)
+        # Push to Netstacker (primary storage)
         payload = {
             'name': template_name_no_ext,
             'base64_payload': base64_payload
         }
 
         response = requests.post(
-            f'{NETPALM_API_URL}/j2template/config/',
+            f'{NETSTACKER_API_URL}/j2template/config/',
             json=payload,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
         result = response.json()
 
-        # Check if netpalm returned success
+        # Check if netstacker returned success
         if result.get('status') == 'success':
-            log.info(f"Saved template to Netpalm: {template_name_no_ext}")
+            log.info(f"Saved template to Netstacker: {template_name_no_ext}")
             return jsonify({
                 'success': True,
-                'message': f'Template saved to Netpalm successfully'
+                'message': f'Template saved to Netstacker successfully'
             })
         else:
             error_msg = result.get('data', {}).get('task_result', {}).get('error', 'Unknown error')
-            log.error(f"Netpalm save failed: {error_msg}")
+            log.error(f"Netstacker save failed: {error_msg}")
             return jsonify({
                 'success': False,
                 'error': f'Failed to save template: {error_msg}'
@@ -1956,11 +2043,11 @@ def delete_template():
 
         payload = {'name': template_name}
 
-        # Delete from Netpalm
+        # Delete from Netstacker
         response = requests.delete(
-            f'{NETPALM_API_URL}/j2template/config/',
+            f'{NETSTACKER_API_URL}/j2template/config/',
             json=payload,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -1984,7 +2071,7 @@ def delete_template():
 def get_template_variables(template_name):
     """Extract variables from J2 template"""
     try:
-        # Strip .j2 extension if present (Netpalm adds it automatically)
+        # Strip .j2 extension if present (Netstacker adds it automatically)
         if template_name.endswith('.j2'):
             template_name_without_ext = template_name[:-3]
         else:
@@ -1992,8 +2079,8 @@ def get_template_variables(template_name):
 
         # Get template content
         response = requests.get(
-            f'{NETPALM_API_URL}/j2template/config/{template_name_without_ext}',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/j2template/config/{template_name_without_ext}',
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -2033,16 +2120,16 @@ def api_render_j2_template():
         if not template_name:
             return jsonify({'success': False, 'error': 'Missing template name'}), 400
 
-        # Call netpalm's template render API
+        # Call netstacker's template render API
         payload = {
             'template_name': template_name,
             'args': variables
         }
 
         response = requests.post(
-            f'{NETPALM_API_URL}/j2template/render/config/{template_name}',
+            f'{NETSTACKER_API_URL}/j2template/render/config/{template_name}',
             json=payload,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -2234,9 +2321,9 @@ def get_service_templates():
         }
 
         response = requests.post(
-            f'{NETPALM_API_URL}/script',
+            f'{NETSTACKER_API_URL}/script',
             json=payload,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -2249,8 +2336,8 @@ def get_service_templates():
             time.sleep(0.5)  # Brief wait for task to complete
 
             task_response = requests.get(
-                f'{NETPALM_API_URL}/task/{task_id}',
-                headers=NETPALM_HEADERS,
+                f'{NETSTACKER_API_URL}/task/{task_id}',
+                headers=NETSTACKER_HEADERS,
                 timeout=10
             )
             task_response.raise_for_status()
@@ -2287,10 +2374,10 @@ def get_service_template_schema(template_name):
         return jsonify({'success': True, 'schema': service_schemas[template_name]})
 
     try:
-        # Try to get the schema from netpalm (if it provides one)
+        # Try to get the schema from netstacker (if it provides one)
         response = requests.get(
-            f'{NETPALM_API_URL}/service/schema/{template_name}',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/service/schema/{template_name}',
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
 
@@ -2407,9 +2494,9 @@ def create_template_service():
         }
 
         response = requests.post(
-            f'{NETPALM_API_URL}/setconfig',
+            f'{NETSTACKER_API_URL}/setconfig',
             json=setconfig_payload,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=30
         )
         response.raise_for_status()
@@ -2453,8 +2540,8 @@ def health_check_service_instance(service_id):
     """Health check a service instance"""
     try:
         response = requests.post(
-            f'{NETPALM_API_URL}/service/instance/healthcheck/{service_id}',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/service/instance/healthcheck/{service_id}',
+            headers=NETSTACKER_HEADERS,
             timeout=30
         )
         response.raise_for_status()
@@ -2505,10 +2592,10 @@ def redeploy_service_instance(service_id):
                 'error': f'Could not get connection info for device: {service["device"]}'
             }), 400
 
-        # Deploy using j2config - let Netpalm render and deploy
+        # Deploy using j2config - let Netstacker render and deploy
         deploy_response = requests.post(
-            f'{NETPALM_API_URL}/setconfig',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/setconfig',
+            headers=NETSTACKER_HEADERS,
             json={
                 'library': 'netmiko',
                 'connection_args': device_info['connection_args'],
@@ -2530,7 +2617,7 @@ def redeploy_service_instance(service_id):
         if task_id:
             save_task_id(task_id, device_name=f"service_redeploy:{service_id}:{service.get('device')}")
 
-        # Update service state to deploying (non-blocking - let Netpalm queue handle it)
+        # Update service state to deploying (non-blocking - let Netstacker queue handle it)
         service['state'] = 'deploying'
         service['task_id'] = task_id
         if 'error' in service:
@@ -2540,7 +2627,7 @@ def redeploy_service_instance(service_id):
         return jsonify({
             'success': True,
             'task_id': task_id,
-            'message': f'Service redeploy job submitted to Netpalm. Task ID: {task_id}'
+            'message': f'Service redeploy job submitted to Netstacker. Task ID: {task_id}'
         })
 
     except Exception as e:
@@ -2587,11 +2674,11 @@ def delete_template_service(service_id):
                 device_info['connection_args']['username'] = username
                 device_info['connection_args']['password'] = password
 
-            # Use j2config to let Netpalm render and deploy the delete template
-            # Strip .j2 extension - Netpalm stores templates without extension
+            # Use j2config to let Netstacker render and deploy the delete template
+            # Strip .j2 extension - Netstacker stores templates without extension
             template_name = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
 
-            log.info(f"Deploying delete template '{template_name}' via Netpalm with j2config")
+            log.info(f"Deploying delete template '{template_name}' via Netstacker with j2config")
 
             # Push delete config to device using j2config
             setconfig_payload = {
@@ -2605,16 +2692,16 @@ def delete_template_service(service_id):
             }
 
             response = requests.post(
-                f'{NETPALM_API_URL}/setconfig',
+                f'{NETSTACKER_API_URL}/setconfig',
                 json=setconfig_payload,
-                headers=NETPALM_HEADERS,
+                headers=NETSTACKER_HEADERS,
                 timeout=60
             )
 
             if response.status_code != 201:
                 return jsonify({
                     'success': False,
-                    'error': f'Failed to submit delete job to Netpalm: {response.text}'
+                    'error': f'Failed to submit delete job to Netstacker: {response.text}'
                 }), 500
 
             result = response.json()
@@ -2622,9 +2709,9 @@ def delete_template_service(service_id):
 
             if task_id:
                 save_task_id(task_id, device_name=f"service_delete:{service_id}")
-                log.info(f"Delete job submitted to Netpalm, task_id: {task_id}")
+                log.info(f"Delete job submitted to Netstacker, task_id: {task_id}")
 
-            # Non-blocking: job submitted to Netpalm queue, don't wait for completion
+            # Non-blocking: job submitted to Netstacker queue, don't wait for completion
 
         # Remove service from any stacks that reference it
         stack_id = service.get('stack_id')
@@ -2668,8 +2755,8 @@ def check_service_status(service_id):
 
         # Check task status
         response = requests.get(
-            f'{NETPALM_API_URL}/task/{task_id}',
-            headers=NETPALM_HEADERS,
+            f'{NETSTACKER_API_URL}/task/{task_id}',
+            headers=NETSTACKER_HEADERS,
             timeout=10
         )
         response.raise_for_status()
@@ -2781,9 +2868,9 @@ def validate_service_instance(service_id):
         }
 
         response = requests.post(
-            f'{NETPALM_API_URL}/getconfig',
+            f'{NETSTACKER_API_URL}/getconfig',
             json=getconfig_payload,
-            headers=NETPALM_HEADERS,
+            headers=NETSTACKER_HEADERS,
             timeout=30
         )
         response.raise_for_status()
@@ -2804,8 +2891,8 @@ def validate_service_instance(service_id):
             waited += 2
 
             task_response = requests.get(
-                f'{NETPALM_API_URL}/task/{task_id}',
-                headers=NETPALM_HEADERS,
+                f'{NETSTACKER_API_URL}/task/{task_id}',
+                headers=NETSTACKER_HEADERS,
                 timeout=10
             )
             task_response.raise_for_status()
@@ -2857,7 +2944,7 @@ def validate_service_instance(service_id):
             }), 400
 
         # Render template LOCALLY with service variables
-        # Fetch template content from Netpalm and render locally
+        # Fetch template content from Netstacker and render locally
         log.info(f"Using template for validation: {template_to_use}")
         template_lookup = template_to_use[:-3] if template_to_use.endswith('.j2') else template_to_use
         validation_config = render_local_j2_template(template_lookup, service.get('variables', {}))
@@ -2930,7 +3017,7 @@ def validate_service_instance(service_id):
 @app.route('/api/services/instances/sync-states', methods=['POST'])
 @login_required
 def sync_service_instance_states():
-    """Sync service instance states from Netpalm task status"""
+    """Sync service instance states from Netstacker task status"""
     try:
         updated_count = 0
         failed_count = 0
@@ -2947,10 +3034,10 @@ def sync_service_instance_states():
                 continue
 
             try:
-                # Query Netpalm for task status
+                # Query Netstacker for task status
                 response = requests.get(
-                    f'{NETPALM_API_URL}/task/{task_id}',
-                    headers=NETPALM_HEADERS,
+                    f'{NETSTACKER_API_URL}/task/{task_id}',
+                    headers=NETSTACKER_HEADERS,
                     timeout=10
                 )
 
@@ -3183,8 +3270,15 @@ def delete_stack(stack_id):
         if not stack:
             return jsonify({'success': False, 'error': 'Service stack not found'}), 404
 
-        # Get credentials from request body for delete templates
-        data = request.json or {}
+        # Get credentials from request body for delete templates (if provided)
+        data = {}
+        try:
+            if request.is_json and request.data:
+                data = request.json or {}
+        except Exception:
+            # No JSON body provided, which is fine for simple deletes
+            pass
+
         username = data.get('username')
         password = data.get('password')
 
@@ -3314,7 +3408,7 @@ def deploy_service_stack(stack_id):
                 # Get template metadata (validation and delete templates)
                 template_metadata = get_template_metadata(template_name) or {}
 
-                # Use template name without .j2 extension (Netpalm stores templates without extension)
+                # Use template name without .j2 extension (Netstacker stores templates without extension)
                 log.info(f"Deploying template '{template_name}' with variables: {variables}")
 
                 # Handle both single device (old format) and multiple devices (new format)
@@ -3358,7 +3452,7 @@ def deploy_service_stack(stack_id):
                         if not device_info:
                             raise Exception(f"Could not get connection info for device '{device_name}'")
 
-                        log.info(f"Deploying template to {device_name} via Netpalm (template or variables changed)")
+                        log.info(f"Deploying template to {device_name} via Netstacker (template or variables changed)")
 
                         # Log the exact payload being sent
                         payload = {
@@ -3380,12 +3474,12 @@ def deploy_service_stack(stack_id):
                             payload['post_checks'] = service_def['post_checks']
                             log.info(f"Adding post-checks: {service_def['post_checks']}")
 
-                        log.info(f"Sending payload to Netpalm: j2config.template='{template_name}', args={variables}")
+                        log.info(f"Sending payload to Netstacker: j2config.template='{template_name}', args={variables}")
 
-                        # Deploy using Netpalm's j2config - Netpalm renders and deploys in one call
+                        # Deploy using Netstacker's j2config - Netstacker renders and deploys in one call
                         deploy_response = requests.post(
-                            f'{NETPALM_API_URL}/setconfig',
-                            headers=NETPALM_HEADERS,
+                            f'{NETSTACKER_API_URL}/setconfig',
+                            headers=NETSTACKER_HEADERS,
                             json=payload,
                             timeout=60
                         )
@@ -3402,8 +3496,8 @@ def deploy_service_stack(stack_id):
                         save_task_id(task_id, device_name=f"stack:{stack.get('name')}:{service_def['name']}:{device_name}")
 
                         # Create service instance record immediately in 'deploying' state
-                        # Let Netpalm queue handle the deployment - don't wait here
-                        # Note: rendered_config is not stored since Netpalm does the rendering
+                        # Let Netstacker queue handle the deployment - don't wait here
+                        # Note: rendered_config is not stored since Netstacker does the rendering
                         service_instance = {
                             'service_id': str(uuid.uuid4()),
                             'name': f"{service_def['name']} ({device_name})",
@@ -3414,7 +3508,7 @@ def deploy_service_stack(stack_id):
                             'variables': variables,
                             'pre_checks': service_def.get('pre_checks'),
                             'post_checks': service_def.get('post_checks'),
-                            'state': 'deploying',  # Jobs submitted to Netpalm queue
+                            'state': 'deploying',  # Jobs submitted to Netstacker queue
                             'task_id': task_id,
                             'stack_id': stack_id,
                             'stack_order': service_def.get('order', 0),
@@ -3488,7 +3582,7 @@ def deploy_service_stack(stack_id):
                 continue
 
         # Update stack state
-        # Since services are submitted to Netpalm queue and may still be deploying,
+        # Since services are submitted to Netstacker queue and may still be deploying,
         # the stack state reflects job submission, not completion
         if failed_services:
             # Check if we have ANY successful job submissions
@@ -3499,8 +3593,8 @@ def deploy_service_stack(stack_id):
                 stack['state'] = 'failed'  # All jobs failed to submit
             stack['deployment_errors'] = failed_services
         else:
-            # All jobs successfully submitted to Netpalm queue
-            stack['state'] = 'deploying'  # Changed from 'deployed' - jobs are queued in Netpalm
+            # All jobs successfully submitted to Netstacker queue
+            stack['state'] = 'deploying'  # Changed from 'deployed' - jobs are queued in Netstacker
 
         stack['deployed_services'] = deployed_service_ids
         stack['deploy_completed_at'] = datetime.utcnow().isoformat()
@@ -3741,7 +3835,14 @@ def create_scheduled_operation():
         # Calculate next_run time
         now = dt.utcnow()
         if schedule_type == 'once':
-            next_run = dt.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+            # Parse ISO datetime and strip timezone info for naive UTC comparison
+            next_run = dt.fromisoformat(scheduled_time.replace('Z', ''))
+            # Reject scheduling in the past for one-time operations
+            if next_run <= now:
+                return jsonify({
+                    'success': False,
+                    'error': f'Cannot schedule operation in the past. Scheduled time: {next_run.strftime("%Y-%m-%d %H:%M")}, Current time: {now.strftime("%Y-%m-%d %H:%M")} UTC'
+                }), 400
         else:
             # For recurring schedules, calculate next occurrence
             time_parts = scheduled_time.split(':')
@@ -3943,7 +4044,14 @@ def create_scheduled_config_operation():
         # Calculate next_run time
         now = dt.utcnow()
         if schedule_type == 'once':
-            next_run = dt.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+            # Parse ISO datetime and strip timezone info for naive UTC comparison
+            next_run = dt.fromisoformat(scheduled_time.replace('Z', ''))
+            # Reject scheduling in the past for one-time operations
+            if next_run <= now:
+                return jsonify({
+                    'success': False,
+                    'error': f'Cannot schedule operation in the past. Scheduled time: {next_run.strftime("%Y-%m-%d %H:%M")}, Current time: {now.strftime("%Y-%m-%d %H:%M")} UTC'
+                }), 400
         else:
             time_parts = scheduled_time.split(':')
             hour = int(time_parts[0])
@@ -4045,8 +4153,8 @@ def create_stack_template():
                 try:
                     # Call the existing API endpoint to get template variables
                     response = requests.get(
-                        f'{NETPALM_API_URL}/j2template/config/{template_name_clean}',
-                        headers=NETPALM_HEADERS,
+                        f'{NETSTACKER_API_URL}/j2template/config/{template_name_clean}',
+                        headers=NETSTACKER_HEADERS,
                         timeout=10
                     )
                     if response.status_code == 200:
@@ -4294,17 +4402,354 @@ def run_scheduled_operations():
 
                     # Execute the operation
                     if operation_type == 'deploy':
-                        # Call deploy endpoint logic
-                        log.info(f"Deploying stack {stack_id}")
-                        # TODO: Import and call deploy_service_stack_endpoint logic
+                        # Deploy the stack directly (same logic as manual deployment)
+                        log.info(f"Deploying stack {stack_id} via scheduled operation")
+                        try:
+                            stack = get_service_stack(stack_id)
+                            if not stack:
+                                log.error(f"Stack {stack_id} not found for scheduled deployment")
+                                continue
+
+                            if stack.get('state') == 'deploying':
+                                log.warning(f"Stack {stack_id} is already being deployed, skipping")
+                                continue
+
+                            # Update stack state
+                            stack['state'] = 'deploying'
+                            from datetime import datetime
+                            stack['deploy_started_at'] = datetime.utcnow().isoformat()
+                            stack['deployed_services'] = []
+
+                            # Clear pending changes
+                            if 'has_pending_changes' in stack:
+                                del stack['has_pending_changes']
+                            if 'pending_since' in stack:
+                                del stack['pending_since']
+
+                            save_service_stack(stack)
+                            log.info(f"Stack {stack_id} state set to deploying, will deploy {len(stack.get('services', []))} services")
+
+                            # Sort services by order
+                            services = sorted(stack['services'], key=lambda s: s.get('order', 0))
+
+                            deployed_service_ids = []
+                            failed_services = []
+
+                            # Deploy services sequentially
+                            for service_def in services:
+                                try:
+                                    log.info(f"Scheduled deployment: deploying service {service_def.get('name')}")
+                                    log.info(f"Service definition: {service_def}")
+
+                                    # Merge shared variables with service-specific variables
+                                    variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
+
+                                    template_name = service_def.get('template')
+                                    if not template_name:
+                                        raise Exception(f"Service '{service_def.get('name')}' has no template specified")
+
+                                    # Strip .j2 extension if present
+                                    if template_name.endswith('.j2'):
+                                        template_name = template_name[:-3]
+
+                                    # Get template metadata
+                                    template_metadata = get_template_metadata(template_name)
+
+                                    # Deploy to each device - handle both 'device' (singular) and 'devices' (plural)
+                                    devices = service_def.get('devices', [])
+                                    if not devices and 'device' in service_def:
+                                        # Handle singular 'device' field
+                                        devices = [service_def['device']]
+
+                                    log.info(f"Devices for service {service_def.get('name')}: {devices} (count: {len(devices)})")
+
+                                    if not devices:
+                                        log.warning(f"No devices configured for service {service_def.get('name')}, skipping deployment")
+                                        continue
+
+                                    for device_name in devices:
+                                        log.info(f"Scheduled deployment: deploying to device {device_name}")
+
+                                        # Get device connection info (no credential override for scheduled jobs)
+                                        device_info = get_device_connection_info(device_name, None)
+                                        if not device_info:
+                                            raise Exception(f"Could not get connection info for device '{device_name}'")
+
+                                        # Add default credentials from settings
+                                        settings = get_settings()
+                                        log.info(f"[DEPLOY] Settings keys: {list(settings.keys())}")
+                                        log.info(f"[DEPLOY] default_username exists: {settings.get('default_username') is not None}")
+                                        log.info(f"[DEPLOY] Connection args BEFORE creds: {device_info['connection_args']}")
+                                        if settings.get('default_username'):
+                                            device_info['connection_args']['username'] = settings['default_username']
+                                            device_info['connection_args']['password'] = settings.get('default_password', '')
+                                            log.info(f"[DEPLOY] Added credentials - username: {settings['default_username']}")
+                                        else:
+                                            log.warning(f"[DEPLOY] No default_username found in settings!")
+                                        log.info(f"[DEPLOY] Connection args AFTER creds: {device_info['connection_args']}")
+
+                                        # Prepare payload for netstacker
+                                        payload = {
+                                            'library': 'netmiko',
+                                            'connection_args': device_info['connection_args'],
+                                            'j2config': {
+                                                'template': template_name,
+                                                'args': variables
+                                            },
+                                            'queue_strategy': 'fifo'
+                                        }
+
+                                        # Add pre/post checks if defined
+                                        if service_def.get('pre_checks'):
+                                            payload['pre_checks'] = service_def['pre_checks']
+
+                                        if service_def.get('post_checks'):
+                                            payload['post_checks'] = service_def['post_checks']
+
+                                        log.info(f"Sending deployment to netstacker: {NETSTACKER_API_URL}/setconfig")
+
+                                        # Deploy using Netstacker
+                                        import requests
+                                        deploy_response = requests.post(
+                                            f'{NETSTACKER_API_URL}/setconfig',
+                                            headers=NETSTACKER_HEADERS,
+                                            json=payload,
+                                            timeout=60
+                                        )
+
+                                        if deploy_response.status_code != 201:
+                                            raise Exception(f"Failed to deploy to {device_name}: {deploy_response.text}")
+
+                                        deploy_result = deploy_response.json()
+                                        task_id = deploy_result.get('data', {}).get('task_id')
+
+                                        # Save task to history
+                                        save_task_id(task_id, device_name=f"scheduled:{stack.get('name')}:{service_def['name']}:{device_name}")
+
+                                        # Create service instance record
+                                        service_instance = {
+                                            'service_id': str(uuid.uuid4()),
+                                            'name': f"{service_def['name']} ({device_name})",
+                                            'template': template_name,
+                                            'validation_template': template_metadata.get('validation_template') if template_metadata else None,
+                                            'delete_template': template_metadata.get('delete_template') if template_metadata else None,
+                                            'device': device_name,
+                                            'variables': variables,
+                                            'pre_checks': service_def.get('pre_checks'),
+                                            'post_checks': service_def.get('post_checks'),
+                                            'state': 'deploying',
+                                            'task_id': task_id,
+                                            'stack_id': stack_id,
+                                            'stack_order': service_def.get('order', 0),
+                                            'created_at': datetime.utcnow().isoformat()
+                                        }
+
+                                        save_service_instance(service_instance)
+                                        deployed_service_ids.append(service_instance['service_id'])
+
+                                except Exception as svc_err:
+                                    log.error(f"Error deploying service {service_def.get('name')}: {svc_err}", exc_info=True)
+                                    failed_services.append(service_def.get('name'))
+
+                            # Update final stack state
+                            stack['deployed_services'] = deployed_service_ids
+                            if failed_services:
+                                stack['state'] = 'partial'
+                                stack['deployment_errors'] = failed_services
+                                log.warning(f"Stack {stack_id} deployment completed with errors: {failed_services}")
+                            else:
+                                stack['state'] = 'deployed'
+                                stack['deployment_errors'] = []
+                                log.info(f"Stack {stack_id} deployment completed successfully")
+
+                            stack['deploy_completed_at'] = datetime.utcnow().isoformat()
+                            save_service_stack(stack)
+
+                        except Exception as deploy_err:
+                            log.error(f"Error in scheduled stack deployment: {deploy_err}", exc_info=True)
+
                     elif operation_type == 'validate':
-                        # Call validate endpoint logic
-                        log.info(f"Validating stack {stack_id}")
-                        # TODO: Import and call validate_service_stack_endpoint logic
+                        # Validate the stack
+                        log.info(f"Validating stack {stack_id} via scheduled operation")
+                        try:
+                            stack = get_service_stack(stack_id)
+                            if not stack:
+                                log.error(f"Stack {stack_id} not found for scheduled validation")
+                                continue
+
+                            # Validate each service definition in the stack
+                            services = stack.get('services', [])
+                            log.info(f"Stack {stack_id} has {len(services)} services to validate")
+
+                            for service_def in services:
+                                try:
+                                    log.info(f"Scheduled validation: validating service {service_def.get('name')}")
+
+                                    # Get devices - handle both 'device' (singular) and 'devices' (plural)
+                                    devices = service_def.get('devices', [])
+                                    if not devices and 'device' in service_def:
+                                        devices = [service_def['device']]
+
+                                    if not devices:
+                                        log.warning(f"No devices configured for service {service_def.get('name')}, skipping validation")
+                                        continue
+
+                                    # Merge variables
+                                    variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
+                                    template_name = service_def.get('template')
+
+                                    # For each device, run getconfig to validate
+                                    for device_name in devices:
+                                        log.info(f"Scheduled validation: validating device {device_name}")
+
+                                        # Get device connection info
+                                        device_info = get_device_connection_info(device_name, None)
+                                        if not device_info:
+                                            log.error(f"Could not get connection info for device '{device_name}'")
+                                            continue
+
+                                        # Add default credentials from settings
+                                        settings = get_settings()
+                                        if settings.get('default_username'):
+                                            device_info['connection_args']['username'] = settings['default_username']
+                                            device_info['connection_args']['password'] = settings.get('default_password', '')
+
+                                        # Prepare payload for netstacker getconfig
+                                        payload = {
+                                            'library': 'netmiko',
+                                            'connection_args': device_info['connection_args'],
+                                            'command': 'show running-config',
+                                            'args': {},
+                                            'queue_strategy': 'fifo'
+                                        }
+
+                                        # Get config using Netstacker
+                                        import requests
+                                        log.info(f"Sending validation payload to {NETSTACKER_API_URL}/getconfig/netmiko: {payload}")
+                                        validate_response = requests.post(
+                                            f'{NETSTACKER_API_URL}/getconfig/netmiko',
+                                            headers=NETSTACKER_HEADERS,
+                                            json=payload,
+                                            timeout=60
+                                        )
+
+                                        if validate_response.status_code == 200 or validate_response.status_code == 201:
+                                            result = validate_response.json()
+                                            task_id = result.get('data', {}).get('task_id')
+                                            log.info(f"Validation task created for {device_name}: {task_id}")
+                                            # Save task ID to history so it appears in Job Monitor
+                                            if task_id:
+                                                save_task_id(task_id, device_name)
+                                        else:
+                                            log.error(f"Validation failed for {device_name}: {validate_response.status_code}")
+                                            log.error(f"Response: {validate_response.text}")
+
+                                except Exception as svc_err:
+                                    log.error(f"Error validating service {service_def.get('name')}: {svc_err}", exc_info=True)
+
+                        except Exception as validate_err:
+                            log.error(f"Error in scheduled stack validation: {validate_err}", exc_info=True)
+
                     elif operation_type == 'delete':
-                        # Call delete endpoint logic
-                        log.info(f"Deleting stack {stack_id}")
-                        # TODO: Import and call delete_service_stack_endpoint logic
+                        # Delete the stack
+                        log.info(f"Deleting stack {stack_id} via scheduled operation")
+                        try:
+                            stack = get_service_stack(stack_id)
+                            if not stack:
+                                log.error(f"Stack {stack_id} not found for scheduled deletion")
+                                continue
+
+                            # Delete each service in reverse order (respects dependencies)
+                            services = stack.get('services', [])
+                            log.info(f"Stack {stack_id} has {len(services)} services to delete")
+
+                            # Sort by order in reverse
+                            services_sorted = sorted(services, key=lambda s: s.get('order', 0), reverse=True)
+
+                            for service_def in services_sorted:
+                                try:
+                                    log.info(f"Scheduled deletion: deleting service {service_def.get('name')}")
+
+                                    # Get devices - handle both 'device' (singular) and 'devices' (plural)
+                                    devices = service_def.get('devices', [])
+                                    if not devices and 'device' in service_def:
+                                        devices = [service_def['device']]
+
+                                    if not devices:
+                                        log.warning(f"No devices configured for service {service_def.get('name')}, skipping deletion")
+                                        continue
+
+                                    template_name = service_def.get('template')
+                                    if not template_name:
+                                        log.warning(f"Service {service_def.get('name')} has no template, skipping deletion")
+                                        continue
+
+                                    # Get template metadata to check for delete template
+                                    template_metadata = get_template_metadata(template_name)
+                                    delete_template = template_metadata.get('delete_template')
+
+                                    if not delete_template:
+                                        log.warning(f"No delete template configured for {template_name}, skipping deletion")
+                                        continue
+
+                                    # Merge variables
+                                    variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
+
+                                    # Deploy delete template to each device
+                                    for device_name in devices:
+                                        log.info(f"Scheduled deletion: deploying delete template to {device_name}")
+
+                                        # Get device connection info
+                                        device_info = get_device_connection_info(device_name, None)
+                                        if not device_info:
+                                            log.error(f"Could not get connection info for device '{device_name}'")
+                                            continue
+
+                                        # Add default credentials from settings
+                                        settings = get_settings()
+                                        if settings.get('default_username'):
+                                            device_info['connection_args']['username'] = settings['default_username']
+                                            device_info['connection_args']['password'] = settings.get('default_password', '')
+
+                                        # Prepare payload for netstacker
+                                        payload = {
+                                            'library': 'netmiko',
+                                            'connection_args': device_info['connection_args'],
+                                            'j2config': {
+                                                'template': delete_template,
+                                                'args': variables
+                                            },
+                                            'queue_strategy': 'fifo'
+                                        }
+
+                                        # Deploy delete template using Netstacker
+                                        import requests
+                                        delete_response = requests.post(
+                                            f'{NETSTACKER_API_URL}/setconfig',
+                                            headers=NETSTACKER_HEADERS,
+                                            json=payload,
+                                            timeout=60
+                                        )
+
+                                        if delete_response.status_code == 201:
+                                            result = delete_response.json()
+                                            task_id = result.get('data', {}).get('task_id')
+                                            log.info(f"Delete task created for {device_name}: {task_id}")
+                                            # Save task ID to history so it appears in Job Monitor
+                                            if task_id:
+                                                save_task_id(task_id, device_name)
+                                        else:
+                                            log.error(f"Delete failed for {device_name}: {delete_response.status_code}")
+
+                                except Exception as svc_err:
+                                    log.error(f"Error deleting service {service_def.get('name')}: {svc_err}", exc_info=True)
+
+                            # After all delete templates deployed, delete the stack record
+                            delete_service_stack(stack_id)
+                            log.info(f"Stack {stack_id} deleted successfully")
+
+                        except Exception as delete_err:
+                            log.error(f"Error in scheduled stack deletion: {delete_err}", exc_info=True)
                     elif operation_type == 'config_deploy':
                         # Execute config deployment
                         import json
@@ -4358,7 +4803,7 @@ def run_scheduled_operations():
                                             log.error(f"No IP address found for device {device_name}")
                                             continue
 
-                                        # Build netpalm payload
+                                        # Build netstacker payload
                                         payload = {
                                             'connection_args': {
                                                 'device_type': nornir_platform or 'cisco_ios',
@@ -4371,12 +4816,12 @@ def run_scheduled_operations():
                                             'queue_strategy': 'pinned'
                                         }
 
-                                        # Send to Netpalm
+                                        # Send to Netstacker
                                         endpoint = '/setconfig/dry-run' if dry_run else '/setconfig/netmiko'
                                         response = requests.post(
-                                            f'{NETPALM_API_URL}{endpoint}',
+                                            f'{NETSTACKER_API_URL}{endpoint}',
                                             json=payload,
-                                            headers=NETPALM_HEADERS,
+                                            headers=NETSTACKER_HEADERS,
                                             timeout=30
                                         )
                                         response.raise_for_status()
@@ -4404,12 +4849,12 @@ def run_scheduled_operations():
                                 try:
                                     # Render template first
                                     render_response = requests.post(
-                                        f'{NETPALM_API_URL}/j2template/render',
+                                        f'{NETSTACKER_API_URL}/j2template/render',
                                         json={
                                             'template_name': template_name.replace('.j2', ''),
                                             'args': variables
                                         },
-                                        headers=NETPALM_HEADERS,
+                                        headers=NETSTACKER_HEADERS,
                                         timeout=10
                                     )
                                     render_response.raise_for_status()
@@ -4455,7 +4900,7 @@ def run_scheduled_operations():
                                                     log.error(f"No IP address found for device {device_name}")
                                                     continue
 
-                                                # Build netpalm payload
+                                                # Build netstacker payload
                                                 payload = {
                                                     'connection_args': {
                                                         'device_type': nornir_platform or 'cisco_ios',
@@ -4468,12 +4913,12 @@ def run_scheduled_operations():
                                                     'queue_strategy': 'pinned'
                                                 }
 
-                                                # Send to Netpalm
+                                                # Send to Netstacker
                                                 endpoint = '/setconfig/dry-run' if dry_run else '/setconfig/netmiko'
                                                 response = requests.post(
-                                                    f'{NETPALM_API_URL}{endpoint}',
+                                                    f'{NETSTACKER_API_URL}{endpoint}',
                                                     json=payload,
-                                                    headers=NETPALM_HEADERS,
+                                                    headers=NETSTACKER_HEADERS,
                                                     timeout=30
                                                 )
                                                 response.raise_for_status()
@@ -4538,11 +4983,11 @@ def run_scheduled_operations():
 
 # Start scheduler thread only once (not in Flask reloader parent process)
 import os
-if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-    # We're in the reloaded child process, start the scheduler
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or os.environ.get('WERKZEUG_RUN_MAIN') is None:
+    # Start in production (None) or in dev reloader (true), but not in parent reloader process
     scheduler_thread = threading.Thread(target=run_scheduled_operations, daemon=True)
     scheduler_thread.start()
-    log.info("Scheduler thread started in reloaded process")
+    log.info("Scheduler thread started")
 
 
 if __name__ == '__main__':
