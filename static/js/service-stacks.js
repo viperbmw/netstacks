@@ -88,7 +88,7 @@ function stopAutoSync() {
 }
 
 /**
- * Sync service instance states from Netpalm
+ * Sync service instance states from Netstacker
  * @param {boolean} showUI - Whether to show UI feedback (button state, status messages)
  */
 function syncServiceStates(showUI) {

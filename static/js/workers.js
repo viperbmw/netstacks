@@ -55,7 +55,7 @@ function loadWorkers() {
 
                         // If task is running/started, try to find which worker has it
                         if (status === 'started' || status === 'running') {
-                            // Netpalm doesn't expose worker assignment, so we'll show task ID
+                            // Netstacker doesn't expose worker assignment, so we'll show task ID
                             // We can't directly map task to worker, so mark as "active"
                             if (task.worker_name) {
                                 workerTasks[task.worker_name] = taskId;
@@ -106,7 +106,7 @@ function displayWorkers(data, workerTasks) {
                 stateBadge = 'bg-primary';
                 currentJob = workerTasks[worker.name];
             } else if (worker.state) {
-                // If worker has explicit state field (some Netpalm versions)
+                // If worker has explicit state field (some Netstacker versions)
                 state = worker.state;
                 if (state === 'busy') stateBadge = 'bg-primary';
                 else if (state === 'failed') stateBadge = 'bg-danger';

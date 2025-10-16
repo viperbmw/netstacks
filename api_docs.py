@@ -116,7 +116,7 @@ def swagger_spec():
                 "get": {
                     "tags": ["tasks"],
                     "summary": "Get all task IDs",
-                    "description": "Retrieves list of all task IDs from Netpalm",
+                    "description": "Retrieves list of all task IDs from Netstacker",
                     "responses": {
                         "200": {
                             "description": "Success",
@@ -189,7 +189,7 @@ def swagger_spec():
                 "get": {
                     "tags": ["workers"],
                     "summary": "Get all workers",
-                    "description": "Fetch list of active Netpalm workers",
+                    "description": "Fetch list of active Netstacker workers",
                     "responses": {
                         "200": {
                             "description": "Success",

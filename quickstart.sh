@@ -24,7 +24,7 @@ if [ ! -f .env ]; then
     cp .env.example .env
     echo "⚠️  Please edit .env and configure your settings:"
     echo "   - NETBOX_TOKEN"
-    echo "   - NETPALM_API_URL (if different)"
+    echo "   - NETSTACKER_API_URL (if different)"
     echo "   - Other credentials as needed"
     echo ""
     read -p "Press Enter after you've edited .env, or Ctrl+C to exit..."
@@ -32,19 +32,19 @@ fi
 
 echo "✅ Environment file exists"
 
-# Check if netpalm-network exists
-if ! docker network ls | grep -q netpalm-network; then
-    echo "⚠️  Docker network 'netpalm-network' not found"
+# Check if netstacker-network exists
+if ! docker network ls | grep -q netstacker-network; then
+    echo "⚠️  Docker network 'netstacker-network' not found"
     read -p "Do you want to create it? (y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker network create netpalm-network
-        echo "✅ Created netpalm-network"
+        docker network create netstacker-network
+        echo "✅ Created netstacker-network"
     else
-        echo "⚠️  Warning: NetStacks may not be able to connect to Netpalm without this network"
+        echo "⚠️  Warning: NetStacks may not be able to connect to Netstacker without this network"
     fi
 else
-    echo "✅ Docker network 'netpalm-network' exists"
+    echo "✅ Docker network 'netstacker-network' exists"
 fi
 
 # Build and start NetStacks

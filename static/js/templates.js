@@ -45,9 +45,9 @@ $(document).ready(function() {
         }
     });
 
-    // Push to Netpalm button
+    // Push to Netstacker button
     $('#push-template-btn').click(function() {
-        pushTemplateToNetpalm(currentTemplate);
+        pushTemplateToNetstacker(currentTemplate);
     });
 
     // Template type change handler - show/hide validation and delete options
@@ -504,13 +504,13 @@ function saveTemplate() {
         return;
     }
 
-    // Strip .j2 extension if user added it - Netpalm stores without extension
+    // Strip .j2 extension if user added it - Netstacker stores without extension
     if (templateName.endsWith('.j2')) {
         templateName = templateName.slice(0, -3);
         $('#template-name').val(templateName);
     }
 
-    // Base64 encode the content for Netpalm API
+    // Base64 encode the content for Netstacker API
     const base64Content = btoa(content);
 
     const templateData = {
@@ -521,7 +521,7 @@ function saveTemplate() {
         delete_template: deleteTemplate || null
     };
 
-    // First, save the template content to Netpalm
+    // First, save the template content to Netstacker
     $.ajax({
         url: '/api/templates',
         method: 'POST',
@@ -601,16 +601,16 @@ function deleteTemplate(templateName) {
 }
 
 /**
- * Push template to Netpalm for persistent storage
+ * Push template to Netstacker for persistent storage
  */
-function pushTemplateToNetpalm(templateName) {
+function pushTemplateToNetstacker(templateName) {
     if (!templateName) {
         alert('No template selected');
         return;
     }
 
     // Confirm push
-    if (!confirm(`Push template "${templateName}" to Netpalm?\n\nThis will upload the template to Netpalm for persistent storage.`)) {
+    if (!confirm(`Push template "${templateName}" to Netstacker?\n\nThis will upload the template to Netstacker for persistent storage.`)) {
         return;
     }
 
@@ -628,9 +628,9 @@ function pushTemplateToNetpalm(templateName) {
     })
     .done(function(data) {
         if (data.success) {
-            alert(`✓ Template "${templateName}" successfully pushed to Netpalm!\n\n${data.message}`);
+            alert(`✓ Template "${templateName}" successfully pushed to Netstacker!\n\n${data.message}`);
         } else {
-            alert('Error pushing to Netpalm: ' + (data.error || 'Unknown error'));
+            alert('Error pushing to Netstacker: ' + (data.error || 'Unknown error'));
         }
     })
     .fail(function(xhr) {

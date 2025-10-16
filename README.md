@@ -25,7 +25,7 @@ This application connects to [Netpalm](https://github.com/tbotnz/netpalm) for ne
 
 ## 📋 Prerequisites
 
-1. **Netpalm Instance**: A running Netpalm installation that NetStacks can reach via HTTP/HTTPS (see [Netpalm on GitHub](https://github.com/tbotnz/netpalm))
+1. **Netstacker Instance**: A running Netstacker installation that NetStacks can reach via HTTP/HTTPS
 2. **Docker & Docker Compose**: For containerized deployment
 3. **(Optional) Netbox**: For automatic device inventory management
 
@@ -58,8 +58,8 @@ docker-compose up -d
 Open your browser to: `http://localhost:8088/settings`
 
 Configure your connections:
-- **Netpalm URL**: Point to your Netpalm server (e.g., `http://netpalm.example.com:9000`)
-- **Netpalm API Key**: Your Netpalm authentication key
+- **Netstacker URL**: Point to your Netstacker server (e.g., `http://netstacker.example.com:9000`)
+- **Netstacker API Key**: Your Netstacker authentication key
 - **Netbox URL**: (Optional) Your Netbox server URL
 - **Netbox Token**: (Optional) Your Netbox API token
 
@@ -75,7 +75,7 @@ NetStacks is a **standalone application** that connects to external services:
 
 ```
 ┌─────────────┐      HTTP/HTTPS       ┌─────────────┐
-│  NetStacks  │ ───────────────────> │   Netpalm   │
+│  NetStacks  │ ───────────────────> │ Netstacker  │
 │  + SQLite   │                       │   Server    │
 └─────────────┘                       └─────────────┘
        │
@@ -90,7 +90,7 @@ NetStacks is a **standalone application** that connects to external services:
 
 **Key Points:**
 - NetStacks runs standalone with embedded SQLite database
-- Connects to Netpalm via HTTP/HTTPS API calls
+- Connects to Netstacker via HTTP/HTTPS API calls
 - No Docker network requirements
 - Configure all connections via the GUI at `/settings`
 
@@ -120,7 +120,7 @@ netstacks/
         └── ...
 ```
 
-**Note**: Jinja2 configuration templates are stored in Netpalm, not in the local filesystem.
+**Note**: Jinja2 configuration templates are stored in Netstacker, not in the local filesystem.
 
 ## 🛠️ Usage
 
@@ -130,7 +130,7 @@ netstacks/
 2. Create a new Jinja2 template (e.g., `add_snmp.j2`)
 3. Define template variables using `{{ variable_name }}` syntax
 4. Optionally link validation and delete templates
-5. Click **Save to Netpalm** - templates are stored in Netpalm
+5. Click **Save to Netstacker** - templates are stored in Netstacker
 
 **Example Template:**
 ```jinja2
@@ -139,7 +139,7 @@ snmp-server location {{ snmp_location }}
 snmp-server contact {{ snmp_contact }}
 ```
 
-**Note**: Templates are stored in Netpalm, not locally. NetStacks uses Netpalm's template rendering engine for all deployments.
+**Note**: Templates are stored in Netstacker, not locally. NetStacks uses Netstacker's template rendering engine for all deployments.
 
 ### Deploying Services
 
@@ -174,9 +174,9 @@ snmp-server contact {{ snmp_contact }}
    - Execute delete commands on the device
    - Remove the service from tracking
 
-## 🔌 Netpalm Integration
+## 🔌 Netstacker Integration
 
-NetStacks uses the following Netpalm API endpoints:
+NetStacks uses the following Netstacker API endpoints:
 
 - `/setconfig` - Deploy configurations via Netmiko
 - `/getconfig` - Retrieve device configurations
@@ -192,7 +192,7 @@ NetStacks uses the following Netpalm API endpoints:
 | `DB_FILE` | `/data/netstacks.db` | SQLite database file path |
 | `NETSTACKS_PORT` | `8088` | Port to expose NetStacks on |
 
-**Note**: Netpalm and Netbox connections are configured via the GUI at `/settings` and stored in SQLite database. Templates are managed via GUI and stored in Netpalm.
+**Note**: Netstacker and Netbox connections are configured via the GUI at `/settings` and stored in SQLite database. Templates are managed via GUI and stored in Netstacker.
 
 ### Volumes
 
@@ -211,19 +211,19 @@ docker-compose up -d --build
 
 ## 🐛 Troubleshooting
 
-### Cannot connect to Netpalm
+### Cannot connect to Netstacker
 
 **Use the Test Connection button:**
 1. Go to `http://localhost:8088/settings`
-2. Enter your Netpalm URL and API key
-3. Click "Test Netpalm Connection"
+2. Enter your Netstacker URL and API key
+3. Click "Test Netstacker Connection"
 4. Review the error message
 
 **Common issues:**
-- Incorrect Netpalm URL (check protocol: http vs https)
+- Incorrect Netstacker URL (check protocol: http vs https)
 - Invalid API key
-- Firewall blocking NetStacks → Netpalm connection
-- Netpalm server not running
+- Firewall blocking NetStacks → Netstacker connection
+- Netstacker server not running
 
 **Check NetStacks logs:**
 ```bash
@@ -239,9 +239,9 @@ docker logs netstacks
 
 ### Templates not loading
 
-Templates are stored in Netpalm. Check:
-1. Netpalm connection is working (test via `/settings`)
-2. Templates exist in Netpalm (`curl http://netpalm:9000/j2template/config/` with API key)
+Templates are stored in Netstacker. Check:
+1. Netstacker connection is working (test via `/settings`)
+2. Templates exist in Netstacker (`curl http://netstacker:9000/j2template/config/` with API key)
 3. Check NetStacks logs: `docker logs netstacks`
 
 ### Settings not persisting
@@ -264,10 +264,10 @@ This metadata enhances the template system by linking related templates together
 
 ## 🤝 Contributing
 
-NetStacks is designed to work with the upstream Netpalm project. When contributing:
+When contributing:
 
-1. Ensure compatibility with Netpalm API
-2. Test against multiple Netpalm versions
+1. Ensure compatibility with Netstacker API
+2. Test against multiple configurations
 3. Document new features
 4. Follow existing code style
 
@@ -277,14 +277,13 @@ NetStacks is open-source software released under the MIT License. See LICENSE fi
 
 ## 🔗 Related Projects
 
-- [Netpalm](https://github.com/tbotnz/netpalm) - The network automation platform NetStacks connects to
 - [Netbox](https://github.com/netbox-community/netbox) - Network inventory system for device management
 
 ## 💬 Support
 
 For issues related to:
 - **NetStacks UI**: Open an issue in this repository
-- **Netpalm API**: See [Netpalm documentation](https://github.com/tbotnz/netpalm)
+- **Netstacker API**: See Netstacker documentation
 - **Network devices**: Consult your device vendor documentation
 
 ---

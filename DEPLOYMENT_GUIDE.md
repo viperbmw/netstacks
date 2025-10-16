@@ -7,7 +7,7 @@ This guide explains how to deploy and configure NetStacks as a standalone networ
 ### Prerequisites
 
 1. **Docker & Docker Compose** installed on your system
-2. **Netpalm server** running somewhere (local or remote) that NetStacks can reach via HTTP/HTTPS
+2. **Netstacker server** running somewhere (local or remote) that NetStacks can reach via HTTP/HTTPS
 3. **(Optional) Netbox** server for device inventory
 
 ### Deploy in 3 Steps
@@ -21,7 +21,7 @@ docker-compose up -d
 
 # 3. Configure via GUI
 # Open http://localhost:8088/settings
-# Enter your Netpalm URL and API key
+# Enter your Netstacker URL and API key
 ```
 
 That's it! NetStacks is now running with its own Redis instance for persistent storage.
@@ -43,7 +43,7 @@ NetStacks is a **standalone web application** that connects to external services
          │                                      │
          ▼                                      ▼
 ┌────────────────┐                    ┌────────────────┐
-│ Netpalm Server │                    │ Netbox Server  │
+│Netstacker Srvr │                    │ Netbox Server  │
 │   (Required)   │                    │   (Optional)   │
 └────────────────┘                    └────────────────┘
 ```
@@ -66,10 +66,10 @@ NetStacks is a **standalone web application** that connects to external services
 2. **Open Settings Page:**
    Navigate to `http://localhost:8088/settings`
 
-3. **Configure Netpalm Connection:**
-   - **Netpalm URL**: Your Netpalm server (e.g., `http://192.168.1.100:9000` or `https://netpalm.example.com:9000`)
-   - **Netpalm API Key**: Your Netpalm authentication key
-   - Click "Test Netpalm Connection" to verify
+3. **Configure Netstacker Connection:**
+   - **Netstacker URL**: Your Netstacker server (e.g., `http://192.168.1.100:9000` or `https://netstacker.example.com:9000`)
+   - **Netstacker API Key**: Your Netstacker authentication key
+   - Click "Test Netstacker Connection" to verify
    - Click "Save Settings"
 
 4. **Configure Netbox (Optional):**
@@ -97,7 +97,7 @@ REDIS_PASSWORD=Red1zp4ww0rd_
 NETSTACKS_PORT=8088
 ```
 
-**Note:** Netpalm and Netbox connections are **NOT** configured via environment variables. Use the GUI at `/settings`.
+**Note:** Netstacker and Netbox connections are **NOT** configured via environment variables. Use the GUI at `/settings`.
 
 ## 🐳 Docker Compose Configuration
 
@@ -188,27 +188,27 @@ docker-compose up -d --build
 
 ## 🐛 Troubleshooting
 
-### Cannot Connect to Netpalm
+### Cannot Connect to Netstacker
 
 **Symptoms:** Services fail to deploy, "Connection refused" errors
 
 **Solutions:**
 1. **Test the connection** via GUI:
    - Go to `http://localhost:8088/settings`
-   - Click "Test Netpalm Connection"
+   - Click "Test Netstacker Connection"
    - Review the error message
 
 2. **Common issues:**
    - Wrong protocol (http vs https)
    - Incorrect port number
    - Invalid API key
-   - Firewall blocking NetStacks → Netpalm traffic
-   - Netpalm server not running
+   - Firewall blocking NetStacks → Netstacker traffic
+   - Netstacker server not running
 
-3. **Verify Netpalm is accessible:**
+3. **Verify Netstacker is accessible:**
    ```bash
    # From NetStacks container
-   docker exec netstacks curl http://your-netpalm-url:9000/workers
+   docker exec netstacks curl http://your-netstacker-url:9000/workers
    ```
 
 ### Cannot Connect to Netbox
@@ -353,11 +353,11 @@ docker-compose up -d
 
 ### 2. Use HTTPS for External Connections
 
-When connecting to remote Netpalm/Netbox servers, always use HTTPS:
+When connecting to remote Netstacker/Netbox servers, always use HTTPS:
 
 ```
-✅ https://netpalm.example.com:9000
-❌ http://netpalm.example.com:9000
+✅ https://netstacker.example.com:9000
+❌ http://netstacker.example.com:9000
 ```
 
 ### 3. Protect the Web UI
@@ -376,7 +376,7 @@ NetStacks currently has no authentication. Protect it using:
 
 ## 🎯 Best Practices
 
-1. **Use GUI for All Configuration** - Don't rely on environment variables for Netpalm/Netbox
+1. **Use GUI for All Configuration** - Don't rely on environment variables for Netstacker/Netbox
 2. **Keep Templates in Version Control** - Store `j2_templates/` in Git
 3. **Regular Backups** - Backup Redis data weekly
 4. **Monitor Logs** - Check for errors regularly
@@ -387,14 +387,13 @@ NetStacks currently has no authentication. Protect it using:
 ## 🔗 Related Documentation
 
 - [README.md](README.md) - Main documentation and feature overview
-- [Netpalm Documentation](https://github.com/tbotnz/netpalm) - Netpalm API reference
 - [Netbox Documentation](https://docs.netbox.dev/) - Netbox API reference
 
 ## 💬 Support
 
 **For issues related to:**
 - **NetStacks UI/Features**: Open an issue in this repository
-- **Netpalm API**: See [Netpalm documentation](https://github.com/tbotnz/netpalm)
+- **Netstacker API**: See Netstacker documentation
 - **Netbox Integration**: See [Netbox API docs](https://docs.netbox.dev/en/stable/integrations/rest-api/)
 
 ---
