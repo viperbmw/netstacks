@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block title %}Devices - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-server"></i> Devices
+        </h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12 mb-3">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-plus-circle"></i> Add Manual Device</h5>
+                <button class="btn btn-sm btn-primary" id="show-add-device-form-btn">
+                    <i class="fas fa-plus"></i> Add Device
+                </button>
+            </div>
+            <div class="card-body" id="add-device-form-container" style="display: none;">
+                <form id="add-device-form">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="device-name" class="form-label">Device Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="device-name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="device-type" class="form-label">Device Type <span class="text-danger">*</span></label>
+                                <select class="form-control" id="device-type" required>
+                                    <option value="">Select type...</option>
+                                    <option value="cisco_ios">Cisco IOS</option>
+                                    <option value="cisco_nxos">Cisco NX-OS</option>
+                                    <option value="cisco_xe">Cisco IOS XE</option>
+                                    <option value="arista_eos">Arista EOS</option>
+                                    <option value="juniper_junos">Juniper Junos</option>
+                                    <option value="linux">Linux</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="device-host" class="form-label">Host/IP <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="device-host" required>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="device-port" class="form-label">Port</label>
+                                <input type="number" class="form-control" id="device-port" value="22">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="device-username" class="form-label">Username (optional)</label>
+                                <input type="text" class="form-control" id="device-username">
+                                <small class="text-muted">Leave blank to use service credentials</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="device-password" class="form-label">Password (optional)</label>
+                                <input type="password" class="form-control" id="device-password">
+                                <small class="text-muted">Leave blank to use service credentials</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save"></i> Save Device
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="cancel-add-device-btn">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-list"></i> Device List <small id="filter-info" class="text-muted"></small></h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" id="clear-cache-btn" title="Clear cache and reload devices">
+                        <i class="fas fa-sync-alt"></i> Clear Cache & Reload
+                    </button>
+                    <input type="text" id="device-search" class="form-control form-control-sm" placeholder="Search devices..." style="width: 300px;">
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Bulk Actions Bar -->
+                <div id="bulk-actions-bar" class="alert alert-info d-flex justify-content-between align-items-center" style="display: none !important;">
+                    <div>
+                        <i class="fas fa-check-square"></i>
+                        <strong id="selected-count">0</strong> devices selected
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2" id="bulk-getconfig-btn">
+                            <i class="fas fa-download"></i> Get Config
+                        </button>
+                        <button class="btn btn-sm btn-warning me-2" id="bulk-setconfig-btn">
+                            <i class="fas fa-upload"></i> Set Config
+                        </button>
+                        <button class="btn btn-sm btn-secondary" id="clear-selection-btn">
+                            <i class="fas fa-times"></i> Clear Selection
+                        </button>
+                    </div>
+                </div>
+
+                <div id="devices-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="devices-container" style="display: none;">
+                    <div class="mb-3">
+                        <button class="btn btn-sm btn-outline-secondary me-2" id="select-all-btn">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="select-none-btn">
+                            <i class="fas fa-times"></i> Select None
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="select-all-checkbox" class="form-check-input">
+                                    </th>
+                                    <th>Device Name</th>
+                                    <th>Type</th>
+                                    <th>Source</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="devices-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3">
+                        <p class="text-muted">
+                            <strong id="device-count-display">0</strong> devices total
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Get Config Modal -->
+<div class="modal fade" id="bulkGetConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-download"></i> Bulk Get Config</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bulk-getconfig-form">
+                    <div class="mb-3">
+                        <label for="bulk-get-command" class="form-label">Command</label>
+                        <input type="text" class="form-control" id="bulk-get-command" placeholder="show running-config" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label class="form-label mb-0">Credentials</label>
+                            <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-get-credentials-section">
+                                <i class="fas fa-chevron-down"></i> <span>Using defaults</span>
+                            </button>
+                        </div>
+                        <div class="collapse" id="bulk-get-credentials-section">
+                            <div class="card card-body mt-2">
+                                <div class="mb-3">
+                                    <label for="bulk-get-username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="bulk-get-username">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="bulk-get-password" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="bulk-get-password">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="bulk-get-use-textfsm">
+                        <label class="form-check-label" for="bulk-get-use-textfsm">Use TextFSM</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="execute-bulk-getconfig-btn">Execute</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Set Config Modal -->
+<div class="modal fade" id="bulkSetConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-upload"></i> Bulk Set Config</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bulk-setconfig-form">
+                    <div class="mb-3">
+                        <label class="form-label">Configuration Source</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="bulk-set-config-source" id="bulk-set-manual" value="manual" checked>
+                            <label class="form-check-label" for="bulk-set-manual">Manual Commands</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="bulk-set-config-source" id="bulk-set-template" value="template">
+                            <label class="form-check-label" for="bulk-set-template">J2 Template</label>
+                        </div>
+                    </div>
+
+                    <div id="bulk-set-manual-container">
+                        <div class="mb-3">
+                            <label for="bulk-set-config" class="form-label">Configuration Commands</label>
+                            <textarea class="form-control font-monospace" id="bulk-set-config" rows="6"></textarea>
+                        </div>
+                    </div>
+
+                    <div id="bulk-set-template-container" style="display: none;">
+                        <div class="mb-3">
+                            <label for="bulk-set-template-select" class="form-label">Select Template</label>
+                            <select class="form-select" id="bulk-set-template-select">
+                                <option value="">Loading templates...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="bulk-set-template-vars-container" style="display: none;">
+                            <label class="form-label">Template Variables (JSON)</label>
+                            <textarea class="form-control font-monospace" id="bulk-set-template-vars" rows="6" placeholder='{"interface_name": "GigabitEthernet0/1"}'></textarea>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label class="form-label mb-0">Credentials</label>
+                            <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-set-credentials-section">
+                                <i class="fas fa-chevron-down"></i> <span>Using defaults</span>
+                            </button>
+                        </div>
+                        <div class="collapse" id="bulk-set-credentials-section">
+                            <div class="card card-body mt-2">
+                                <div class="mb-3">
+                                    <label for="bulk-set-username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="bulk-set-username">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="bulk-set-password" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="bulk-set-password">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="bulk-set-dry-run">
+                        <label class="form-check-label" for="bulk-set-dry-run">Dry Run (test only)</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="execute-bulk-setconfig-btn">Execute</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Status Modal -->
+<div class="modal fade" id="bulkStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-tasks"></i> Bulk Operation Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="bulk-status-content">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status"></div>
+                        <p class="mt-2">Executing bulk operation...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="/monitor" class="btn btn-primary">View Jobs</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/form-utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/devices.js') }}"></script>
+{% endblock %}

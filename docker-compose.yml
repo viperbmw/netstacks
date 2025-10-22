@@ -1,0 +1,93 @@
+services:
+  # NetStacks Web UI (Frontend)
+  netstacks:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netstacks
+    environment:
+      # Database Configuration
+      - DB_FILE=/data/netstacks.db
+      # Netstacker Backend Connection
+      - NETSTACKER_API_URL=http://netstacker-controller:9000
+      - NETSTACKER_API_KEY=${NETSTACKER_API_KEY:-2a84465a-cf38-46b2-9d86-b84Q7d57f288}
+      # Timezone Configuration
+      - TZ=America/New_York
+    ports:
+      - "8089:8088"
+    volumes:
+      # Mount database directory for persistence
+      - netstacks-data:/data
+      # Mount host timezone files
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - netstacks-network
+    restart: unless-stopped
+
+  # Netstacker API Controller (Backend)
+  netstacker-controller:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_controller_dockerfile
+    container_name: netstacker-controller
+    environment:
+      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
+      - NETSTACKER_CONFIG=/code/config/config.json
+      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
+    ports:
+      - "9000:9000"
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+    restart: always
+
+  # Netstacker Pinned Worker
+  netstacker-worker-pinned:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_pinned_worker_dockerfile
+    container_name: netstacker-worker-pinned
+    environment:
+      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
+      - NETSTACKER_CONFIG=/code/config/config.json
+      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
+    depends_on:
+      - redis
+    networks:
+      - netstacks-network
+    restart: always
+
+  # Netstacker FIFO Worker
+  netstacker-worker-fifo:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_fifo_worker_dockerfile
+    container_name: netstacker-worker-fifo
+    environment:
+      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
+      - NETSTACKER_CONFIG=/code/config/config.json
+      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
+    depends_on:
+      - redis
+    networks:
+      - netstacks-network
+    restart: always
+
+  # Redis (Queue/Cache for Netstacker)
+  redis:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_redis_dockerfile
+    container_name: netstacker-redis
+    networks:
+      - netstacks-network
+    restart: always
+
+networks:
+  netstacks-network:
+    name: netstacks-network
+
+volumes:
+  netstacks-data:

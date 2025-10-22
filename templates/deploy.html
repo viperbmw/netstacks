@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+
+{% block title %}Deploy Config - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-cog"></i> Configuration Deployment
+        </h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="getconfig-tab" data-bs-toggle="tab" href="#getconfig" role="tab">
+                            <i class="fas fa-download"></i> Get Config
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="setconfig-tab" data-bs-toggle="tab" href="#setconfig" role="tab">
+                            <i class="fas fa-code"></i> Set Config
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="template-tab" data-bs-toggle="tab" href="#template" role="tab">
+                            <i class="fas fa-file-code"></i> Push Standalone Template
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content">
+                    <!-- Get Config Tab -->
+                    <div class="tab-pane fade show active" id="getconfig" role="tabpanel">
+                        <form id="getconfig-form">
+                            <div class="mb-3">
+                                <label for="get-device" class="form-label">Device(s)</label>
+                                <select class="form-select" id="get-device" multiple size="10" required>
+                                    <option value="">Loading devices...</option>
+                                </select>
+                                <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple devices</small>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="get-command" class="form-label">Command</label>
+                                <input type="text" class="form-control" id="get-command" placeholder="show running-config" required>
+                                <small class="form-text text-muted">Enter the command to retrieve configuration</small>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <label class="form-label mb-0">Credentials</label>
+                                    <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#get-credentials-section">
+                                        <i class="fas fa-chevron-down"></i> <span id="get-cred-status">Using defaults</span>
+                                    </button>
+                                </div>
+                                <div class="collapse" id="get-credentials-section">
+                                    <div class="card card-body mt-2">
+                                        <div class="mb-3">
+                                            <label for="get-username" class="form-label">Username</label>
+                                            <input type="text" class="form-control" id="get-username">
+                                            <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="get-password" class="form-label">Password</label>
+                                            <input type="password" class="form-control" id="get-password">
+                                            <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="get-cache">
+                                <label class="form-check-label" for="get-cache">
+                                    Enable Cache
+                                </label>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Parsing Options</label>
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="get-use-textfsm">
+                                    <label class="form-check-label" for="get-use-textfsm">
+                                        Use TextFSM (structured output parsing)
+                                    </label>
+                                </div>
+                                <div class="form-check mt-2">
+                                    <input type="checkbox" class="form-check-input" id="get-use-ttp">
+                                    <label class="form-check-label" for="get-use-ttp">
+                                        Use TTP (Template Text Parser)
+                                    </label>
+                                </div>
+                                <div class="mt-2" id="get-ttp-template-container" style="display: none;">
+                                    <label for="get-ttp-template" class="form-label">TTP Template Name</label>
+                                    <input type="text" class="form-control" id="get-ttp-template" placeholder="example">
+                                    <small class="form-text text-muted">Template name for TTP parsing</small>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-play"></i> Execute
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Set Config Tab -->
+                    <div class="tab-pane fade" id="setconfig" role="tabpanel">
+                        <form id="setconfig-form">
+                                    <div class="mb-3">
+                                        <label for="set-device" class="form-label">Device(s)</label>
+                                        <select class="form-select" id="set-device" multiple size="10" required>
+                                            <option value="">Loading devices...</option>
+                                        </select>
+                                        <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple devices</small>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="set-config" class="form-label">Configuration Commands</label>
+                                        <textarea class="form-control font-monospace" id="set-config" rows="10" placeholder="interface GigabitEthernet0/1&#10;  description Configured by Netstacker&#10;  no shutdown" required></textarea>
+                                        <small class="form-text text-muted">Enter raw configuration commands (one per line)</small>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <label class="form-label mb-0">Credentials</label>
+                                            <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#set-credentials-section">
+                                                <i class="fas fa-chevron-down"></i> <span id="set-cred-status">Using defaults</span>
+                                            </button>
+                                        </div>
+                                        <div class="collapse" id="set-credentials-section">
+                                            <div class="card card-body mt-2">
+                                                <div class="mb-3">
+                                                    <label for="set-username" class="form-label">Username</label>
+                                                    <input type="text" class="form-control" id="set-username">
+                                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <label for="set-password" class="form-label">Password</label>
+                                                    <input type="password" class="form-control" id="set-password">
+                                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3 form-check">
+                                        <input type="checkbox" class="form-check-input" id="set-dry-run">
+                                        <label class="form-check-label" for="set-dry-run">
+                                            Dry Run (validate only, don't apply)
+                                        </label>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="set-enable-checks">
+                                            <label class="form-check-label" for="set-enable-checks">
+                                                Enable Pre/Post Deployment Checks
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3" id="set-checks-container" style="display: none;">
+                                        <div class="row mb-2">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Pre-Check Command</label>
+                                                <input type="text" class="form-control" id="set-pre-check-command" placeholder="show ip interface brief">
+                                                <small class="form-text text-muted">Command to run before deployment</small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Pre-Check Expected Output</label>
+                                                <input type="text" class="form-control" id="set-pre-check-match" placeholder="up">
+                                                <small class="form-text text-muted">Text that must be in output (optional)</small>
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Post-Check Command</label>
+                                                <input type="text" class="form-control" id="set-post-check-command" placeholder="show ip interface brief">
+                                                <small class="form-text text-muted">Command to run after deployment</small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Post-Check Expected Output</label>
+                                                <input type="text" class="form-control" id="set-post-check-match" placeholder="up">
+                                                <small class="form-text text-muted">Text that must be in output (optional)</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="fas fa-upload"></i> Deploy Now
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" id="schedule-setconfig-btn">
+                                    <i class="fas fa-clock"></i> Schedule Deploy
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Push Standalone Template Tab -->
+                    <div class="tab-pane fade" id="template" role="tabpanel">
+                        <form id="template-form">
+                                    <div class="mb-3">
+                                        <label for="template-device" class="form-label">Device(s)</label>
+                                        <select class="form-select" id="template-device" multiple size="10" required>
+                                            <option value="">Loading devices...</option>
+                                        </select>
+                                        <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple devices</small>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="template-select" class="form-label">Select Template</label>
+                                        <select class="form-select" id="template-select" required>
+                                            <option value="">Loading templates...</option>
+                                        </select>
+                                    </div>
+
+                                    <div id="template-vars-toggle"></div>
+                                    <div id="template-vars-container" style="display: none;">
+                                        <!-- Dynamic template variables will be inserted here -->
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <label class="form-label mb-0">Credentials</label>
+                                            <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#template-credentials-section">
+                                                <i class="fas fa-chevron-down"></i> <span id="template-cred-status">Using defaults</span>
+                                            </button>
+                                        </div>
+                                        <div class="collapse" id="template-credentials-section">
+                                            <div class="card card-body mt-2">
+                                                <div class="mb-3">
+                                                    <label for="template-username" class="form-label">Username</label>
+                                                    <input type="text" class="form-control" id="template-username">
+                                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <label for="template-password" class="form-label">Password</label>
+                                                    <input type="password" class="form-control" id="template-password">
+                                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3 form-check">
+                                        <input type="checkbox" class="form-check-input" id="template-dry-run">
+                                        <label class="form-check-label" for="template-dry-run">
+                                            Dry Run (validate only, don't apply)
+                                        </label>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="template-enable-checks">
+                                            <label class="form-check-label" for="template-enable-checks">
+                                                Enable Pre/Post Deployment Checks
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3" id="template-checks-container" style="display: none;">
+                                        <div class="row mb-2">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Pre-Check Command</label>
+                                                <input type="text" class="form-control" id="template-pre-check-command" placeholder="show ip interface brief">
+                                                <small class="form-text text-muted">Command to run before deployment</small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Pre-Check Expected Output</label>
+                                                <input type="text" class="form-control" id="template-pre-check-match" placeholder="up">
+                                                <small class="form-text text-muted">Text that must be in output (optional)</small>
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Post-Check Command</label>
+                                                <input type="text" class="form-control" id="template-post-check-command" placeholder="show ip interface brief">
+                                                <small class="form-text text-muted">Command to run after deployment</small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Post-Check Expected Output</label>
+                                                <input type="text" class="form-control" id="template-post-check-match" placeholder="up">
+                                                <small class="form-text text-muted">Text that must be in output (optional)</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="fas fa-upload"></i> Deploy Now
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" id="schedule-template-btn">
+                                    <i class="fas fa-clock"></i> Schedule Deploy
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> Status</h5>
+            </div>
+            <div class="card-body">
+                <div id="status-idle">
+                    <div class="alert alert-secondary">
+                        <i class="fas fa-pause-circle"></i> Ready to execute
+                    </div>
+                </div>
+                <div id="status-loading" style="display: none;">
+                    <div class="alert alert-info">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        Executing...
+                    </div>
+                </div>
+                <div id="status-success" style="display: none;">
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> <strong>Success!</strong>
+                        <p class="mb-1 mt-2">Task ID: <span id="success-task-id"></span></p>
+                        <a href="#" id="view-task-link" class="btn btn-sm btn-outline-success mt-2">
+                            View Task Details
+                        </a>
+                    </div>
+                </div>
+                <div id="status-error" style="display: none;">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle"></i> <strong>Error</strong>
+                        <p class="mb-0 mt-2" id="error-message"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="fas fa-book"></i> Quick Guide</h5>
+            </div>
+            <div class="card-body">
+                <h6>Get Config</h6>
+                <p class="small">Retrieve configuration or show commands from a device using Netmiko over SSH.</p>
+
+                <h6>Set Config</h6>
+                <p class="small">Deploy raw configuration commands to a device using Netmiko over SSH.</p>
+
+                <h6>Template Deploy</h6>
+                <p class="small">Deploy Jinja2 templates with variables to devices using Netmiko over SSH.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Result Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Configuration Result</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="result-content" class="p-3 border rounded" style="max-height: 600px; overflow-y: auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="copy-result">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Schedule Deploy Modal -->
+<div class="modal fade" id="scheduleDeployModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-clock"></i> Schedule Configuration Deployment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="schedule-deploy-type">
+                <form id="schedule-deploy-form">
+                    <div class="mb-3">
+                        <label for="schedule-deploy-type-select" class="form-label">Schedule Type *</label>
+                        <select class="form-select" id="schedule-deploy-type-select" required>
+                            <option value="once">One-time</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+
+                    <!-- One-time schedule -->
+                    <div class="mb-3" id="schedule-deploy-datetime-section">
+                        <label for="schedule-deploy-datetime" class="form-label">Date and Time *</label>
+                        <input type="datetime-local" class="form-control" id="schedule-deploy-datetime" required>
+                    </div>
+
+                    <!-- Daily schedule -->
+                    <div class="mb-3" id="schedule-deploy-time-section" style="display: none;">
+                        <label for="schedule-deploy-time" class="form-label">Time *</label>
+                        <input type="time" class="form-control" id="schedule-deploy-time">
+                    </div>
+
+                    <!-- Weekly schedule -->
+                    <div class="mb-3" id="schedule-deploy-day-week-section" style="display: none;">
+                        <label for="schedule-deploy-day-week" class="form-label">Day of Week *</label>
+                        <select class="form-select" id="schedule-deploy-day-week">
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+
+                    <!-- Monthly schedule -->
+                    <div class="mb-3" id="schedule-deploy-day-month-section" style="display: none;">
+                        <label for="schedule-deploy-day-month" class="form-label">Day of Month *</label>
+                        <input type="number" class="form-control" id="schedule-deploy-day-month" min="1" max="31" placeholder="1-31">
+                    </div>
+
+                    <div class="alert alert-info">
+                        <small><i class="fas fa-info-circle"></i> The deployment will be scheduled with the current form settings (devices, config, credentials, etc.)</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="confirm-schedule-deploy-btn">
+                    <i class="fas fa-clock"></i> Schedule
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/form-utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/credentials.js') }}"></script>
+<script src="{{ url_for('static', filename='js/deploy.js') }}"></script>
+{% endblock %}

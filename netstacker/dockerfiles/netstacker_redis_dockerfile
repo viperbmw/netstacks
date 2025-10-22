@@ -1,0 +1,6 @@
+FROM redis:7-alpine
+WORKDIR /etc/redis_certs
+ADD  netstacker/backend/core/security/cert /etc/redis_certs
+COPY ./config/redis.conf /usr/local/etc/redis/redis.conf
+RUN chmod 644 /usr/local/etc/redis/redis.conf && chown redis:redis /usr/local/etc/redis/redis.conf
+CMD [ "redis-server", "/usr/local/etc/redis/redis.conf" ]

@@ -1,0 +1,421 @@
+/* NetStacks GUI Custom Styles */
+
+/* Custom dark theme with neutral grays (no pink tint) */
+[data-bs-theme="dark"] {
+    --bs-body-bg: #1a1a1a;
+    --bs-body-color: #e0e0e0;
+    --bs-card-bg: #2a2a2a;
+    --bs-border-color: #404040;
+}
+
+[data-bs-theme="dark"] body {
+    background-color: #1a1a1a;
+}
+
+[data-bs-theme="light"] body {
+    background-color: #f8f9fa;
+}
+
+/* Override card backgrounds to pure gray */
+[data-bs-theme="dark"] .card {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+[data-bs-theme="dark"] .card-header {
+    background-color: #333333;
+    border-bottom: 2px solid #404040;
+}
+
+/* Form controls - neutral gray */
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+    background-color: #333333;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+/* Modals - neutral gray */
+[data-bs-theme="dark"] .modal-content {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+[data-bs-theme="dark"] .modal-header,
+[data-bs-theme="dark"] .modal-footer {
+    border-color: #404040;
+}
+
+/* Pre/code blocks - dark theme */
+[data-bs-theme="dark"] pre {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+/* Pre/code blocks - light theme */
+[data-bs-theme="light"] pre {
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+/* Service variables container - dark theme */
+[data-bs-theme="dark"] .service-variables-container {
+    background-color: #2a2a2a;
+}
+
+/* Service variables container - light theme */
+[data-bs-theme="light"] .service-variables-container {
+    background-color: #f8f9fa;
+}
+
+/* Alert/info boxes - neutral colors */
+[data-bs-theme="dark"] .alert-info {
+    background-color: #1a3a52;
+    border-color: #2a5a7a;
+    color: #a8d4f0;
+}
+
+[data-bs-theme="dark"] .alert-warning {
+    background-color: #4a3c1a;
+    border-color: #6a5a2a;
+    color: #f0d8a8;
+}
+
+[data-bs-theme="dark"] .alert-success {
+    background-color: #1a3a2a;
+    border-color: #2a5a3a;
+    color: #a8f0c0;
+}
+
+[data-bs-theme="dark"] .alert-danger {
+    background-color: #4a1a1a;
+    border-color: #6a2a2a;
+    color: #f0a8a8;
+}
+
+[data-bs-theme="dark"] .alert-secondary {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #c0c0c0;
+}
+
+/* Compact Navbar Styling */
+.navbar {
+    min-height: 48px;
+}
+
+.navbar .nav-link {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9rem;
+}
+
+.navbar .navbar-nav {
+    gap: 0.25rem;
+}
+
+/* Brand Logo Styling */
+.brand-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-weight: 700;
+    font-size: 1.25rem;
+    padding: 0.3rem 0.8rem;
+    transition: all 0.3s ease;
+}
+
+.brand-logo:hover {
+    transform: translateY(-2px);
+}
+
+.brand-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+    border-radius: 8px;
+    color: white;
+    font-size: 1.1rem;
+    box-shadow: 0 3px 10px rgba(13, 110, 253, 0.3);
+    transition: all 0.3s ease;
+}
+
+.brand-logo:hover .brand-icon {
+    box-shadow: 0 6px 16px rgba(13, 110, 253, 0.4);
+    transform: rotate(-5deg);
+}
+
+.brand-text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1.5rem;
+}
+
+/* Template cards - compact styling */
+.template-card .card-body {
+    padding: 0.75rem;
+}
+
+.template-card .card-title {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.template-card .badge {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.4rem;
+}
+
+.template-card .template-flow {
+    margin: 0.5rem 0;
+}
+
+.template-card .action-buttons {
+    margin-top: 0.5rem;
+}
+
+.template-card p.text-muted {
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Standalone templates - even more compact */
+.template-card-mini .card-body {
+    padding: 0.5rem;
+}
+
+.template-card-mini .card-title {
+    font-size: 0.85rem;
+    margin-bottom: 0.4rem;
+}
+
+.template-card-mini .badge {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.35rem;
+}
+
+.template-card-mini .template-flow {
+    margin: 0.4rem 0;
+}
+
+.template-card-mini .action-buttons {
+    margin-top: 0.4rem;
+}
+
+.template-card-mini p.text-muted {
+    font-size: 0.75rem;
+    margin-bottom: 0.4rem;
+}
+
+.template-card-mini .btn-sm {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.card-header {
+    /* background-color removed - handled by dark theme override */
+    border-bottom: 2px solid #e9ecef;
+    font-weight: 600;
+}
+
+/* Status badges */
+.badge-queued {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.badge-running {
+    background-color: #17a2b8;
+}
+
+.badge-completed {
+    background-color: #28a745;
+}
+
+.badge-failed {
+    background-color: #dc3545;
+}
+
+/* Task table */
+#tasks-table tbody tr {
+    cursor: pointer;
+}
+
+#tasks-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* Code/pre styling */
+pre {
+    font-size: 0.875rem;
+    background-color: #f8f9fa;
+}
+
+/* Loading spinner centering */
+.spinner-border {
+    margin: 2rem auto;
+    display: block;
+}
+
+/* Stats cards */
+.card.text-white h2 {
+    font-weight: bold;
+    margin: 0;
+}
+
+.card.text-white .card-title {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    opacity: 0.9;
+}
+
+/* Dashboard clickable cards */
+.dashboard-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Auto-refresh button */
+#auto-refresh-btn.active {
+    background-color: #0d6efd;
+    color: white;
+}
+
+/* Form styling */
+.form-label {
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+textarea.font-monospace {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+}
+
+/* Modal improvements */
+.modal-xl {
+    max-width: 90%;
+}
+
+.modal pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Quick action buttons */
+.btn-lg {
+    padding: 0.75rem 1.5rem;
+}
+
+/* Worker status colors */
+.worker-idle {
+    color: #6c757d;
+}
+
+.worker-busy {
+    color: #0d6efd;
+}
+
+.worker-failed {
+    color: #dc3545;
+}
+
+/* Responsive table */
+.table-responsive {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+/* Alerts */
+.alert {
+    border-radius: 0.5rem;
+}
+
+/* Device select styling */
+select.form-select {
+    background-color: #fff;
+}
+
+/* Animations */
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+/* Success/Error status panels */
+#status-success .alert,
+#status-error .alert {
+    margin-bottom: 0;
+}
+
+/* Navigation active states */
+.nav-link.active {
+    font-weight: 600;
+}
+
+/* Search input styling - dark mode compatible */
+.search-icon {
+    background-color: transparent;
+}
+
+.search-input {
+    background-color: transparent;
+}
+
+[data-bs-theme="dark"] .search-icon {
+    background-color: #333333;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] .search-input {
+    background-color: #333333;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+[data-bs-theme="light"] .search-icon {
+    background-color: #ffffff;
+    border-color: #dee2e6;
+}
+
+[data-bs-theme="light"] .search-input {
+    background-color: #ffffff;
+    border-color: #dee2e6;
+}
+
+/* Utility classes */
+.opacity-50 {
+    opacity: 0.5;
+}
+
+.font-monospace {
+    font-family: 'Courier New', Courier, monospace;
+}

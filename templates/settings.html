@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-cog"></i> Settings
+        </h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-sliders-h"></i> Application Configuration</h5>
+            </div>
+            <div class="card-body">
+                <form id="settings-form">
+                    <!-- Theme Settings -->
+                    <h6 class="border-bottom pb-2 mb-3">Theme</h6>
+                    <div class="mb-3">
+                        <label for="theme-select" class="form-label">Color Theme</label>
+                        <select class="form-select" id="theme-select">
+                            <option value="dark">Dark Theme</option>
+                            <option value="light">Light Theme</option>
+                        </select>
+                        <small class="form-text text-muted">Choose your preferred color theme</small>
+                    </div>
+
+                    <!-- Netbox Settings -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Netbox Integration (Optional)</h6>
+                    <p class="text-muted small">
+                        <i class="fas fa-info-circle"></i> Configure Netbox to automatically import devices. Manual devices are always available.
+                    </p>
+
+                    <div class="mb-3">
+                        <label for="netbox-url" class="form-label">Netbox URL</label>
+                        <input type="text" class="form-control" id="netbox-url" placeholder="https://netbox.example.com">
+                        <small class="form-text text-muted">URL of your Netbox instance</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="netbox-token" class="form-label">Netbox API Token</label>
+                        <input type="password" class="form-control" id="netbox-token" placeholder="Enter API token">
+                        <small class="form-text text-muted">API token for Netbox authentication</small>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="netbox-verify-ssl">
+                        <label class="form-check-label" for="netbox-verify-ssl">Verify SSL certificates</label>
+                    </div>
+
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-sm btn-outline-success" id="test-netbox-btn">
+                            <i class="fas fa-plug"></i> Test Netbox Connection
+                        </button>
+                        <div id="netbox-test-result" class="mt-2" style="display: none;"></div>
+                    </div>
+
+                    <!-- Netbox Device Filters -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Netbox Device Filters</h6>
+                    <p class="text-muted small mb-3">
+                        <i class="fas fa-filter"></i> Filter which devices are shown from Netbox. Add multiple filters to narrow down your device list.
+                        <a href="#" data-bs-toggle="collapse" data-bs-target="#filter-help" class="text-decoration-none">
+                            <i class="fas fa-question-circle"></i> View Examples
+                        </a>
+                    </p>
+
+                    <div class="collapse mb-3" id="filter-help">
+                        <div class="card card-body">
+                            <p class="mb-2"><strong>Common Filter Examples:</strong></p>
+                            <ul class="small mb-0">
+                                <li><code>tag=production</code> - Devices with "production" tag</li>
+                                <li><code>name__ic=router</code> - Devices with "router" in name (case-insensitive)</li>
+                                <li><code>site=datacenter-1</code> - Devices at specific site</li>
+                                <li><code>status=active</code> - Only active devices</li>
+                                <li><code>role=access-switch</code> - Devices with specific role</li>
+                                <li><code>manufacturer=cisco</code> - Filter by manufacturer</li>
+                            </ul>
+                            <p class="small mt-2 mb-0 text-muted">
+                                Filters use Netbox API syntax. Multiple filters are combined with AND logic.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="netbox-filters-container">
+                        <!-- Filters will be dynamically added here -->
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-outline-primary mb-3" id="add-filter-btn">
+                        <i class="fas fa-plus"></i> Add Filter
+                    </button>
+
+                    <!-- Default Credentials -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Default Device Credentials</h6>
+
+                    <div class="mb-3">
+                        <label for="default-username" class="form-label">Default Username</label>
+                        <input type="text" class="form-control" id="default-username" placeholder="admin">
+                        <small class="form-text text-muted">Default username for device connections</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="default-password" class="form-label">Default Password</label>
+                        <input type="password" class="form-control" id="default-password" placeholder="Enter password">
+                        <small class="form-text text-muted">Default password for device connections (optional)</small>
+                    </div>
+
+                    <!-- Netstacker Connection Settings -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Netstacker Connection</h6>
+
+                    <div class="mb-3">
+                        <label for="netstacker-url" class="form-label">Netstacker API URL</label>
+                        <input type="text" class="form-control" id="netstacker-url" placeholder="http://netstacker-controller:9000">
+                        <small class="form-text text-muted">URL of your Netstacker API instance</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="netstacker-api-key" class="form-label">Netstacker API Key</label>
+                        <input type="password" class="form-control" id="netstacker-api-key" placeholder="Enter API key">
+                        <small class="form-text text-muted">API key for Netstacker authentication</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-secondary" id="test-netstacker-btn">
+                            <i class="fas fa-plug"></i> Test Netstacker Connection
+                        </button>
+                        <div id="netstacker-test-result" class="mt-2"></div>
+                    </div>
+
+                    <!-- Cache Settings -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Cache Settings</h6>
+
+                    <div class="mb-3">
+                        <label for="cache-ttl" class="form-label">Device Cache TTL (seconds)</label>
+                        <input type="number" class="form-control" id="cache-ttl" min="60" max="3600" value="300">
+                        <small class="form-text text-muted">How long to cache device list (60-3600 seconds)</small>
+                    </div>
+
+                    <!-- Save Button -->
+                    <div class="d-grid gap-2 mt-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Settings
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="reset-btn">
+                            <i class="fas fa-undo"></i> Reset to Defaults
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> Information</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Settings Storage:</strong></p>
+                <p class="text-muted small">Settings are stored in your browser's local storage. They will persist across sessions but are device-specific.</p>
+
+                <p class="mt-3"><strong>Security Note:</strong></p>
+                <p class="text-muted small">API keys and passwords are stored locally in your browser. Avoid using shared computers with sensitive credentials.</p>
+
+                <p class="mt-3"><strong>Current Status:</strong></p>
+                <div id="settings-status">
+                    <span class="badge bg-secondary">Not Configured</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Resources Section -->
+        <div class="card mt-3">
+            <div class="card-header bg-success text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-plug"></i> API Resources</h5>
+                    <button class="btn btn-light btn-sm" id="add-api-resource-btn">
+                        <i class="fas fa-plus"></i> Add Resource
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Define reusable API configurations for automatic variable fetching in Stack Templates</p>
+                <div id="api-resources-list">
+                    <div class="text-center text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="fas fa-trash-alt"></i> Danger Zone</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Clear all settings and task history</p>
+                <button class="btn btn-danger btn-sm w-100" id="clear-all-btn">
+                    <i class="fas fa-exclamation-triangle"></i> Clear All Data
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Resource Modal -->
+<div class="modal fade" id="apiResourceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="apiResourceModalTitle">Add API Resource</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="api-resource-id">
+
+                <div class="mb-3">
+                    <label for="api-resource-name" class="form-label">Resource Name *</label>
+                    <input type="text" class="form-control" id="api-resource-name" placeholder="e.g., Netbox IPAM" required>
+                    <small class="form-text text-muted">Friendly name to identify this API resource</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="api-resource-description" class="form-label">Description</label>
+                    <input type="text" class="form-control" id="api-resource-description" placeholder="Internal IPAM system">
+                </div>
+
+                <div class="mb-3">
+                    <label for="api-resource-base-url" class="form-label">Base URL *</label>
+                    <input type="text" class="form-control" id="api-resource-base-url" placeholder="https://ipam.company.com" required>
+                    <small class="form-text text-muted">Base URL without the specific endpoint path</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="api-resource-auth-type" class="form-label">Authentication Type *</label>
+                    <select class="form-select" id="api-resource-auth-type">
+                        <option value="none">None</option>
+                        <option value="bearer">Bearer Token</option>
+                        <option value="api_key">API Key Header</option>
+                        <option value="basic">Basic Auth</option>
+                        <option value="custom">Custom Headers</option>
+                    </select>
+                </div>
+
+                <!-- Bearer Token Auth -->
+                <div class="mb-3 auth-field auth-bearer auth-api_key" style="display:none;">
+                    <label for="api-resource-token" class="form-label">Token / API Key *</label>
+                    <input type="password" class="form-control" id="api-resource-token" placeholder="Enter token or API key">
+                </div>
+
+                <!-- Basic Auth -->
+                <div class="auth-field auth-basic" style="display:none;">
+                    <div class="mb-3">
+                        <label for="api-resource-username" class="form-label">Username *</label>
+                        <input type="text" class="form-control" id="api-resource-username">
+                    </div>
+                    <div class="mb-3">
+                        <label for="api-resource-password" class="form-label">Password *</label>
+                        <input type="password" class="form-control" id="api-resource-password">
+                    </div>
+                </div>
+
+                <!-- Custom Headers -->
+                <div class="mb-3 auth-field auth-custom" style="display:none;">
+                    <label for="api-resource-custom-headers" class="form-label">Custom Headers (JSON) *</label>
+                    <textarea class="form-control" id="api-resource-custom-headers" rows="4" placeholder='{"Authorization": "Token xyz", "X-Custom-Header": "value"}'></textarea>
+                    <small class="form-text text-muted">JSON object with header key-value pairs</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="save-api-resource-btn">
+                    <i class="fas fa-save"></i> Save Resource
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}
