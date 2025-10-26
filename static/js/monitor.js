@@ -49,6 +49,7 @@ $(document).ready(function() {
 function loadMonitor() {
     loadTasks();
     loadWorkers();
+    loadMopExecutions();
     loadTaskHistory();
 }
 
@@ -304,5 +305,88 @@ function viewTaskDetails(taskId) {
             $('#detail-ended').text('N/A');
             $('#detail-duration').text('N/A');
             $('#detail-result').text('Error loading task details: ' + error);
+        });
+}
+
+function loadMopExecutions() {
+    $('#mop-executions-loading').show();
+    $('#mop-executions-container').hide();
+
+    $.get('/api/mop/executions/running')
+        .done(function(data) {
+            const tbody = $('#mop-executions-body');
+            tbody.empty();
+
+            if (!data.success || !data.executions || data.executions.length === 0) {
+                $('#no-mop-executions').show();
+                $('#mop-executions-container').find('table').hide();
+            } else {
+                $('#no-mop-executions').hide();
+                $('#mop-executions-container').find('table').show();
+
+                data.executions.forEach(function(exec) {
+                    const executionId = exec.execution_id;
+                    const mopName = exec.mop_name || 'Unknown MOP';
+                    const currentStep = exec.current_step !== null ? exec.current_step : 'N/A';
+                    const status = exec.status || 'running';
+                    const startedAt = exec.started_at ? formatDate(exec.started_at) : 'N/A';
+
+                    let statusBadge = 'bg-info';
+                    if (status === 'running') statusBadge = 'badge-running';
+                    else if (status === 'completed') statusBadge = 'badge-completed';
+                    else if (status === 'failed') statusBadge = 'badge-failed';
+
+                    tbody.append(`
+                        <tr data-execution-id="${executionId}">
+                            <td><small>${mopName}</small></td>
+                            <td><span class="badge bg-secondary">Step ${currentStep !== 'N/A' ? parseInt(currentStep) + 1 : 'N/A'}</span></td>
+                            <td><span class="badge ${statusBadge}">${status}</span></td>
+                            <td><small>${startedAt}</small></td>
+                            <td>
+                                <button class="btn btn-sm btn-danger cancel-mop-btn" data-execution-id="${executionId}">
+                                    <i class="fas fa-stop"></i> Cancel
+                                </button>
+                            </td>
+                        </tr>
+                    `);
+                });
+            }
+
+            $('#mop-executions-loading').hide();
+            $('#mop-executions-container').show();
+        })
+        .fail(function(xhr, status, error) {
+            $('#mop-executions-loading').hide();
+            $('#mop-executions-container').show();
+            $('#no-mop-executions').html('<i class="fas fa-exclamation-triangle"></i> Error loading MOP executions: ' + error).show();
+            $('#mop-executions-container').find('table').hide();
+        });
+}
+
+// Event delegation for cancel MOP button
+$(document).on('click', '.cancel-mop-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const executionId = $(this).data('execution-id');
+
+    if (confirm('Are you sure you want to cancel this MOP execution?')) {
+        cancelMopExecution(executionId);
+    }
+});
+
+function cancelMopExecution(executionId) {
+    $.post('/api/mop/executions/' + executionId + '/cancel')
+        .done(function(data) {
+            if (data.success) {
+                // Show success message
+                alert('MOP execution cancelled successfully');
+                // Reload MOP executions to reflect the change
+                loadMopExecutions();
+            } else {
+                alert('Error cancelling MOP execution: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .fail(function(xhr, status, error) {
+            alert('Error cancelling MOP execution: ' + error);
         });
 }

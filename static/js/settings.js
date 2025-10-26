@@ -1,5 +1,25 @@
 // Settings page JavaScript
 
+// Utility function to show alerts
+function showAlert(type, message) {
+    const alertHtml = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+
+    // Insert at the top of the content area
+    $('.container-fluid').prepend(alertHtml);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        $('.alert').fadeOut(() => {
+            $(this).remove();
+        });
+    }, 5000);
+}
+
 // Default settings
 const DEFAULT_SETTINGS = {
     netbox_url: 'https://netbox.example.com',
@@ -389,11 +409,20 @@ function testNetboxConnection() {
     })
     .done(function(data) {
         if (data.success) {
-            resultDiv.html(`
+            let successMsg = `
                 <div class="alert alert-success">
                     <i class="fas fa-check-circle"></i> <strong>Connection Successful!</strong><br>
-                    <small>Found ${data.device_count} devices in Netbox</small><br>
-                    <small class="text-muted">Response time: ${data.response_time || 'N/A'}</small>
+                    <small>Found ${data.device_count} devices in Netbox</small><br>`;
+
+            if (data.connection_count !== undefined) {
+                successMsg += `<small>Found ${data.connection_count} connections</small><br>`;
+            }
+
+            if (data.cached) {
+                successMsg += `<small><i class="fas fa-database"></i> Cached for fast network map loading</small><br>`;
+            }
+
+            successMsg += `<small class="text-muted">Response time: ${data.response_time || 'N/A'}</small>
                 </div>
                 <details class="mt-2">
                     <summary class="text-muted small" style="cursor: pointer;">
@@ -406,7 +435,8 @@ function testNetboxConnection() {
                         <p class="mb-0"><strong>Using Token:</strong> ${data.has_token ? 'Yes' : 'No (Public access)'}</p>
                     </div>
                 </details>
-            `);
+            `;
+            resultDiv.html(successMsg);
         } else {
             resultDiv.html(`
                 <div class="alert alert-danger">
@@ -844,4 +874,141 @@ $(document).ready(function() {
         $('#save-api-resource-btn').click(saveApiResource);
         $('#api-resource-auth-type').change(handleAuthTypeChange);
     }
+
+    // Load menu items for reordering
+    if ($('#menu-items-list').length > 0) {
+        loadMenuItems();
+        $('#save-menu-order-btn').click(saveMenuOrder);
+    }
 });
+
+
+// ============================================================================
+// Menu Items Management
+// ============================================================================
+
+let menuItemsData = [];
+
+function loadMenuItems() {
+    $.ajax({
+        url: '/api/menu-items',
+        method: 'GET',
+        success: function(response) {
+            if (response.success) {
+                menuItemsData = response.menu_items;
+                renderMenuItems();
+                initializeSortable();
+            } else {
+                showAlert('danger', 'Failed to load menu items: ' + (response.error || 'Unknown error'));
+            }
+        },
+        error: function(xhr, status, error) {
+            showAlert('danger', 'Error loading menu items: ' + error);
+        }
+    });
+}
+
+function renderMenuItems() {
+    const $list = $('#menu-items-list');
+    $list.empty();
+
+    menuItemsData.forEach((item, index) => {
+        const isVisible = item.visible === 1 || item.visible === true;
+        const visibilityIcon = isVisible ? 'eye' : 'eye-slash';
+        const visibilityClass = isVisible ? 'text-primary' : 'text-muted';
+
+        const $item = $(`
+            <div class="list-group-item d-flex align-items-center" data-item-id="${item.item_id}" data-order="${index}">
+                <span class="drag-handle me-2" style="cursor: move;">
+                    <i class="fas fa-grip-vertical text-muted"></i>
+                </span>
+                <i class="fas fa-${item.icon} me-2"></i>
+                <span class="flex-grow-1">${item.label}</span>
+                <button class="btn btn-sm btn-link toggle-visibility ${visibilityClass}" data-item-id="${item.item_id}">
+                    <i class="fas fa-${visibilityIcon}"></i>
+                </button>
+            </div>
+        `);
+
+        $list.append($item);
+    });
+
+    // Attach visibility toggle handlers
+    $('.toggle-visibility').click(function() {
+        const itemId = $(this).data('item-id');
+        toggleMenuItemVisibility(itemId);
+    });
+}
+
+function initializeSortable() {
+    const el = document.getElementById('menu-items-list');
+    if (el && typeof Sortable !== 'undefined') {
+        new Sortable(el, {
+            animation: 150,
+            handle: '.drag-handle',
+            onEnd: function(evt) {
+                // Update order in memory
+                updateMenuItemsOrder();
+            }
+        });
+    } else {
+        // Fallback: manual drag if Sortable.js not available
+        console.warn('Sortable.js not loaded, drag-and-drop disabled');
+    }
+}
+
+function updateMenuItemsOrder() {
+    const $items = $('#menu-items-list .list-group-item');
+    $items.each(function(index) {
+        const itemId = $(this).data('item-id');
+        const item = menuItemsData.find(i => i.item_id === itemId);
+        if (item) {
+            item.order_index = index;
+        }
+    });
+}
+
+function toggleMenuItemVisibility(itemId) {
+    const item = menuItemsData.find(i => i.item_id === itemId);
+    if (item) {
+        item.visible = item.visible === 1 ? 0 : 1;
+        renderMenuItems();
+        // Re-initialize sortable after re-render
+        initializeSortable();
+    }
+}
+
+function saveMenuOrder() {
+    // Update order based on current DOM order
+    updateMenuItemsOrder();
+
+    console.log('Saving menu order:', menuItemsData);
+
+    $.ajax({
+        url: '/api/menu-items',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            menu_items: menuItemsData
+        }),
+        success: function(response) {
+            console.log('Save response:', response);
+            if (response.success) {
+                showAlert('success', 'Menu order saved successfully! Refresh the page to see changes.');
+            } else {
+                showAlert('danger', 'Failed to save menu order: ' + (response.error || 'Unknown error'));
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Save error:', xhr.responseText);
+            let errorMsg = 'Error saving menu order: ';
+            try {
+                const response = JSON.parse(xhr.responseText);
+                errorMsg += response.error || error;
+            } catch (e) {
+                errorMsg += error || 'Unknown error';
+            }
+            showAlert('danger', errorMsg);
+        }
+    });
+}

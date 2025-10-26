@@ -22,36 +22,13 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
+                    {% for item in menu_items %}
                     <li class="nav-item">
-                        <a class="nav-link" href="/">
-                            <i class="fas fa-home"></i> Dashboard
+                        <a class="nav-link" href="{{ item.url }}">
+                            <i class="fas fa-{{ item.icon }}"></i> {{ item.label }}
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/deploy">
-                            <i class="fas fa-rocket"></i> Deploy Config
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/monitor">
-                            <i class="fas fa-chart-line"></i> Monitor Jobs
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/templates">
-                            <i class="fas fa-file-code"></i> Config Templates
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/service-stacks">
-                            <i class="fas fa-layer-group"></i> Service Stacks
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/devices">
-                            <i class="fas fa-server"></i> Devices
-                        </a>
-                    </li>
+                    {% endfor %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-cog"></i> Settings
@@ -95,21 +72,24 @@
     <script src="{{ url_for('static', filename='js/timezone-utils.js') }}"></script>
     <script>
         let systemTimezone = 'UTC';
+        let timezoneLoaded = false;
 
-        // Fetch system timezone from settings
-        function loadSystemTimezone() {
-            $.ajax({
-                url: '/api/settings',
-                method: 'GET',
-                success: function(response) {
-                    if (response.success && response.settings.system_timezone) {
-                        systemTimezone = response.settings.system_timezone;
-                    }
-                },
-                error: function() {
-                    systemTimezone = 'UTC';
+        // Load system timezone asynchronously
+        async function loadSystemTimezone() {
+            try {
+                const response = await $.ajax({
+                    url: '/api/settings',
+                    method: 'GET'
+                });
+                if (response.success && response.settings.system_timezone) {
+                    systemTimezone = response.settings.system_timezone;
+                    console.log('System timezone loaded:', systemTimezone);
                 }
-            });
+            } catch (error) {
+                systemTimezone = 'UTC';
+                console.log('Failed to load system timezone, using UTC');
+            }
+            timezoneLoaded = true;
         }
 
         // Update system time tooltip every second
@@ -153,30 +133,18 @@
             $container.attr('title', 'Server Time: ' + timeString);
         }
 
-        // Load timezone IMMEDIATELY (synchronously) before anything else
-        $.ajax({
-            url: '/api/settings',
-            method: 'GET',
-            async: false,  // Synchronous to ensure it loads first
-            success: function(response) {
-                if (response.success && response.settings.system_timezone) {
-                    systemTimezone = response.settings.system_timezone;
-                    console.log('System timezone loaded:', systemTimezone);
-                }
-            },
-            error: function() {
-                systemTimezone = 'UTC';
-                console.log('Failed to load system timezone, using UTC');
-            }
-        });
+        // Initialize on page load
+        $(document).ready(async function() {
+            // Load timezone first
+            await loadSystemTimezone();
 
-        $(document).ready(function() {
             // Initialize Bootstrap tooltips
             const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
             tooltipTriggerList.map(function (tooltipTriggerEl) {
                 return new bootstrap.Tooltip(tooltipTriggerEl);
             });
 
+            // Start updating time
             updateSystemTime();
             setInterval(updateSystemTime, 1000);
         });

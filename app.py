@@ -117,6 +117,21 @@ def login_required(f):
 create_default_user()
 
 
+# Template context processor to inject menu items
+@app.context_processor
+def inject_menu_items():
+    """Inject menu items into all templates"""
+    try:
+        if 'username' in session:  # Only load menu for logged-in users
+            menu_items = db.get_menu_items()
+            # Filter only visible items
+            menu_items = [item for item in menu_items if item.get('visible', 1)]
+            return {'menu_items': menu_items}
+    except Exception as e:
+        log.error(f"Error loading menu items: {e}")
+    return {'menu_items': []}
+
+
 # Device list cache
 device_cache = {
     'devices': None,
@@ -199,7 +214,12 @@ def save_settings(settings):
         # Convert boolean to string for storage
         if isinstance(value, bool):
             value = str(value).lower()
-        db.set_setting(key, str(value))
+        # Convert lists/dicts to JSON for storage
+        elif isinstance(value, (list, dict)):
+            value = json.dumps(value)
+        else:
+            value = str(value)
+        db.set_setting(key, value)
     log.info(f"Saved settings to database")
     return True
 
@@ -212,13 +232,28 @@ def get_settings():
         'netstacker_api_key': '',
         'netbox_url': '',
         'netbox_token': '',
-        'verify_ssl': False
+        'verify_ssl': False,
+        'netbox_filters': [],
+        'cache_ttl': 300
     }
 
     # Load from database
     try:
         stored_settings = db.get_all_settings()
         if stored_settings:
+            # Parse JSON fields back to lists/dicts
+            for key, value in stored_settings.items():
+                if key in ['netbox_filters'] and isinstance(value, str):
+                    try:
+                        stored_settings[key] = json.loads(value)
+                    except (json.JSONDecodeError, TypeError):
+                        stored_settings[key] = []
+                elif key == 'cache_ttl' and isinstance(value, str):
+                    try:
+                        stored_settings[key] = int(value)
+                    except (ValueError, TypeError):
+                        stored_settings[key] = 300
+
             settings.update(stored_settings)
             log.info(f"Loaded settings from database")
         else:
@@ -844,6 +879,20 @@ def devices():
     return render_template('devices.html')
 
 
+@app.route('/network-map')
+@login_required
+def network_map():
+    """Network map visualization page"""
+    return render_template('network-map.html')
+
+
+@app.route('/mop')
+@login_required
+def mop():
+    """Method of Procedures (MOP) page"""
+    return render_template('mop.html')
+
+
 @app.route('/workers')
 @login_required
 def workers():
@@ -882,6 +931,8 @@ def get_settings_api():
             'netbox_url': settings.get('netbox_url'),
             'netbox_token': '****' if settings.get('netbox_token') else '',  # Masked
             'verify_ssl': settings.get('verify_ssl', False),
+            'netbox_filters': settings.get('netbox_filters', []),
+            'cache_ttl': settings.get('cache_ttl', 300),
             'system_timezone': system_tz  # Return timezone from environment
         }
         return jsonify({'success': True, 'settings': safe_settings})
@@ -916,12 +967,15 @@ def save_settings_api():
             'netbox_url': data.get('netbox_url'),
             'netbox_token': data.get('netbox_token'),
             'verify_ssl': data.get('verify_ssl', False),
+            'netbox_filters': data.get('netbox_filters', []),
+            'cache_ttl': data.get('cache_ttl', 300),
             'default_username': data.get('default_username', ''),
             'default_password': data.get('default_password', ''),
             'system_timezone': data.get('system_timezone', 'UTC')
         }
 
         log.info(f"[SETTINGS] Saving default_username: {settings_to_save['default_username']}")
+        log.info(f"[SETTINGS] Saving netbox_filters: {settings_to_save['netbox_filters']}")
 
         # Save to database
         save_settings(settings_to_save)
@@ -950,6 +1004,41 @@ def api_docs():
         return redirect(f'{NETSTACKER_API_URL}/', code=302)
     else:
         return jsonify({'error': 'Netstacker URL not configured. Please configure via /settings'}), 400
+
+
+# ============================================================================
+# Menu Items Endpoints
+# ============================================================================
+
+@app.route('/api/menu-items', methods=['GET'])
+@login_required
+def get_menu_items_api():
+    """Get all menu items"""
+    try:
+        menu_items = db.get_menu_items()
+        return jsonify({'success': True, 'menu_items': menu_items})
+    except Exception as e:
+        log.error(f"Error getting menu items: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/menu-items', methods=['POST'])
+@login_required
+def update_menu_items_api():
+    """Update menu items order and visibility"""
+    try:
+        data = request.json
+        menu_items = data.get('menu_items', [])
+
+        if not menu_items:
+            return jsonify({'success': False, 'error': 'No menu items provided'}), 400
+
+        db.update_menu_order(menu_items)
+        log.info("Menu items updated successfully")
+        return jsonify({'success': True, 'message': 'Menu items updated successfully'})
+    except Exception as e:
+        log.error(f"Error updating menu items: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ============================================================================
@@ -1386,6 +1475,131 @@ def delete_manual_device(device_name):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/network-topology', methods=['GET'])
+@login_required
+def get_network_topology():
+    """Get network topology data for visualization"""
+    try:
+        # Combine devices from NetBox and manual devices
+        all_devices = []
+        device_id = 0
+
+        # Get settings for NetBox
+        try:
+            settings = get_settings()
+            netbox_url = settings.get('netbox_url', '').strip()
+            netbox_token = settings.get('netbox_token', '').strip()
+            verify_ssl = settings.get('verify_ssl', False)
+        except Exception as e:
+            log.warning(f"Could not get settings: {e}")
+            netbox_url = ''
+            netbox_token = ''
+
+        # Get NetBox devices if configured
+        if netbox_url and netbox_token:
+            try:
+                netbox = get_netbox_client()
+                if netbox:
+                    netbox_devices = netbox.get_devices()
+                    if netbox_devices:
+                        for device in netbox_devices:
+                            device_id += 1
+                            all_devices.append({
+                                'id': f'netbox-{device_id}',
+                                'name': device.get('name', 'Unknown'),
+                                'type': device.get('device_type', {}).get('slug', 'unknown'),
+                                'source': 'netbox',
+                                'ip': device.get('primary_ip4', {}).get('address', '').split('/')[0] if device.get('primary_ip4') else None,
+                                'site': device.get('site', {}).get('name', 'Unknown') if device.get('site') else None
+                            })
+            except Exception as e:
+                log.warning(f"Could not fetch NetBox devices: {e}")
+
+        # Get manual devices
+        try:
+            manual_devices = db.get_all_manual_devices()
+            if manual_devices:
+                for device in manual_devices:
+                    device_id += 1
+                    all_devices.append({
+                        'id': f'manual-{device_id}',
+                        'name': device.get('name', 'Unknown'),
+                        'type': device.get('type', 'unknown'),
+                        'source': 'manual',
+                        'ip': device.get('host'),
+                        'port': device.get('port', 22)
+                    })
+        except Exception as e:
+            log.warning(f"Could not fetch manual devices: {e}")
+
+        log.info(f"Network topology loaded: {len(all_devices)} devices")
+
+        return jsonify({
+            'success': True,
+            'devices': all_devices,
+            'count': len(all_devices)
+        })
+    except Exception as e:
+        log.error(f"Error getting network topology: {e}")
+        import traceback
+        log.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/network-connections', methods=['POST'])
+@login_required
+def get_network_connections():
+    """Get network connections between devices from NetBox"""
+    try:
+        data = request.json
+        device_names = data.get('device_names', [])
+
+        if not device_names:
+            return jsonify({'success': True, 'connections': [], 'cached': False})
+
+        # Create cache key based on device names
+        cache_key = 'connections_' + json.dumps(sorted(device_names), sort_keys=True)
+
+        # Check cache
+        now = datetime.now().timestamp()
+        cache_entry = device_cache.get(cache_key, {})
+        if (cache_entry.get('connections') is not None and
+            cache_entry.get('timestamp') is not None and
+            (now - cache_entry['timestamp']) < device_cache.get('ttl', 300)):
+            log.info(f"Returning cached connections ({len(cache_entry['connections'])} connections)")
+            return jsonify({'success': True, 'connections': cache_entry['connections'], 'cached': True})
+
+        log.info(f"Fetching connections for {len(device_names)} devices")
+
+        # Get NetBox client
+        settings = get_settings()
+        netbox_url = settings.get('netbox_url', '').strip()
+        netbox_token = settings.get('netbox_token', '').strip()
+
+        if not netbox_url or not netbox_token:
+            log.warning("NetBox not configured")
+            return jsonify({'success': True, 'connections': [], 'cached': False})
+
+        # Fetch connections from NetBox
+        netbox_client = get_netbox_client()
+        connections = netbox_client.get_device_connections(device_names)
+
+        # Update cache
+        device_cache[cache_key] = {
+            'connections': connections,
+            'timestamp': now
+        }
+
+        log.info(f"Returning {len(connections)} connections (cached for future requests)")
+        return jsonify({'success': True, 'connections': connections, 'cached': False})
+
+    except Exception as e:
+        log.error(f"Error getting network connections: {e}")
+        import traceback
+        log.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/test-netbox', methods=['POST'])
 @login_required
 def test_netbox_connection():
@@ -1438,14 +1652,61 @@ def test_netbox_connection():
             # Get total count
             device_count = len(devices)
 
+            # Cache the devices for faster network map loading
+            try:
+                cache_key = json.dumps({'filters': filters}, sort_keys=True)
+                now = datetime.now().timestamp()
+
+                # Transform devices to match /api/devices format
+                formatted_devices = []
+                for device in devices:
+                    formatted_devices.append({
+                        'name': device.get('name'),
+                        'device_type': device.get('device_type'),
+                        'platform': device.get('platform'),
+                        'manufacturer': device.get('manufacturer'),
+                        'primary_ip': device.get('primary_ip'),
+                        'site': device.get('site'),
+                        'status': 'Active',
+                        'source': 'netbox'
+                    })
+
+                device_cache[cache_key] = {
+                    'devices': formatted_devices,
+                    'timestamp': now
+                }
+                log.info(f"Pre-cached {len(formatted_devices)} devices")
+
+                # Also fetch and cache connections
+                device_names = [d.get('name') for d in devices if d.get('name')]
+                if device_names:
+                    log.info(f"Pre-fetching connections for {len(device_names)} devices...")
+                    connections = test_client.get_device_connections(device_names)
+
+                    # Cache connections
+                    conn_cache_key = 'connections_' + json.dumps(sorted(device_names), sort_keys=True)
+                    device_cache[conn_cache_key] = {
+                        'connections': connections,
+                        'timestamp': now
+                    }
+                    log.info(f"Pre-cached {len(connections)} connections")
+                else:
+                    connections = []
+
+            except Exception as cache_error:
+                log.warning(f"Failed to pre-cache devices/connections: {cache_error}")
+                connections = []
+
             return jsonify({
                 'success': True,
                 'device_count': device_count,
+                'connection_count': len(connections) if 'connections' in locals() else 0,
                 'response_time': response_time,
-                'message': 'Successfully connected to Netbox',
+                'message': 'Successfully connected to Netbox and pre-cached data',
                 'api_url': test_url,
                 'verify_ssl': verify_ssl,
-                'has_token': bool(netbox_token)
+                'has_token': bool(netbox_token),
+                'cached': True
             })
         else:
             return jsonify({
@@ -4154,6 +4415,1328 @@ def create_scheduled_config_operation():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ==================== MOP (Method of Procedures) Endpoints ====================
+
+@app.route('/api/mop', methods=['GET'])
+@login_required
+def get_all_mops_api():
+    """Get all MOPs"""
+    try:
+        mops = db.get_all_mops()
+        return jsonify({'success': True, 'mops': mops})
+    except Exception as e:
+        log.error(f"Error getting MOPs: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop', methods=['POST'])
+@login_required
+def create_mop_api():
+    """Create a new MOP"""
+    try:
+        data = request.json
+        mop_id = str(uuid.uuid4())
+        name = data.get('name')
+        description = data.get('description', '')
+        devices = data.get('devices', [])
+
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        db.create_mop(mop_id, name, description, devices)
+        log.info(f"Created MOP: {mop_id} with devices: {devices}")
+        return jsonify({'success': True, 'mop_id': mop_id})
+
+    except Exception as e:
+        log.error(f"Error creating MOP: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>', methods=['GET'])
+@login_required
+def get_mop_api(mop_id):
+    """Get a specific MOP with its steps"""
+    try:
+        mop = db.get_mop(mop_id)
+        if not mop:
+            return jsonify({'success': False, 'error': 'MOP not found'}), 404
+
+        steps = db.get_mop_steps(mop_id)
+        mop['steps'] = steps
+
+        return jsonify({'success': True, 'mop': mop})
+    except Exception as e:
+        log.error(f"Error getting MOP: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>', methods=['PUT'])
+@login_required
+def update_mop_api(mop_id):
+    """Update a MOP"""
+    try:
+        data = request.json
+        name = data.get('name')
+        description = data.get('description')
+        devices = data.get('devices')
+
+        db.update_mop(mop_id, name=name, description=description, devices=devices)
+        log.info(f"Updated MOP: {mop_id}")
+        return jsonify({'success': True})
+
+    except Exception as e:
+        log.error(f"Error updating MOP: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>', methods=['DELETE'])
+@login_required
+def delete_mop_api(mop_id):
+    """Delete a MOP"""
+    try:
+        db.delete_mop(mop_id)
+        log.info(f"Deleted MOP: {mop_id}")
+        return jsonify({'success': True})
+
+    except Exception as e:
+        log.error(f"Error deleting MOP: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>/steps', methods=['GET'])
+@login_required
+def get_mop_steps_api(mop_id):
+    """Get all steps for a MOP"""
+    try:
+        steps = db.get_mop_steps(mop_id)
+        return jsonify({'success': True, 'steps': steps})
+    except Exception as e:
+        log.error(f"Error getting MOP steps: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>/steps', methods=['POST'])
+@login_required
+def create_mop_step_api(mop_id):
+    """Create a new step for a MOP"""
+    try:
+        data = request.json
+        step_id = str(uuid.uuid4())
+        step_order = data.get('step_order', 0)
+        step_type = data.get('step_type')  # 'getconfig', 'setconfig', 'template'
+        step_name = data.get('step_name')
+        devices = data.get('devices', [])
+        config = data.get('config', {})
+        enabled = data.get('enabled', 1)
+
+        if not step_type or not step_name:
+            return jsonify({'success': False, 'error': 'step_type and step_name are required'}), 400
+
+        db.create_mop_step(step_id, mop_id, step_order, step_type, step_name, devices, config, enabled)
+        log.info(f"Created MOP step: {step_id} for MOP: {mop_id}")
+        return jsonify({'success': True, 'step_id': step_id})
+
+    except Exception as e:
+        log.error(f"Error creating MOP step: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>/steps/<step_id>', methods=['PUT'])
+@login_required
+def update_mop_step_api(mop_id, step_id):
+    """Update a MOP step"""
+    try:
+        data = request.json
+        step_order = data.get('step_order')
+        step_type = data.get('step_type')
+        step_name = data.get('step_name')
+        devices = data.get('devices')
+        config = data.get('config')
+        enabled = data.get('enabled')
+
+        db.update_mop_step(step_id, step_order=step_order, step_type=step_type,
+                          step_name=step_name, devices=devices, config=config, enabled=enabled)
+        log.info(f"Updated MOP step: {step_id}")
+        return jsonify({'success': True})
+
+    except Exception as e:
+        log.error(f"Error updating MOP step: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>/steps/<step_id>', methods=['DELETE'])
+@login_required
+def delete_mop_step_api(mop_id, step_id):
+    """Delete a MOP step"""
+    try:
+        db.delete_mop_step(step_id)
+        log.info(f"Deleted MOP step: {step_id}")
+        return jsonify({'success': True})
+
+    except Exception as e:
+        log.error(f"Error deleting MOP step: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def substitute_step_variables(step, variables, mop_context):
+    """Substitute {{variable}} patterns in step with runtime values
+
+    Supports dot notation for device-centric access:
+    - {{mop.devices.router01.site}}
+    - {{mop.devices.router01.step0.output}}
+    - {{device_name}} (runtime variables)
+    """
+    import re
+    import copy
+
+    # Create a deep copy to avoid modifying original
+    step = copy.deepcopy(step)
+
+    # Function to replace variables in a string
+    def replace_vars(text):
+        if not isinstance(text, str):
+            return text
+
+        # Pattern to match {{anything}}
+        pattern = r'\{\{([^}]+)\}\}'
+
+        def replacer(match):
+            var_path = match.group(1).strip()
+
+            # Handle mop.devices.XXX.YYY paths
+            if var_path.startswith('mop.devices.'):
+                parts = var_path.split('.')
+                # parts = ['mop', 'devices', 'router01', 'site'] or ['mop', 'devices', 'router01', 'step0', 'output']
+                if len(parts) >= 3:
+                    device_name = parts[2]  # router01
+                    if device_name in mop_context['devices']:
+                        device_data = mop_context['devices'][device_name]
+
+                        if len(parts) == 3:
+                            # Just device name: {{mop.devices.router01}}
+                            return device_name
+                        elif len(parts) == 4:
+                            # Device attribute: {{mop.devices.router01.site}}
+                            attr = parts[3]
+                            return str(device_data.get(attr, ''))
+                        elif len(parts) == 5:
+                            # Step result: {{mop.devices.router01.step0.output}}
+                            step_ref = parts[3]  # step0
+                            attr = parts[4]      # output
+                            return str(device_data.get(step_ref, {}).get(attr, ''))
+
+            # Handle simple runtime variables
+            elif var_path in variables:
+                var_value = variables[var_path]
+                if isinstance(var_value, list):
+                    return var_value  # Will be handled by caller
+                return str(var_value)
+
+            # Variable not found, return original
+            return match.group(0)
+
+        result = re.sub(pattern, replacer, text)
+        return result
+
+    # Substitute in devices array
+    if step.get('devices') and isinstance(step['devices'], list):
+        new_devices = []
+        for device in step['devices']:
+            replaced = replace_vars(device)
+            if isinstance(replaced, list):
+                # Device variable expanded to list of devices
+                new_devices.extend(replaced)
+            else:
+                new_devices.append(replaced)
+        step['devices'] = new_devices
+
+    # Substitute in config fields recursively
+    if step.get('config'):
+        def substitute_dict(obj):
+            if isinstance(obj, dict):
+                return {k: substitute_dict(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [substitute_dict(item) for item in obj]
+            elif isinstance(obj, str):
+                return replace_vars(obj)
+            else:
+                return obj
+
+        step['config'] = substitute_dict(step['config'])
+
+    return step
+
+@app.route('/api/mop/<mop_id>/execute', methods=['POST'])
+@login_required
+def execute_mop_api(mop_id):
+    """Execute a MOP - run all steps sequentially in background"""
+    try:
+        # Get variables from request body
+        request_data = request.get_json() or {}
+        variables = request_data.get('variables', {})
+
+        log.info(f"Executing MOP {mop_id} with variables: {variables}")
+
+        # Get MOP and steps
+        mop = db.get_mop(mop_id)
+        if not mop:
+            return jsonify({'success': False, 'error': 'MOP not found'}), 404
+
+        steps = db.get_mop_steps(mop_id)
+        if not steps:
+            return jsonify({'success': False, 'error': 'No steps found for this MOP'}), 400
+
+        # Create execution record
+        execution_id = str(uuid.uuid4())
+        db.create_mop_execution(execution_id, mop_id)
+
+        # Start execution in background thread
+        import threading
+        thread = threading.Thread(
+            target=execute_mop_background,
+            args=(execution_id, mop_id, mop, steps, variables)
+        )
+        thread.daemon = True
+        thread.start()
+
+        # Return execution_id immediately so client can poll for progress
+        return jsonify({
+            'success': True,
+            'execution_id': execution_id,
+            'message': 'MOP execution started'
+        })
+
+    except Exception as e:
+        log.error(f"Error starting MOP execution: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def execute_mop_background(execution_id, mop_id, mop, steps, variables):
+    """Background worker to execute MOP steps"""
+    log.info(f"=== MOP BACKGROUND THREAD STARTED: {execution_id} ===")
+    try:
+        log.info(f"Background execution started for {execution_id}")
+
+        # Build device-centric MOP context
+        mop_context = {
+            'devices': {}
+        }
+
+        # Get device metadata for all MOP devices from cache
+        all_devices_list = []
+
+        # Collect all devices from all cache entries
+        for cache_key, cache_entry in device_cache.items():
+            if cache_key == 'ttl':
+                continue
+            if cache_entry and isinstance(cache_entry, dict) and 'devices' in cache_entry:
+                cached_devices = cache_entry.get('devices', [])
+                if cached_devices:
+                    all_devices_list.extend(cached_devices)
+
+        # If cache is empty, only use manual devices
+        if not all_devices_list:
+            manual_devices = db.get_all_manual_devices()
+            for device in manual_devices:
+                all_devices_list.append({
+                    'name': device['device_name'],
+                    'device_type': device['device_type'],
+                    'primary_ip': device['host'],
+                    'site': 'Manual',
+                    'status': 'Active',
+                    'device_role': '',
+                    'platform': '',
+                    'source': 'manual'
+                })
+
+        # Build context for each MOP device
+        for device_name in mop.get('devices', []):
+            device_info = next((dev for dev in all_devices_list if dev['name'] == device_name), None)
+
+            if device_info:
+                # Extract IP address (remove subnet mask if present)
+                primary_ip = device_info.get('primary_ip', '')
+                if primary_ip and '/' in primary_ip:
+                    ip_address = primary_ip.split('/')[0]
+                else:
+                    ip_address = primary_ip or device_name
+
+                mop_context['devices'][device_name] = {
+                    'name': device_name,
+                    'site': device_info.get('site', ''),
+                    'device_type': device_info.get('device_type', ''),
+                    'device_role': device_info.get('device_role', ''),
+                    'ip_address': ip_address,
+                    'platform': device_info.get('platform', ''),
+                    'status': device_info.get('status', ''),
+                }
+                log.info(f"Built MOP context for {device_name}: ip={ip_address}, platform={device_info.get('platform')}")
+            else:
+                # Device not found in inventory, use device name as IP
+                log.warning(f"Device {device_name} not found in inventory, will use device name as IP")
+                mop_context['devices'][device_name] = {
+                    'name': device_name,
+                    'ip_address': device_name,  # Fallback to using device name as IP
+                }
+
+        # Execute steps sequentially
+        results = []
+
+        for step_index, step in enumerate(steps):
+            # Substitute variables in step before execution
+            step = substitute_step_variables(step, variables, mop_context)
+
+            if not step['enabled']:
+                results.append({
+                    'step_id': step['step_id'],
+                    'step_name': step['step_name'],
+                    'status': 'skipped',
+                    'message': 'Step is disabled'
+                })
+                continue
+
+            log.info(f"Executing MOP step {step_index} (order {step['step_order']}): {step['step_name']}")
+
+            # Update execution status - use step_index not step_order
+            db.update_mop_execution(execution_id, current_step=step_index)
+
+            try:
+                # Execute the step based on its type - pass MOP context
+                if step['step_type'] == 'getconfig':
+                    result = execute_getconfig_step(step, mop_context, step_index)
+                elif step['step_type'] == 'setconfig':
+                    result = execute_setconfig_step(step, mop_context, step_index)
+                elif step['step_type'] == 'template':
+                    result = execute_template_step(step, mop_context, step_index)
+                elif step['step_type'] == 'deploy_stack':
+                    result = execute_deploy_stack_step(step, mop_context, step_index)
+                elif step['step_type'] == 'api':
+                    result = execute_api_step(step, mop_context, step_index)
+                elif step['step_type'] == 'code':
+                    result = execute_code_step(step, mop_context, step_index)
+                else:
+                    result = {
+                        'status': 'error',
+                        'message': f"Unknown step type: {step['step_type']}"
+                    }
+
+                # Build step result object
+                step_result = {
+                    'step_id': step['step_id'],
+                    'step_name': step['step_name'],
+                    'step_type': step['step_type'],
+                    'step_order': step['step_order'],
+                    'status': result.get('status', 'unknown'),
+                    'data': result.get('data'),
+                    'task_id': result.get('task_id'),
+                    'error': result.get('error')
+                }
+
+                results.append(step_result)
+
+                # Store results in device-centric structure: mop.devices[device_name].step0.output
+                step_ref = f"step{step['step_order']}"
+                if result.get('data') and isinstance(result.get('data'), list):
+                    for device_result in result.get('data'):
+                        device_name = device_result.get('device')
+                        if device_name and device_name in mop_context['devices']:
+                            # Add step results to device
+                            if step_ref not in mop_context['devices'][device_name]:
+                                mop_context['devices'][device_name][step_ref] = {}
+
+                            mop_context['devices'][device_name][step_ref] = {
+                                'output': device_result.get('output'),
+                                'status': device_result.get('task_status'),
+                                'task_id': device_result.get('task_id')
+                            }
+
+                log.info(f"Stored step {step_ref} results for devices")
+
+            except Exception as step_error:
+                log.error(f"Error executing step {step['step_id']}: {step_error}")
+                results.append({
+                    'step_id': step['step_id'],
+                    'step_name': step['step_name'],
+                    'status': 'error',
+                    'error': str(step_error)
+                })
+                # Continue with next step even if this one fails
+                continue
+
+        # Update execution status to completed with results and context
+        db.update_mop_execution(
+            execution_id,
+            status='completed',
+            results=results,
+            context=mop_context  # Store device-centric context
+        )
+
+        log.info(f"Completed MOP execution: {execution_id}")
+
+    except Exception as e:
+        log.error(f"Error in background MOP execution: {e}", exc_info=True)
+        # Update execution status to failed
+        db.update_mop_execution(execution_id, status='failed', error=str(e))
+
+@app.route('/api/mop/executions/running', methods=['GET'])
+@login_required
+def get_all_running_mop_executions_api():
+    """Get all currently running MOP executions across all MOPs"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT e.execution_id, e.mop_id, e.status, e.current_step, e.started_at, m.name as mop_name
+                FROM mop_executions e
+                JOIN mops m ON e.mop_id = m.mop_id
+                WHERE e.status = 'running'
+                ORDER BY e.started_at DESC
+            """)
+            executions = cursor.fetchall()
+            # Convert Row objects to dictionaries
+            executions_list = [dict(row) for row in executions]
+            return jsonify({'success': True, 'executions': executions_list})
+    except Exception as e:
+        log.error(f"Error getting running MOP executions: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/executions/<execution_id>/cancel', methods=['POST'])
+@login_required
+def cancel_mop_execution_api(execution_id):
+    """Cancel a running MOP execution"""
+    try:
+        from datetime import datetime
+        db.update_mop_execution(
+            execution_id,
+            status='cancelled',
+            error='Cancelled by user',
+            completed_at=datetime.utcnow()
+        )
+        log.info(f"MOP execution {execution_id} cancelled by user")
+        return jsonify({'success': True, 'message': 'MOP execution cancelled'})
+    except Exception as e:
+        log.error(f"Error cancelling MOP execution: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>/executions', methods=['GET'])
+@login_required
+def get_mop_executions_api(mop_id):
+    """Get execution history for a MOP"""
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        executions = db.get_mop_executions(mop_id, limit=limit)
+        return jsonify({'success': True, 'executions': executions})
+    except Exception as e:
+        log.error(f"Error getting MOP executions: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/executions/<execution_id>', methods=['GET'])
+@login_required
+def get_mop_execution_api(execution_id):
+    """Get a specific execution"""
+    try:
+        execution = db.get_mop_execution(execution_id)
+        if not execution:
+            return jsonify({'success': False, 'error': 'Execution not found'}), 404
+        return jsonify({'success': True, 'execution': execution})
+    except Exception as e:
+        log.error(f"Error getting MOP execution: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mop/<mop_id>/current-execution', methods=['GET'])
+@login_required
+def get_current_mop_execution_api(mop_id):
+    """Get the current running execution for a MOP (if any)"""
+    try:
+        # Get recent executions for this MOP
+        executions = db.get_mop_executions(mop_id, limit=5)
+
+        # Find the first one that's still running
+        running_execution = next((e for e in executions if e.get('status') == 'running'), None)
+
+        if running_execution:
+            return jsonify({'success': True, 'execution': running_execution, 'has_running': True})
+        else:
+            return jsonify({'success': True, 'has_running': False})
+    except Exception as e:
+        log.error(f"Error getting current MOP execution: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/task/<task_id>/result', methods=['GET'])
+@login_required
+def get_task_result_api(task_id):
+    """Get task result from netstacker"""
+    try:
+        response = requests.get(
+            f'{NETSTACKER_API_URL}/task/{task_id}',
+            headers=NETSTACKER_HEADERS,
+            timeout=10
+        )
+        response.raise_for_status()
+        return jsonify(response.json())
+    except Exception as e:
+        log.error(f"Error getting task result: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# Helper functions for executing different step types
+
+def execute_getconfig_step(step, context=None, step_index=0):
+    """Execute a getconfig step - reuses existing deploy_getconfig function
+
+    Args:
+        step: Step configuration dict
+        context: Dict of previous step results for reference
+        step_index: Index of the step in the MOP (0-based)
+    """
+    try:
+        config = step['config']
+        devices = step['devices']
+        command = config.get('command', 'show running-config')
+
+        # Get default credentials
+        settings = db.get_all_settings()
+        default_username = settings.get('default_username', '')
+        default_password = settings.get('default_password', '')
+
+        # Use provided credentials or defaults
+        username = config.get('username') or default_username
+        password = config.get('password') or default_password
+
+        if not username or not password:
+            return {'status': 'error', 'error': 'No credentials provided'}
+
+        library = config.get('library', 'netmiko')
+        results = []
+
+        # Step 1: Submit all tasks in parallel (non-blocking)
+        task_submissions = []  # List of (device_name, task_id) tuples
+
+        log.info(f"Submitting tasks for {len(devices)} devices in parallel")
+
+        for device_name in devices:
+            try:
+                # Get device info from MOP context (pre-loaded and cached)
+                device_info = None
+                if context and 'devices' in context and device_name in context['devices']:
+                    device_info = context['devices'][device_name]
+                    log.info(f"Using cached device info for {device_name} from MOP context")
+
+                if not device_info:
+                    log.error(f"Device {device_name} not found in MOP context")
+                    results.append({
+                        'device': device_name,
+                        'status': 'error',
+                        'error': 'Device not found in MOP context'
+                    })
+                    continue
+
+                # Get device connection parameters from cached context
+                nornir_platform = device_info.get('platform')
+                ip_address = device_info.get('ip_address', device_name)
+
+                log.info(f"Using device {device_name}: ip={ip_address}, platform={nornir_platform}")
+
+                if not ip_address:
+                    log.error(f"No IP address for device {device_name}, device_info={device_info}")
+                    results.append({
+                        'device': device_name,
+                        'status': 'error',
+                        'error': 'No IP address available for device'
+                    })
+                    continue
+
+                # Build payload in the format expected by deploy_getconfig
+                payload = {
+                    'connection_args': {
+                        'device_type': nornir_platform or 'cisco_ios',
+                        'host': ip_address,
+                        'username': username,
+                        'password': password,
+                        'timeout': 10
+                    },
+                    'command': command,
+                    'queue_strategy': 'pinned'
+                }
+
+                # Add cache if enabled
+                if config.get('enable_cache'):
+                    payload['cache'] = {
+                        'enabled': True,
+                        'ttl': 300
+                    }
+
+                # Add parsing options
+                if config.get('use_textfsm') or config.get('use_ttp'):
+                    payload['args'] = {}
+                    if config.get('use_textfsm'):
+                        payload['args']['use_textfsm'] = True
+                    if config.get('use_ttp'):
+                        payload['args']['use_ttp'] = True
+                        if config.get('ttp_template'):
+                            payload['args']['ttp_template'] = config['ttp_template']
+
+                # Call the existing deploy_getconfig endpoint logic
+                endpoint = f'/getconfig/{library}' if library != 'auto' else '/getconfig'
+                log.info(f"Sending getconfig for {device_name} to {NETSTACKER_API_URL}{endpoint}")
+
+                response = requests.post(
+                    f'{NETSTACKER_API_URL}{endpoint}',
+                    json=payload,
+                    headers=NETSTACKER_HEADERS,
+                    timeout=30
+                )
+
+                response.raise_for_status()
+                result = response.json()
+
+                task_id = result.get('data', {}).get('task_id')
+
+                # Save task ID to history
+                if task_id:
+                    save_task_id(task_id, device_name=f"mop:STEP{step_index+1}-{step.get('step_name', 'unknown')}-:{device_name}")
+                    task_submissions.append((device_name, task_id, device_info))
+                    log.info(f"Submitted task {task_id} for {device_name}")
+                else:
+                    results.append({
+                        'device': device_name,
+                        'status': 'error',
+                        'error': 'No task_id returned from Netstacker'
+                    })
+
+            except Exception as device_error:
+                log.error(f"Error submitting task for {device_name}: {device_error}")
+                results.append({
+                    'device': device_name,
+                    'status': 'error',
+                    'error': str(device_error)
+                })
+
+        # Step 2: Poll all submitted tasks in parallel
+        log.info(f"Polling {len(task_submissions)} tasks in parallel")
+
+        import time
+        import sys
+        max_wait = 300  # 5 minutes max
+        poll_interval = 2  # Poll every 2 seconds
+        start_time = time.time()
+
+        # Track completion status for each task
+        task_states = {task_id: {'status': 'pending', 'output': None, 'device': device_name, 'info': device_info}
+                      for device_name, task_id, device_info in task_submissions}
+
+        while time.time() - start_time < max_wait:
+            all_complete = True
+
+            for task_id, state in task_states.items():
+                if state['status'] in ['SUCCESS', 'FAILED', 'FAILURE', 'FINISHED', 'TIMEOUT', 'ERROR']:
+                    continue  # Already in final state
+
+                all_complete = False
+
+                try:
+                    print(f"[MOP] Polling {task_id} for {state['device']}", file=sys.stderr, flush=True)
+                    task_response = requests.get(
+                        f'{NETSTACKER_API_URL}/task/{task_id}',
+                        headers=NETSTACKER_HEADERS,
+                        timeout=10
+                    )
+                    print(f"[MOP] Got HTTP {task_response.status_code}", file=sys.stderr, flush=True)
+
+                    if task_response.status_code == 200:
+                        task_data = task_response.json().get('data', {})
+                        task_output = task_data.get('task_result')
+                        task_status = task_data.get('task_status', 'pending')
+                        print(f"[MOP] {state['device']} task_status={task_status}", file=sys.stderr, flush=True)
+
+                        # Check for final states (case-insensitive to handle 'failed', 'FAILED', 'finished', 'FINISHED', etc.)
+                        task_status_upper = task_status.upper() if task_status else 'PENDING'
+                        if task_status_upper in ['SUCCESS', 'FAILED', 'FAILURE', 'FINISHED']:
+                            log.info(f"Task {task_id} for {state['device']} completed with status: {task_status}")
+                            print(f"[MOP] {state['device']} COMPLETE: {task_status}", file=sys.stderr, flush=True)
+                            state['status'] = task_status_upper
+                            state['output'] = task_output
+                    else:
+                        log.warning(f"Failed to get task {task_id} status: HTTP {task_response.status_code}")
+
+                except Exception as e:
+                    print(f"[MOP] EXCEPTION polling {task_id}: {e}", file=sys.stderr, flush=True)
+                    log.error(f"Error polling task {task_id}: {e}", exc_info=True)
+                    state['status'] = 'ERROR'
+                    state['error'] = str(e)
+
+            if all_complete:
+                log.info("All tasks completed")
+                break
+
+            print(f"[MOP] Sleeping {poll_interval}s...", file=sys.stderr, flush=True)
+            time.sleep(poll_interval)
+
+        # Build results from task states
+        for task_id, state in task_states.items():
+            if state['status'] not in ['SUCCESS', 'FAILED', 'FAILURE', 'FINISHED', 'ERROR']:
+                log.error(f"Task {task_id} did not complete within {max_wait}s, final status: {state['status']}")
+                state['status'] = 'TIMEOUT'
+
+            results.append({
+                'device': state['device'],
+                'status': 'success' if state['status'] in ['SUCCESS', 'FINISHED'] else 'error',
+                'task_id': task_id,
+                'task_status': state['status'],
+                'output': state.get('output'),
+                'error': state.get('error')
+            })
+
+        # Return combined results
+        task_ids = [r['task_id'] for r in results if r.get('task_id')]
+        return {
+            'status': 'success' if task_ids else 'error',
+            'data': results,
+            'task_id': task_ids[0] if task_ids else None  # Return first task ID for simplicity
+        }
+
+    except Exception as e:
+        log.error(f"Error executing getconfig step: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+def execute_setconfig_step(step, context=None, step_index=0):
+    """Execute a setconfig step - reuses existing deploy_setconfig logic
+
+    Args:
+        step: Step configuration dict
+        context: Dict of previous step results for reference
+        step_index: Index of the step in the MOP (0-based)
+    """
+    try:
+        config = step['config']
+        devices = step['devices']
+        commands = config.get('commands', '').split('\n')
+
+        # Get default credentials
+        settings = db.get_all_settings()
+        default_username = settings.get('default_username', '')
+        default_password = settings.get('default_password', '')
+
+        # Use provided credentials or defaults
+        username = config.get('username') or default_username
+        password = config.get('password') or default_password
+
+        if not username or not password:
+            return {'status': 'error', 'error': 'No credentials provided'}
+
+        library = config.get('library', 'netmiko')
+        results = []
+
+        # Execute for each device
+        for device_name in devices:
+            try:
+                # Get device connection info
+                netbox_client = get_netbox_client()
+                device = netbox_client.get_device_by_name(device_name)
+                if not device:
+                    results.append({
+                        'device': device_name,
+                        'status': 'error',
+                        'error': 'Device not found'
+                    })
+                    continue
+
+                # Get device type
+                nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
+                if not nornir_platform:
+                    platform = device.get('platform', {})
+                    device_type_info = device.get('device_type', {})
+                    if isinstance(device_type_info, dict):
+                        manufacturer = device_type_info.get('manufacturer', {})
+                    else:
+                        manufacturer = {}
+                    platform_name = platform.get('name') if isinstance(platform, dict) else None
+                    manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
+                    from netbox_client import get_netmiko_device_type
+                    nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
+
+                # Get IP address
+                ip_address = device.get('primary_ip4', {}).get('address', '').split('/')[0] if device.get('primary_ip4') else device_name
+
+                # Build payload
+                payload = {
+                    'connection_args': {
+                        'device_type': nornir_platform or 'cisco_ios',
+                        'host': ip_address,
+                        'username': username,
+                        'password': password,
+                        'timeout': 10
+                    },
+                    'commands': commands,
+                    'queue_strategy': 'pinned',
+                    'dry_run': config.get('dry_run', False)
+                }
+
+                # Add pre/post checks if provided
+                if config.get('pre_check_command'):
+                    payload['pre_check'] = {
+                        'command': config['pre_check_command'],
+                        'match': config.get('pre_check_match', '')
+                    }
+                if config.get('post_check_command'):
+                    payload['post_check'] = {
+                        'command': config['post_check_command'],
+                        'match': config.get('post_check_match', '')
+                    }
+
+                # Call netstacker
+                endpoint = f'/setconfig/{library}' if library != 'auto' else '/setconfig'
+                log.info(f"Sending setconfig for {device_name} to {NETSTACKER_API_URL}{endpoint}")
+
+                response = requests.post(
+                    f'{NETSTACKER_API_URL}{endpoint}',
+                    json=payload,
+                    headers=NETSTACKER_HEADERS,
+                    timeout=30
+                )
+
+                response.raise_for_status()
+                result = response.json()
+
+                task_id = result.get('data', {}).get('task_id')
+
+                # Save task ID to history
+                if task_id:
+                    save_task_id(task_id, device_name=f"mop:STEP{step_index+1}-{step.get('step_name', 'unknown')}-:{device_name}")
+
+                results.append({
+                    'device': device_name,
+                    'status': result.get('status', 'success'),
+                    'task_id': task_id
+                })
+
+            except Exception as device_error:
+                log.error(f"Error executing setconfig for {device_name}: {device_error}")
+                results.append({
+                    'device': device_name,
+                    'status': 'error',
+                    'error': str(device_error)
+                })
+
+        # Return combined results
+        task_ids = [r['task_id'] for r in results if r.get('task_id')]
+        return {
+            'status': 'success' if task_ids else 'error',
+            'data': results,
+            'task_id': task_ids[0] if task_ids else None
+        }
+
+    except Exception as e:
+        log.error(f"Error executing setconfig step: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+def execute_template_step(step, context=None, step_index=0):
+    """Execute a template deployment step
+
+    Args:
+        step: Step configuration dict
+        context: Dict of previous step results for reference
+        step_index: Index of the step in the MOP (0-based)
+    """
+    try:
+        config = step['config']
+        devices = step['devices']
+
+        # Get template content
+        template_name = config.get('template')
+        if not template_name:
+            return {'status': 'error', 'error': 'Template name is required'}
+
+        # Read template file
+        template_path = os.path.join(TEMPLATES_DIR, f"{template_name}.j2")
+        if not os.path.exists(template_path):
+            return {'status': 'error', 'error': f'Template not found: {template_name}'}
+
+        with open(template_path, 'r') as f:
+            template_content = f.read()
+
+        payload = {
+            'hosts': devices,
+            'template': template_content,
+            'variables': config.get('variables', {}),
+            'dry_run': config.get('dry_run', False)
+        }
+
+        # Add credentials if provided
+        if config.get('username'):
+            payload['username'] = config['username']
+        if config.get('password'):
+            payload['password'] = config['password']
+
+        # Add pre/post checks if provided
+        if config.get('pre_check_command'):
+            payload['pre_check'] = {
+                'command': config['pre_check_command'],
+                'match': config.get('pre_check_match', '')
+            }
+        if config.get('post_check_command'):
+            payload['post_check'] = {
+                'command': config['post_check_command'],
+                'match': config.get('post_check_match', '')
+            }
+
+        library = config.get('library', 'netmiko')
+        endpoint = f'/setconfig/{library}' if library != 'auto' else '/setconfig'
+
+        log.info(f"Sending template deployment request to {NETSTACKER_API_URL}{endpoint}")
+        response = requests.post(
+            f'{NETSTACKER_API_URL}{endpoint}',
+            json=payload,
+            headers=NETSTACKER_HEADERS,
+            timeout=30
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        task_id = result.get('data', {}).get('task_id')
+
+        # Save task ID to history
+        if task_id:
+            save_task_id(task_id, device_name=f"mop:STEP{step_index+1}-{step.get('step_name', 'unknown')}-:template")
+
+        return {
+            'status': result.get('status', 'success'),
+            'data': result.get('data'),
+            'task_id': task_id
+        }
+
+    except Exception as e:
+        log.error(f"Error executing template step: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+def execute_api_step(step, mop_context=None, step_index=0):
+    """Execute an API call step
+
+    Args:
+        step: Step configuration dict (already has variables substituted)
+        mop_context: Device-centric MOP context
+        step_index: Index of the step in the MOP (0-based)
+    """
+    try:
+        config = step['config']
+        resource_id = config.get('resource_id')
+        endpoint = config.get('endpoint', '')  # Already substituted
+        method = config.get('method', 'GET')
+        body = config.get('body', '')  # Already substituted
+
+        if not resource_id or not endpoint:
+            return {'status': 'error', 'error': 'API resource and endpoint are required'}
+
+        # Get the resource
+        resource = db.get_api_resource(resource_id)
+        if not resource:
+            return {'status': 'error', 'error': 'API resource not found'}
+
+        # Build full URL
+        base_url = resource['base_url'].rstrip('/')
+        clean_endpoint = endpoint if endpoint.startswith('/') else '/' + endpoint
+        url = base_url + clean_endpoint
+
+        # Build headers based on auth type
+        headers = {}
+        auth_type = resource.get('auth_type', 'none')
+
+        if auth_type == 'bearer':
+            headers['Authorization'] = f"Bearer {resource['auth_token']}"
+        elif auth_type == 'api_key':
+            headers['X-API-Key'] = resource['auth_token']
+        elif auth_type == 'basic':
+            import base64
+            credentials = f"{resource['auth_username']}:{resource['auth_password']}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            headers['Authorization'] = f"Basic {encoded}"
+
+        # Prepare request data
+        request_data = None
+        if body:
+            try:
+                request_data = json.loads(body)
+                headers['Content-Type'] = 'application/json'
+            except json.JSONDecodeError as e:
+                return {'status': 'error', 'error': f'Invalid JSON body: {str(e)}'}
+
+        # Make the API call
+        log.info(f"Executing API step: {method} {url}")
+        response = requests.request(
+            method,
+            url,
+            headers=headers,
+            json=request_data,
+            timeout=30
+        )
+
+        response.raise_for_status()
+        result_data = response.json() if response.content else {}
+
+        return {
+            'status': 'success',
+            'data': [{
+                'api': url,
+                'status': 'success',
+                'output': result_data,
+                'status_code': response.status_code
+            }]
+        }
+
+    except Exception as e:
+        log.error(f"Error executing API step: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+def execute_code_step(step, mop_context=None, step_index=0):
+    """Execute a code/script step for data processing
+
+    Args:
+        step: Step configuration dict
+        mop_context: Device-centric MOP context
+        step_index: Index of the step in the MOP (0-based)
+    """
+    try:
+        config = step['config']
+        script = config.get('script', '')
+
+        if not script:
+            return {'status': 'error', 'error': 'No script provided'}
+
+        # Create a safe execution environment
+        # Pass mop_context as 'mop' for simpler access
+        safe_globals = {
+            'mop': mop_context or {},
+            'json': json,
+            're': __import__('re'),
+            '__builtins__': {
+                'len': len,
+                'str': str,
+                'int': int,
+                'float': float,
+                'bool': bool,
+                'list': list,
+                'dict': dict,
+                'set': set,
+                'tuple': tuple,
+                'range': range,
+                'enumerate': enumerate,
+                'zip': zip,
+                'map': map,
+                'filter': filter,
+                'sorted': sorted,
+                'sum': sum,
+                'min': min,
+                'max': max,
+                'any': any,
+                'all': all,
+                'print': print,
+            }
+        }
+
+        log.info(f"Executing code step with {len(script)} characters of Python code")
+
+        # Execute the script
+        exec(script, safe_globals)
+
+        # Get the result - script should set 'result' variable or return value
+        result_output = safe_globals.get('result', {})
+
+        return {
+            'status': 'success',
+            'data': [{
+                'script': 'code_execution',
+                'status': 'success',
+                'output': result_output
+            }]
+        }
+
+    except Exception as e:
+        log.error(f"Error executing code step: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+
+def execute_deploy_stack_step(step, mop_context=None, step_index=0):
+    """Execute a deploy stack step - deploys a service stack
+
+    Args:
+        step: Step configuration dict
+        mop_context: Device-centric MOP context
+        step_index: Index of the step in the MOP (0-based)
+    """
+    try:
+        config = step['config']
+        stack_id = config.get('stack_id')
+
+        if not stack_id:
+            return {'status': 'error', 'error': 'Stack ID is required'}
+
+        # Get the stack
+        stack = get_service_stack(stack_id)
+        if not stack:
+            return {'status': 'error', 'error': f'Service stack not found: {stack_id}'}
+
+        log.info(f"Deploying service stack: {stack.get('name')} (ID: {stack_id})")
+
+        # Get default credentials from settings
+        settings = db.get_all_settings()
+        default_username = settings.get('default_username', '')
+        default_password = settings.get('default_password', '')
+
+        if not default_username or not default_password:
+            log.warning("No default credentials configured - stack deployment may fail")
+
+        credential_override = None
+        if default_username and default_password:
+            credential_override = {'username': default_username, 'password': default_password}
+            log.info(f"Using default credentials for stack deployment (user: {default_username})")
+
+        if stack.get('state') == 'deploying':
+            return {'status': 'error', 'error': 'Stack is already being deployed'}
+
+        # Update stack state
+        stack['state'] = 'deploying'
+        stack['deploy_started_at'] = datetime.now().isoformat()
+        stack['deployed_services'] = []
+
+        # Clear pending changes flag
+        if 'has_pending_changes' in stack:
+            del stack['has_pending_changes']
+        if 'pending_since' in stack:
+            del stack['pending_since']
+
+        save_service_stack(stack)
+
+        # Sort services by order
+        services = sorted(stack['services'], key=lambda s: s.get('order', 0))
+        log.info(f"Stack has {len(services)} services to deploy: {[s.get('name') for s in services]}")
+
+        deployed_service_ids = []
+        failed_services = []
+
+        # Deploy services sequentially
+        for service_def in services:
+            try:
+                log.info(f"Deploying service from stack: {service_def.get('name')}")
+
+                # Merge shared variables with service-specific variables
+                variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
+
+                template_name = service_def.get('template')
+                if not template_name:
+                    raise Exception(f"Service '{service_def.get('name')}' has no template specified")
+
+                # Strip .j2 extension if present
+                if template_name.endswith('.j2'):
+                    template_name = template_name[:-3]
+
+                # Handle both single device and multiple devices
+                devices = service_def.get('devices', [service_def.get('device')]) if service_def.get('devices') else [service_def.get('device')]
+
+                for device_name in devices:
+                    if not device_name:
+                        continue
+
+                    try:
+                        # Get device connection info with credentials
+                        device_info = get_device_connection_info(device_name, credential_override)
+                        if not device_info:
+                            raise Exception(f"Could not get connection info for device '{device_name}'")
+
+                        # Deploy template to device
+                        payload = {
+                            'library': 'netmiko',
+                            'connection_args': device_info['connection_args'],
+                            'j2config': {
+                                'template': template_name,
+                                'args': variables
+                            },
+                            'queue_strategy': 'fifo'
+                        }
+
+                        log.info(f"Deploying template '{template_name}' to {device_name}")
+
+                        response = requests.post(
+                            f'{NETSTACKER_API_URL}/setconfig',
+                            json=payload,
+                            headers=NETSTACKER_HEADERS,
+                            timeout=300
+                        )
+                        response.raise_for_status()
+
+                        task_data = response.json()
+                        log.info(f"Deploy response data: {task_data}")
+                        task_id = task_data.get('data', {}).get('task_id') or task_data.get('task_id')
+                        log.info(f"Template deployment initiated for {device_name}: task_id={task_id}")
+
+                        # Save task to history for job monitoring
+                        # Format: mop:DEPLOY_STACK:{StackName}:{ServiceName}:{DeviceName}:{TaskID}
+                        if task_id:
+                            job_name = f"mop:DEPLOY_STACK:{stack.get('name')}:{service_def['name']}:{device_name}:{task_id}"
+                            save_task_id(task_id, device_name=job_name)
+
+                            # Poll and wait for task completion
+                            import time
+                            max_wait = 300  # 5 minutes max
+                            poll_interval = 2  # Poll every 2 seconds
+                            elapsed = 0
+                            task_status = 'pending'
+
+                            while elapsed < max_wait:
+                                try:
+                                    task_response = requests.get(
+                                        f'{NETSTACKER_API_URL}/task/{task_id}',
+                                        headers=NETSTACKER_HEADERS,
+                                        timeout=10
+                                    )
+                                    if task_response.status_code == 200:
+                                        task_result = task_response.json().get('data', {})
+                                        task_status = task_result.get('task_status', 'pending')
+
+                                        # Check if task is in final state
+                                        if task_status in ['SUCCESS', 'FAILED', 'FAILURE', 'finished']:
+                                            log.info(f"Deploy task {task_id} completed with status: {task_status}")
+                                            break
+                                    else:
+                                        log.warning(f"Failed to get deploy task {task_id} status: HTTP {task_response.status_code}")
+
+                                except Exception as poll_error:
+                                    log.error(f"Error polling deploy task {task_id}: {poll_error}", exc_info=True)
+                                    task_status = 'FAILED'
+                                    break
+
+                                time.sleep(poll_interval)
+                                elapsed += poll_interval
+
+                            if task_status not in ['SUCCESS', 'FAILED', 'FAILURE', 'finished']:
+                                log.error(f"Deploy task {task_id} did not complete within {max_wait}s, final status: {task_status}")
+                                task_status = 'TIMEOUT'
+
+                    except Exception as e:
+                        log.error(f"Failed to deploy to {device_name}: {e}")
+                        failed_services.append(f"{service_def.get('name')} on {device_name}")
+                        continue
+
+            except Exception as e:
+                log.error(f"Failed to deploy service {service_def.get('name')}: {e}")
+                failed_services.append(service_def.get('name'))
+                continue
+
+        # Update stack state
+        stack['state'] = 'deployed' if not failed_services else 'partial'
+        stack['deploy_completed_at'] = datetime.now().isoformat()
+        save_service_stack(stack)
+
+        result_message = f"Stack '{stack.get('name')}' deployed successfully"
+        if failed_services:
+            result_message += f" with {len(failed_services)} failed services: {', '.join(failed_services)}"
+
+        return {
+            'status': 'success' if not failed_services else 'partial',
+            'data': [{
+                'stack': stack.get('name'),
+                'stack_id': stack_id,
+                'status': 'deployed' if not failed_services else 'partial',
+                'message': result_message,
+                'failed_services': failed_services
+            }]
+        }
+
+    except Exception as e:
+        log.error(f"Error executing deploy stack step: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+
 # Stack Template endpoints
 @app.route('/api/stack-templates', methods=['GET'])
 @login_required
@@ -5093,7 +6676,6 @@ def run_scheduled_operations():
         print(f"FATAL SCHEDULER EXCEPTION: {e}", flush=True)
         import traceback
         traceback.print_exc()
-
 # Start scheduler thread only once (not in Flask reloader parent process)
 import os
 

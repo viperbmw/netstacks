@@ -240,3 +240,82 @@ class NetboxClient:
                 unique_devices.append(device)
 
         return sorted(unique_devices, key=lambda x: x['name'])
+
+    def get_device_connections(self, device_names: List[str]) -> List[Dict]:
+        """
+        Fetch network connections for a list of devices from NetBox interfaces
+
+        Args:
+            device_names: List of device names to fetch connections for
+
+        Returns:
+            List of connection dictionaries with source and target device names
+        """
+        connections = []
+        device_name_set = set(device_names)
+
+        log.info(f"Fetching connections for {len(device_names)} devices...")
+
+        try:
+            # Fetch interfaces for each device individually using device parameter
+            all_interfaces = []
+
+            for device_name in device_names:
+                url = f"{self.base_url}/api/dcim/interfaces/"
+                params = {
+                    'device': device_name,
+                    'limit': 1000
+                }
+
+                response = self.session.get(url, params=params, verify=self.verify_ssl)
+                response.raise_for_status()
+                data = response.json()
+
+                interfaces = data.get('results', [])
+                all_interfaces.extend(interfaces)
+
+            log.info(f"Fetched {len(all_interfaces)} interfaces for {len(device_names)} devices")
+
+            # Process interfaces and extract connections
+            seen_connections = set()
+
+            for interface in all_interfaces:
+                device = interface.get('device', {})
+                device_name = device.get('name')
+
+                # Check for link peers (connected interfaces)
+                link_peers = interface.get('link_peers') or []
+                if not link_peers:
+                    link_peers = interface.get('connected_endpoints') or []
+
+                # Skip if no link peers
+                if not link_peers:
+                    continue
+
+                for peer in link_peers:
+                    peer_device = peer.get('device', {})
+                    peer_device_name = peer_device.get('name')
+
+                    # Only create connection if peer is also in our filtered list
+                    if peer_device_name and peer_device_name in device_name_set:
+                        # Create a unique key to avoid duplicates (A->B and B->A)
+                        conn_key = tuple(sorted([device_name, peer_device_name]))
+
+                        if conn_key not in seen_connections:
+                            seen_connections.add(conn_key)
+                            connections.append({
+                                'source': device_name,
+                                'target': peer_device_name,
+                                'source_interface': interface.get('name'),
+                                'target_interface': peer.get('name'),
+                                'cable_id': interface.get('cable', {}).get('id') if isinstance(interface.get('cable'), dict) else None
+                            })
+
+            log.info(f"Found {len(connections)} connections between filtered devices")
+
+        except Exception as e:
+            log.error(f"Error fetching device connections: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+
+        return connections

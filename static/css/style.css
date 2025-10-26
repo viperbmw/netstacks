@@ -1,5 +1,349 @@
 /* NetStacks GUI Custom Styles */
 
+/* Menu Items Reordering Styles */
+#menu-items-list .list-group-item {
+    transition: background-color 0.2s;
+    user-select: none;
+}
+
+#menu-items-list .list-group-item:hover {
+    background-color: rgba(13, 110, 253, 0.05);
+}
+
+#menu-items-list .list-group-item.sortable-ghost {
+    opacity: 0.4;
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+#menu-items-list .drag-handle {
+    opacity: 0.4;
+    transition: opacity 0.2s;
+}
+
+#menu-items-list .list-group-item:hover .drag-handle {
+    opacity: 1;
+}
+
+#menu-items-list .toggle-visibility {
+    padding: 0.25rem 0.5rem;
+}
+
+[data-bs-theme="dark"] #menu-items-list .list-group-item {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] #menu-items-list .list-group-item:hover {
+    background-color: #333333;
+}
+
+/* Sidebar Styles */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 220px;
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1040;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.5);
+}
+
+.sidebar.collapsed {
+    margin-left: -220px;
+}
+
+.sidebar .brand-header {
+    padding: 16px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.sidebar .brand-logo {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #fff;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: opacity 0.2s;
+}
+
+.sidebar .brand-logo:hover {
+    opacity: 0.8;
+}
+
+.sidebar .brand-logo i {
+    font-size: 1.5rem;
+    color: #3b82f6;
+}
+
+.sidebar-nav {
+    padding: 12px 0;
+}
+
+.sidebar-section {
+    margin-top: 8px;
+}
+
+.sidebar-section-header {
+    padding: 8px 16px;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: color 0.2s;
+    user-select: none;
+}
+
+.sidebar-section-header:hover {
+    color: #94a3b8;
+}
+
+.sidebar-section-header i.chevron {
+    font-size: 0.7rem;
+    transition: transform 0.2s;
+}
+
+.sidebar-section.collapsed .sidebar-section-header i.chevron {
+    transform: rotate(-90deg);
+}
+
+.sidebar-section-content {
+    max-height: 1000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+}
+
+.sidebar-section.collapsed .sidebar-section-content {
+    max-height: 0;
+    opacity: 0;
+}
+
+.sidebar .nav {
+    padding: 0;
+}
+
+.sidebar .nav-item {
+    margin: 0;
+}
+
+.sidebar .nav-link {
+    color: #cbd5e1;
+    padding: 8px 16px 8px 32px;
+    font-size: 0.875rem;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-left: 3px solid transparent;
+    text-decoration: none;
+}
+
+.sidebar .nav-link:hover {
+    color: #fff;
+    background-color: rgba(59, 130, 246, 0.1);
+    border-left-color: #3b82f6;
+}
+
+.sidebar .nav-link.active {
+    color: #fff;
+    background-color: rgba(59, 130, 246, 0.15);
+    border-left-color: #3b82f6;
+    font-weight: 500;
+}
+
+.sidebar .nav-link i {
+    width: 18px;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.sidebar .user-info {
+    padding: 12px 16px;
+    border-top: 1px solid rgba(148, 163, 184, 0.1);
+    margin-top: 8px;
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(180deg, transparent 0%, #0f172a 50%);
+}
+
+.sidebar .user-info .user-name {
+    color: #e2e8f0;
+    font-weight: 500;
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sidebar .user-info .user-name i {
+    font-size: 0.75rem;
+}
+
+.sidebar .user-info .user-meta {
+    color: #64748b;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.sidebar .user-info .user-meta i {
+    font-size: 0.7rem;
+}
+
+.sidebar .user-info .btn-logout {
+    font-size: 0.8rem;
+    padding: 6px 12px;
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #f87171;
+}
+
+.sidebar .user-info .btn-logout:hover {
+    background-color: rgba(239, 68, 68, 0.1);
+    border-color: #ef4444;
+    color: #fca5a5;
+}
+
+.sidebar-toggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 1050;
+    background-color: #1e293b;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    color: #e2e8f0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-toggle:hover {
+    background-color: #334155;
+    border-color: rgba(148, 163, 184, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar-toggle.sidebar-collapsed {
+    left: 12px;
+}
+
+.sidebar-toggle:not(.sidebar-collapsed) {
+    left: 232px;
+}
+
+.main-content {
+    margin-left: 220px;
+    padding: 20px;
+    transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 100vh;
+}
+
+.main-content.sidebar-collapsed {
+    margin-left: 0;
+}
+
+/* Dark theme adjustments for sidebar */
+[data-bs-theme="dark"] .sidebar {
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    border-right: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+[data-bs-theme="dark"] .sidebar-toggle {
+    background-color: #1e293b;
+    border-color: rgba(148, 163, 184, 0.2);
+}
+
+/* Light theme adjustments */
+[data-bs-theme="light"] .sidebar {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border-right: 1px solid #e2e8f0;
+}
+
+[data-bs-theme="light"] .sidebar .brand-logo {
+    color: #0f172a;
+}
+
+[data-bs-theme="light"] .sidebar-section-header {
+    color: #475569;
+}
+
+[data-bs-theme="light"] .sidebar-section-header:hover {
+    color: #1e293b;
+}
+
+[data-bs-theme="light"] .sidebar .nav-link {
+    color: #475569;
+}
+
+[data-bs-theme="light"] .sidebar .nav-link:hover {
+    color: #0f172a;
+    background-color: rgba(59, 130, 246, 0.08);
+}
+
+[data-bs-theme="light"] .sidebar .nav-link.active {
+    color: #1e40af;
+    background-color: rgba(59, 130, 246, 0.12);
+}
+
+[data-bs-theme="light"] .sidebar .user-info {
+    border-top-color: #e2e8f0;
+    background: linear-gradient(180deg, transparent 0%, #f8fafc 50%);
+}
+
+[data-bs-theme="light"] .sidebar .user-info .user-name {
+    color: #0f172a;
+}
+
+[data-bs-theme="light"] .sidebar .user-info .user-meta {
+    color: #64748b;
+}
+
+[data-bs-theme="light"] .sidebar-toggle {
+    background-color: #ffffff;
+    border-color: #e2e8f0;
+    color: #0f172a;
+}
+
+[data-bs-theme="light"] .sidebar-toggle:hover {
+    background-color: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+/* NetStacks GUI Custom Styles */
+
 /* Custom dark theme with neutral grays (no pink tint) */
 [data-bs-theme="dark"] {
     --bs-body-bg: #1a1a1a;

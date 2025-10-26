@@ -194,6 +194,26 @@
             </div>
         </div>
 
+        <!-- Menu Items Order Section -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="fas fa-bars"></i> Menu Items Order</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle"></i> Drag and drop to reorder menu items. Click the eye icon to show/hide items.
+                </p>
+                <div id="menu-items-list" class="list-group">
+                    <!-- Menu items will be loaded here -->
+                </div>
+                <div class="d-grid gap-2 mt-3">
+                    <button type="button" class="btn btn-primary btn-sm" id="save-menu-order-btn">
+                        <i class="fas fa-save"></i> Save Menu Order
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="card mt-3">
             <div class="card-header">
                 <h5><i class="fas fa-trash-alt"></i> Danger Zone</h5>
@@ -284,5 +304,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
 {% endblock %}

@@ -278,6 +278,107 @@ def init_db():
         log.info("Migrating users table: adding theme column")
         cursor.execute("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'dark'")
 
+    # Menu items table for custom menu ordering
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS menu_items (
+            item_id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            url TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            visible INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # MOP (Method of Procedures) tables
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mops (
+            mop_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            devices TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Migration: Add devices column to mops if it doesn't exist
+    try:
+        cursor.execute("SELECT devices FROM mops LIMIT 1")
+    except sqlite3.OperationalError:
+        log.info("Migrating mops table: adding devices column")
+        cursor.execute("ALTER TABLE mops ADD COLUMN devices TEXT")
+        conn.commit()
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mop_steps (
+            step_id TEXT PRIMARY KEY,
+            mop_id TEXT NOT NULL,
+            step_order INTEGER NOT NULL,
+            step_type TEXT NOT NULL,
+            step_name TEXT NOT NULL,
+            devices TEXT,
+            config TEXT,
+            enabled INTEGER DEFAULT 1,
+            FOREIGN KEY (mop_id) REFERENCES mops(mop_id) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mop_executions (
+            execution_id TEXT PRIMARY KEY,
+            mop_id TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            current_step INTEGER DEFAULT 0,
+            results TEXT,
+            started_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (mop_id) REFERENCES mops(mop_id)
+        )
+    ''')
+
+    # Add context and error columns if they don't exist (migration)
+    try:
+        cursor.execute('ALTER TABLE mop_executions ADD COLUMN context TEXT')
+    except:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE mop_executions ADD COLUMN error TEXT')
+    except:
+        pass  # Column already exists
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_steps_mop ON mop_steps(mop_id, step_order)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_executions_mop ON mop_executions(mop_id)')
+
+    # Initialize default menu items if table is empty
+    cursor.execute("SELECT COUNT(*) FROM menu_items")
+    if cursor.fetchone()[0] == 0:
+        default_menu_items = [
+            ('dashboard', 'Dashboard', 'home', '/', 0, 1),
+            ('deploy', 'Deploy Config', 'rocket', '/deploy', 1, 1),
+            ('monitor', 'Monitor Jobs', 'chart-line', '/monitor', 2, 1),
+            ('templates', 'Config Templates', 'file-code', '/templates', 3, 1),
+            ('service-stacks', 'Service Stacks', 'layer-group', '/service-stacks', 4, 1),
+            ('devices', 'Devices', 'server', '/devices', 5, 1),
+            ('network-map', 'Network Map', 'project-diagram', '/network-map', 6, 1),
+            ('mop', 'Procedures (MOP)', 'list-check', '/mop', 7, 1),
+        ]
+        cursor.executemany('''
+            INSERT INTO menu_items (item_id, label, icon, url, order_index, visible)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', default_menu_items)
+
+    # Migration: Add MOP menu item if it doesn't exist
+    cursor.execute("SELECT COUNT(*) FROM menu_items WHERE item_id = 'mop'")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute('''
+            INSERT INTO menu_items (item_id, label, icon, url, order_index, visible)
+            VALUES ('mop', 'Procedures (MOP)', 'list-check', '/mop', 7, 1)
+        ''')
+
     conn.commit()
     conn.close()
 
@@ -970,3 +1071,342 @@ def delete_api_resource(resource_id):
         cursor = conn.cursor()
         cursor.execute('DELETE FROM api_resources WHERE resource_id = ?', (resource_id,))
         return cursor.rowcount > 0
+
+
+# ============================================================================
+# Menu Items Functions
+# ============================================================================
+
+def get_menu_items():
+    """Get all menu items ordered by order_index"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT item_id, label, icon, url, order_index, visible
+            FROM menu_items
+            ORDER BY order_index ASC
+        ''')
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def update_menu_order(menu_items):
+    """Update menu items order"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        for item in menu_items:
+            cursor.execute('''
+                UPDATE menu_items
+                SET order_index = ?, visible = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE item_id = ?
+            ''', (item['order_index'], item.get('visible', 1), item['item_id']))
+        conn.commit()
+        return True
+
+
+def update_menu_item(item_id, label=None, icon=None, visible=None):
+    """Update a menu item"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        updates = []
+        params = []
+
+        if label is not None:
+            updates.append('label = ?')
+            params.append(label)
+        if icon is not None:
+            updates.append('icon = ?')
+            params.append(icon)
+        if visible is not None:
+            updates.append('visible = ?')
+            params.append(visible)
+
+        if updates:
+            updates.append('updated_at = CURRENT_TIMESTAMP')
+            params.append(item_id)
+            cursor.execute(f'''
+                UPDATE menu_items
+                SET {', '.join(updates)}
+                WHERE item_id = ?
+            ''', params)
+            conn.commit()
+            return cursor.rowcount > 0
+        return False
+
+
+# =============================================================================
+# MOP (Method of Procedures) Functions
+# =============================================================================
+
+def create_mop(mop_id, name, description="", devices=None):
+    """Create a new MOP"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO mops (mop_id, name, description, devices)
+            VALUES (?, ?, ?, ?)
+        ''', (mop_id, name, description, json.dumps(devices) if devices else None))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def get_all_mops():
+    """Get all MOPs"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT mop_id, name, description, devices, created_at, updated_at
+            FROM mops
+            ORDER BY updated_at DESC
+        ''')
+        mops = []
+        for row in cursor.fetchall():
+            mop = dict(row)
+            if mop.get('devices'):
+                mop['devices'] = json.loads(mop['devices'])
+            else:
+                mop['devices'] = []
+            mops.append(mop)
+        return mops
+
+def get_mop(mop_id):
+    """Get a specific MOP by ID"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT mop_id, name, description, devices, created_at, updated_at
+            FROM mops
+            WHERE mop_id = ?
+        ''', (mop_id,))
+        row = cursor.fetchone()
+        if row:
+            mop = dict(row)
+            if mop.get('devices'):
+                mop['devices'] = json.loads(mop['devices'])
+            else:
+                mop['devices'] = []
+            return mop
+        return None
+
+def update_mop(mop_id, name=None, description=None, devices=None):
+    """Update a MOP"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append('name = ?')
+            params.append(name)
+        if description is not None:
+            updates.append('description = ?')
+            params.append(description)
+        if devices is not None:
+            updates.append('devices = ?')
+            params.append(json.dumps(devices))
+
+        if updates:
+            updates.append('updated_at = CURRENT_TIMESTAMP')
+            params.append(mop_id)
+            cursor.execute(f'''
+                UPDATE mops
+                SET {', '.join(updates)}
+                WHERE mop_id = ?
+            ''', params)
+            conn.commit()
+            return cursor.rowcount > 0
+        return False
+
+def delete_mop(mop_id):
+    """Delete a MOP and its steps"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM mops WHERE mop_id = ?', (mop_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+# MOP Steps Functions
+
+def create_mop_step(step_id, mop_id, step_order, step_type, step_name, devices, config, enabled=1):
+    """Create a new MOP step"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO mop_steps (step_id, mop_id, step_order, step_type, step_name, devices, config, enabled)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (step_id, mop_id, step_order, step_type, step_name, json.dumps(devices), json.dumps(config), enabled))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def get_mop_steps(mop_id):
+    """Get all steps for a MOP"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT step_id, mop_id, step_order, step_type, step_name, devices, config, enabled
+            FROM mop_steps
+            WHERE mop_id = ?
+            ORDER BY step_order ASC
+        ''', (mop_id,))
+        steps = []
+        for row in cursor.fetchall():
+            step = dict(row)
+            step['devices'] = json.loads(step['devices']) if step['devices'] else []
+            step['config'] = json.loads(step['config']) if step['config'] else {}
+            steps.append(step)
+        return steps
+
+def get_mop_step(step_id):
+    """Get a specific step by ID"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT step_id, mop_id, step_order, step_type, step_name, devices, config, enabled
+            FROM mop_steps
+            WHERE step_id = ?
+        ''', (step_id,))
+        row = cursor.fetchone()
+        if row:
+            step = dict(row)
+            step['devices'] = json.loads(step['devices']) if step['devices'] else []
+            step['config'] = json.loads(step['config']) if step['config'] else {}
+            return step
+        return None
+
+def update_mop_step(step_id, step_order=None, step_type=None, step_name=None, devices=None, config=None, enabled=None):
+    """Update a MOP step"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        updates = []
+        params = []
+
+        if step_order is not None:
+            updates.append('step_order = ?')
+            params.append(step_order)
+        if step_type is not None:
+            updates.append('step_type = ?')
+            params.append(step_type)
+        if step_name is not None:
+            updates.append('step_name = ?')
+            params.append(step_name)
+        if devices is not None:
+            updates.append('devices = ?')
+            params.append(json.dumps(devices))
+        if config is not None:
+            updates.append('config = ?')
+            params.append(json.dumps(config))
+        if enabled is not None:
+            updates.append('enabled = ?')
+            params.append(enabled)
+
+        if updates:
+            params.append(step_id)
+            cursor.execute(f'''
+                UPDATE mop_steps
+                SET {', '.join(updates)}
+                WHERE step_id = ?
+            ''', params)
+            conn.commit()
+            return cursor.rowcount > 0
+        return False
+
+def delete_mop_step(step_id):
+    """Delete a MOP step"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM mop_steps WHERE step_id = ?', (step_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def delete_all_mop_steps(mop_id):
+    """Delete all steps for a MOP"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM mop_steps WHERE mop_id = ?', (mop_id,))
+        conn.commit()
+        return cursor.rowcount
+
+# MOP Execution Functions
+
+def create_mop_execution(execution_id, mop_id):
+    """Create a new MOP execution record"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO mop_executions (execution_id, mop_id, status, started_at, results)
+            VALUES (?, ?, 'running', CURRENT_TIMESTAMP, '[]')
+        ''', (execution_id, mop_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def get_mop_execution(execution_id):
+    """Get a specific execution by ID"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT execution_id, mop_id, status, current_step, results, context, error, started_at, completed_at
+            FROM mop_executions
+            WHERE execution_id = ?
+        ''', (execution_id,))
+        row = cursor.fetchone()
+        if row:
+            execution = dict(row)
+            execution['results'] = json.loads(execution['results']) if execution['results'] else []
+            execution['context'] = json.loads(execution['context']) if execution['context'] else {}
+            return execution
+        return None
+
+def get_mop_executions(mop_id, limit=10):
+    """Get execution history for a MOP"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT execution_id, mop_id, status, current_step, results, context, error, started_at, completed_at
+            FROM mop_executions
+            WHERE mop_id = ?
+            ORDER BY started_at DESC
+            LIMIT ?
+        ''', (mop_id, limit))
+        executions = []
+        for row in cursor.fetchall():
+            execution = dict(row)
+            execution['results'] = json.loads(execution['results']) if execution['results'] else []
+            execution['context'] = json.loads(execution['context']) if execution['context'] else {}
+            executions.append(execution)
+        return executions
+
+def update_mop_execution(execution_id, status=None, current_step=None, results=None, context=None, error=None):
+    """Update a MOP execution"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        updates = []
+        params = []
+
+        if status is not None:
+            updates.append('status = ?')
+            params.append(status)
+            if status in ['completed', 'failed']:
+                updates.append('completed_at = CURRENT_TIMESTAMP')
+        if current_step is not None:
+            updates.append('current_step = ?')
+            params.append(current_step)
+        if results is not None:
+            updates.append('results = ?')
+            params.append(json.dumps(results))
+        if context is not None:
+            updates.append('context = ?')
+            params.append(json.dumps(context))
+        if error is not None:
+            updates.append('error = ?')
+            params.append(error)
+
+        if updates:
+            params.append(execution_id)
+            cursor.execute(f'''
+                UPDATE mop_executions
+                SET {', '.join(updates)}
+                WHERE execution_id = ?
+            ''', params)
+            conn.commit()
+            return cursor.rowcount > 0
+        return False
+
+
