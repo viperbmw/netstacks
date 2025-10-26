@@ -5411,11 +5411,13 @@ def execute_api_step(step, mop_context=None, step_index=0):
     try:
         config = step['config']
         resource_id = config.get('resource_id')
-        endpoint = config.get('endpoint', '')  # Already substituted
+        endpoint_template = config.get('endpoint', '')
         method = config.get('method', 'GET')
-        body = config.get('body', '')  # Already substituted
+        body_template = config.get('body', '')
+        devices = step.get('devices', [])
+        save_to_variable = config.get('save_to_variable')
 
-        if not resource_id or not endpoint:
+        if not resource_id or not endpoint_template:
             return {'status': 'error', 'error': 'API resource and endpoint are required'}
 
         # Get the resource
@@ -5423,10 +5425,7 @@ def execute_api_step(step, mop_context=None, step_index=0):
         if not resource:
             return {'status': 'error', 'error': 'API resource not found'}
 
-        # Build full URL
         base_url = resource['base_url'].rstrip('/')
-        clean_endpoint = endpoint if endpoint.startswith('/') else '/' + endpoint
-        url = base_url + clean_endpoint
 
         # Build headers based on auth type
         headers = {}
@@ -5442,36 +5441,129 @@ def execute_api_step(step, mop_context=None, step_index=0):
             encoded = base64.b64encode(credentials.encode()).decode()
             headers['Authorization'] = f"Basic {encoded}"
 
-        # Prepare request data
-        request_data = None
-        if body:
-            try:
-                request_data = json.loads(body)
-                headers['Content-Type'] = 'application/json'
-            except json.JSONDecodeError as e:
-                return {'status': 'error', 'error': f'Invalid JSON body: {str(e)}'}
+        results = []
 
-        # Make the API call
-        log.info(f"Executing API step: {method} {url}")
-        response = requests.request(
-            method,
-            url,
-            headers=headers,
-            json=request_data,
-            timeout=30
-        )
+        # If no devices specified, make a single API call
+        if not devices or len(devices) == 0:
+            # Substitute variables from context (not device-specific)
+            endpoint = endpoint_template
+            body = body_template
 
-        response.raise_for_status()
-        result_data = response.json() if response.content else {}
+            # Build full URL
+            clean_endpoint = endpoint if endpoint.startswith('/') else '/' + endpoint
+            url = base_url + clean_endpoint
 
-        return {
-            'status': 'success',
-            'data': [{
+            # Prepare request data
+            request_data = None
+            if body:
+                try:
+                    request_data = json.loads(body)
+                    headers['Content-Type'] = 'application/json'
+                except json.JSONDecodeError as e:
+                    return {'status': 'error', 'error': f'Invalid JSON body: {str(e)}'}
+
+            # Make the API call
+            log.info(f"Executing API step: {method} {url}")
+            response = requests.request(
+                method,
+                url,
+                headers=headers,
+                json=request_data,
+                timeout=30
+            )
+
+            response.raise_for_status()
+            result_data = response.json() if response.content else {}
+
+            results.append({
                 'api': url,
                 'status': 'success',
                 'output': result_data,
                 'status_code': response.status_code
-            }]
+            })
+
+        # If devices are specified, make API calls for each device
+        else:
+            for device_name in devices:
+                try:
+                    # Get device info from context
+                    device_info = {}
+                    if mop_context and 'devices' in mop_context and device_name in mop_context['devices']:
+                        device_info = mop_context['devices'][device_name]
+
+                    # Substitute {{device_name}} and other device variables
+                    endpoint = endpoint_template.replace('{{device_name}}', device_name)
+                    body = body_template.replace('{{device_name}}', device_name)
+
+                    # Substitute other device variables like {{site}}, {{platform}}, etc.
+                    for key, value in device_info.items():
+                        if isinstance(value, str):
+                            endpoint = endpoint.replace(f'{{{{{key}}}}}', value)
+                            body = body.replace(f'{{{{{key}}}}}', value)
+
+                    # Build full URL
+                    clean_endpoint = endpoint if endpoint.startswith('/') else '/' + endpoint
+                    url = base_url + clean_endpoint
+
+                    # Prepare request data
+                    request_data = None
+                    if body:
+                        try:
+                            request_data = json.loads(body)
+                            headers['Content-Type'] = 'application/json'
+                        except json.JSONDecodeError as e:
+                            results.append({
+                                'device': device_name,
+                                'status': 'error',
+                                'error': f'Invalid JSON body: {str(e)}'
+                            })
+                            continue
+
+                    # Make the API call
+                    log.info(f"Executing API step for {device_name}: {method} {url}")
+                    response = requests.request(
+                        method,
+                        url,
+                        headers=headers,
+                        json=request_data,
+                        timeout=30
+                    )
+
+                    response.raise_for_status()
+                    result_data = response.json() if response.content else {}
+
+                    # Store result in device context if save_to_variable is specified
+                    if save_to_variable and mop_context and 'devices' in mop_context:
+                        if device_name in mop_context['devices']:
+                            mop_context['devices'][device_name][save_to_variable] = result_data
+
+                    results.append({
+                        'device': device_name,
+                        'api': url,
+                        'status': 'success',
+                        'output': result_data,
+                        'status_code': response.status_code
+                    })
+
+                except requests.RequestException as e:
+                    log.error(f"Error executing API call for {device_name}: {e}")
+                    results.append({
+                        'device': device_name,
+                        'api': url if 'url' in locals() else endpoint_template,
+                        'status': 'error',
+                        'error': str(e)
+                    })
+                except Exception as e:
+                    log.error(f"Error processing API call for {device_name}: {e}")
+                    results.append({
+                        'device': device_name,
+                        'status': 'error',
+                        'error': str(e)
+                    })
+
+        return {
+            'status': 'success',
+            'data': results
         }
 
     except Exception as e:
