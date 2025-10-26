@@ -5195,13 +5195,13 @@ def execute_setconfig_step(step, context=None, step_index=0):
 
     Args:
         step: Step configuration dict
-        context: Dict of previous step results for reference
+        context: Dict of previous step results for reference (MOP context)
         step_index: Index of the step in the MOP (0-based)
     """
     try:
         config = step['config']
         devices = step['devices']
-        commands = config.get('commands', '').split('\n')
+        commands_template = config.get('commands', '')
 
         # Get default credentials
         settings = db.get_all_settings()
@@ -5216,38 +5216,51 @@ def execute_setconfig_step(step, context=None, step_index=0):
             return {'status': 'error', 'error': 'No credentials provided'}
 
         library = config.get('library', 'netmiko')
+        save_to_variable = config.get('save_to_variable')
         results = []
 
         # Execute for each device
         for device_name in devices:
             try:
-                # Get device connection info
-                netbox_client = get_netbox_client()
-                device = netbox_client.get_device_by_name(device_name)
-                if not device:
+                # Get device info from MOP context (pre-loaded and cached)
+                device_info = None
+                if context and 'devices' in context and device_name in context['devices']:
+                    device_info = context['devices'][device_name]
+                    log.info(f"Using cached device info for {device_name} from MOP context")
+
+                if not device_info:
+                    log.error(f"Device {device_name} not found in MOP context")
                     results.append({
                         'device': device_name,
                         'status': 'error',
-                        'error': 'Device not found'
+                        'error': 'Device not found in MOP context'
                     })
                     continue
 
-                # Get device type
-                nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
-                if not nornir_platform:
-                    platform = device.get('platform', {})
-                    device_type_info = device.get('device_type', {})
-                    if isinstance(device_type_info, dict):
-                        manufacturer = device_type_info.get('manufacturer', {})
-                    else:
-                        manufacturer = {}
-                    platform_name = platform.get('name') if isinstance(platform, dict) else None
-                    manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
-                    from netbox_client import get_netmiko_device_type
-                    nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
+                # Get device connection parameters from cached context
+                nornir_platform = device_info.get('platform')
+                ip_address = device_info.get('ip_address', device_name)
 
-                # Get IP address
-                ip_address = device.get('primary_ip4', {}).get('address', '').split('/')[0] if device.get('primary_ip4') else device_name
+                log.info(f"Using device {device_name}: ip={ip_address}, platform={nornir_platform}")
+
+                if not ip_address:
+                    log.error(f"No IP address for device {device_name}")
+                    results.append({
+                        'device': device_name,
+                        'status': 'error',
+                        'error': 'No IP address available for device'
+                    })
+                    continue
+
+                # Substitute variables in commands
+                commands_str = commands_template.replace('{{device_name}}', device_name)
+
+                # Substitute other device variables
+                for key, value in device_info.items():
+                    if isinstance(value, str):
+                        commands_str = commands_str.replace(f'{{{{{key}}}}}', value)
+
+                commands = commands_str.split('\n')
 
                 # Build payload
                 payload = {
