@@ -1,0 +1,100 @@
+# Example Workflow: Maintenance Window
+# This workflow checks BGP, deploys a service stack, and sends notifications
+
+name: "Maintenance Window - Deploy Customer VPN"
+description: "Verify BGP neighbors, deploy service stack, send email on success"
+
+# Devices to operate on (can be overridden per step)
+devices:
+  - bms01-bidev.nae05.gi-nw.viasat.io
+  - dmsp01-cidev.nae05.gi-nw.viasat.io
+
+# Workflow steps execute in order unless redirected by on_success/on_failure
+steps:
+  # Step 1: Pre-flight check - verify devices are online
+  - name: "Verify Devices Reachable"
+    type: check_ping
+    on_success: check_bgp  # Jump to next check
+    on_failure: send_failure_email  # Skip to failure notification
+
+  # Step 2: Check BGP neighbor counts match expected
+  - name: "Verify BGP Neighbors"
+    id: check_bgp
+    type: check_bgp
+    expect_neighbor_count: 4
+    compare_to_netbox: true  # Get expected count from Netbox
+    on_success: deploy_stack
+    on_failure: send_failure_email
+
+  # Step 3: Deploy the service stack
+  - name: "Deploy Customer VPN Stack"
+    id: deploy_stack
+    type: deploy_stack
+    stack_id: "customer-vpn-stack"
+    on_success: verify_deployment
+    on_failure: rollback
+
+  # Step 4: Verify deployment was successful
+  - name: "Verify Deployment"
+    id: verify_deployment
+    type: check_interfaces
+    expect_up_count: 3
+    on_success: send_success_email
+    on_failure: rollback
+
+  # Step 5: Success notification
+  - name: "Send Success Email"
+    id: send_success_email
+    type: email
+    to: "ops@company.com"
+    subject: "Maintenance Complete - {workflow_name}"
+    body: |
+      Maintenance window completed successfully at {timestamp}
+
+      Devices: bms01-bidev, dmsp01-cidev
+      Stack deployed: customer-vpn-stack
+
+      All checks passed.
+
+  # Step 6: Rollback on failure
+  - name: "Rollback Changes"
+    id: rollback
+    type: deploy_stack
+    stack_id: "rollback-previous-config"
+    on_success: send_rollback_email
+    on_failure: send_critical_email
+
+  # Step 7: Notify about rollback
+  - name: "Send Rollback Email"
+    id: send_rollback_email
+    type: email
+    to: "ops@company.com"
+    subject: "ALERT: Deployment Failed - Rollback Complete"
+    body: |
+      Deployment failed at {timestamp}
+
+      Rollback has been completed.
+      Please investigate before retrying.
+
+  # Step 8: Failure notification (no rollback)
+  - name: "Send Failure Email"
+    id: send_failure_email
+    type: email
+    to: "ops@company.com"
+    subject: "ALERT: Pre-flight Check Failed"
+    body: |
+      Pre-flight checks failed at {timestamp}
+
+      No changes were made.
+      Please verify device status before proceeding.
+
+  # Step 9: Critical failure (rollback also failed)
+  - name: "Send Critical Alert"
+    id: send_critical_email
+    type: email
+    to: "ops@company.com,oncall@company.com"
+    subject: "CRITICAL: Rollback Failed"
+    body: |
+      CRITICAL: Rollback failed at {timestamp}
+
+      Manual intervention required immediately!

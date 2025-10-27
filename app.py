@@ -893,6 +893,13 @@ def mop():
     return render_template('mop.html')
 
 
+@app.route('/workflows')
+@login_required
+def workflows():
+    """Workflows page (YAML-based workflow engine)"""
+    return render_template('workflows.html')
+
+
 @app.route('/workers')
 @login_required
 def workers():
@@ -4952,6 +4959,285 @@ def get_current_mop_execution_api(mop_id):
     except Exception as e:
         log.error(f"Error getting current MOP execution: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================
+# WORKFLOW API ENDPOINTS (YAML-based workflow engine)
+# ============================================================
+
+@app.route('/api/workflows', methods=['GET'])
+@login_required
+def get_workflows_api():
+    """Get all workflows"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT workflow_id, name, description, devices, enabled, created_at, updated_at
+                FROM workflows
+                ORDER BY created_at DESC
+            ''')
+            workflows = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'workflows': workflows})
+    except Exception as e:
+        log.error(f"Error getting workflows: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflows', methods=['POST'])
+@login_required
+def create_workflow_api():
+    """Create a new workflow"""
+    try:
+        data = request.json
+        workflow_id = str(uuid.uuid4())
+
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO workflows (workflow_id, name, description, yaml_content, devices, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                workflow_id,
+                data.get('name'),
+                data.get('description'),
+                data.get('yaml_content'),
+                json.dumps(data.get('devices', [])),
+                session.get('username')
+            ))
+            conn.commit()
+
+        return jsonify({'success': True, 'workflow_id': workflow_id})
+    except Exception as e:
+        log.error(f"Error creating workflow: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflows/<workflow_id>', methods=['GET'])
+@login_required
+def get_workflow_api(workflow_id):
+    """Get a specific workflow"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM workflows WHERE workflow_id = ?', (workflow_id,))
+            workflow = cursor.fetchone()
+
+            if not workflow:
+                return jsonify({'success': False, 'error': 'Workflow not found'}), 404
+
+            return jsonify({'success': True, 'workflow': dict(workflow)})
+    except Exception as e:
+        log.error(f"Error getting workflow: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflows/<workflow_id>', methods=['PUT'])
+@login_required
+def update_workflow_api(workflow_id):
+    """Update a workflow"""
+    try:
+        data = request.json
+
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE workflows
+                SET name = ?, description = ?, yaml_content = ?, devices = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE workflow_id = ?
+            ''', (
+                data.get('name'),
+                data.get('description'),
+                data.get('yaml_content'),
+                json.dumps(data.get('devices', [])),
+                workflow_id
+            ))
+            conn.commit()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error updating workflow: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflows/<workflow_id>', methods=['DELETE'])
+@login_required
+def delete_workflow_api(workflow_id):
+    """Delete a workflow"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM workflows WHERE workflow_id = ?', (workflow_id,))
+            conn.commit()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error deleting workflow: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflows/<workflow_id>/execute', methods=['POST'])
+@login_required
+def execute_workflow_api(workflow_id):
+    """Execute a workflow"""
+    try:
+        # Get workflow from database
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM workflows WHERE workflow_id = ?', (workflow_id,))
+            workflow_row = cursor.fetchone()
+
+            if not workflow_row:
+                return jsonify({'success': False, 'error': 'Workflow not found'}), 404
+
+            workflow = dict(workflow_row)
+
+        # Create execution record
+        execution_id = str(uuid.uuid4())
+
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO workflow_executions
+                (execution_id, workflow_id, status, started_at, started_by)
+                VALUES (?, ?, 'running', CURRENT_TIMESTAMP, ?)
+            ''', (execution_id, workflow_id, session.get('username')))
+            conn.commit()
+
+        # Execute workflow asynchronously
+        def run_workflow():
+            from workflow_engine import WorkflowEngine
+
+            try:
+                # Build context with device information
+                context = {'devices': {}}
+
+                # Get device info from Netbox if devices specified
+                devices = json.loads(workflow.get('devices', '[]'))
+                if devices:
+                    for device_name in devices:
+                        device_info = get_device_info(device_name)
+                        if device_info:
+                            context['devices'][device_name] = device_info
+
+                # Execute workflow
+                engine = WorkflowEngine(workflow['yaml_content'], context)
+                result = engine.execute()
+
+                # Update execution record
+                with db.get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        UPDATE workflow_executions
+                        SET status = ?, execution_log = ?, context = ?, completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = ?
+                    ''', (
+                        result['status'],
+                        json.dumps(result.get('execution_log', [])),
+                        json.dumps(result.get('context', {})),
+                        execution_id
+                    ))
+                    conn.commit()
+
+                log.info(f"Workflow {workflow_id} execution {execution_id} completed with status: {result['status']}")
+
+            except Exception as e:
+                log.error(f"Error executing workflow: {e}", exc_info=True)
+
+                # Update execution record with error
+                with db.get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        UPDATE workflow_executions
+                        SET status = 'failed', error = ?, completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = ?
+                    ''', (str(e), execution_id))
+                    conn.commit()
+
+        # Start background thread
+        import threading
+        thread = threading.Thread(target=run_workflow)
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({'success': True, 'execution_id': execution_id})
+
+    except Exception as e:
+        log.error(f"Error starting workflow execution: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflows/<workflow_id>/executions', methods=['GET'])
+@login_required
+def get_workflow_executions_api(workflow_id):
+    """Get execution history for a workflow"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT execution_id, status, started_at, completed_at, started_by
+                FROM workflow_executions
+                WHERE workflow_id = ?
+                ORDER BY started_at DESC
+                LIMIT 50
+            ''', (workflow_id,))
+            executions = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'executions': executions})
+    except Exception as e:
+        log.error(f"Error getting workflow executions: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflow-executions/<execution_id>', methods=['GET'])
+@login_required
+def get_workflow_execution_details_api(execution_id):
+    """Get detailed execution information"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM workflow_executions WHERE execution_id = ?
+            ''', (execution_id,))
+            execution = cursor.fetchone()
+
+            if not execution:
+                return jsonify({'success': False, 'error': 'Execution not found'}), 404
+
+            execution_dict = dict(execution)
+
+            # Parse JSON fields
+            if execution_dict.get('execution_log'):
+                execution_dict['execution_log'] = json.loads(execution_dict['execution_log'])
+            if execution_dict.get('context'):
+                execution_dict['context'] = json.loads(execution_dict['context'])
+
+            return jsonify({'success': True, 'execution': execution_dict})
+    except Exception as e:
+        log.error(f"Error getting workflow execution details: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/workflow-executions/running', methods=['GET'])
+@login_required
+def get_running_workflow_executions_api():
+    """Get all currently running workflow executions"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT we.execution_id, we.workflow_id, we.status, we.current_step,
+                       we.started_at, we.started_by, w.name as workflow_name
+                FROM workflow_executions we
+                JOIN workflows w ON we.workflow_id = w.workflow_id
+                WHERE we.status = 'running'
+                ORDER BY we.started_at DESC
+            ''')
+            executions = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'executions': executions})
+    except Exception as e:
+        log.error(f"Error getting running workflow executions: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/task/<task_id>/result', methods=['GET'])
 @login_required

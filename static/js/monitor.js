@@ -50,6 +50,7 @@ function loadMonitor() {
     loadTasks();
     loadWorkers();
     loadMopExecutions();
+    loadWorkflowExecutions();
     loadTaskHistory();
 }
 
@@ -388,5 +389,57 @@ function cancelMopExecution(executionId) {
         })
         .fail(function(xhr, status, error) {
             alert('Error cancelling MOP execution: ' + error);
+        });
+}
+
+function loadWorkflowExecutions() {
+    $('#workflow-executions-loading').show();
+    $('#workflow-executions-container').hide();
+
+    $.get('/api/workflow-executions/running')
+        .done(function(data) {
+            const tbody = $('#workflow-executions-body');
+            tbody.empty();
+
+            if (!data.success || !data.executions || data.executions.length === 0) {
+                $('#no-workflow-executions').show();
+                $('#workflow-executions-container').find('table').hide();
+            } else {
+                $('#no-workflow-executions').hide();
+                $('#workflow-executions-container').find('table').show();
+
+                data.executions.forEach(function(exec) {
+                    const executionId = exec.execution_id;
+                    const workflowName = exec.workflow_name || 'Unknown Workflow';
+                    const currentStep = exec.current_step !== null ? exec.current_step : 'N/A';
+                    const status = exec.status || 'running';
+                    const startedAt = exec.started_at ? formatDate(exec.started_at) : 'N/A';
+                    const startedBy = exec.started_by || 'Unknown';
+
+                    let statusBadge = 'bg-info';
+                    if (status === 'running') statusBadge = 'badge-running';
+                    else if (status === 'completed') statusBadge = 'badge-completed';
+                    else if (status === 'failed') statusBadge = 'badge-failed';
+
+                    tbody.append(`
+                        <tr data-execution-id="${executionId}">
+                            <td><small>${workflowName}</small></td>
+                            <td><span class="badge bg-secondary">Step ${currentStep !== 'N/A' ? parseInt(currentStep) + 1 : 'N/A'}</span></td>
+                            <td><span class="badge ${statusBadge}">${status}</span></td>
+                            <td><small>${startedAt}</small></td>
+                            <td><small>${startedBy}</small></td>
+                        </tr>
+                    `);
+                });
+            }
+
+            $('#workflow-executions-loading').hide();
+            $('#workflow-executions-container').show();
+        })
+        .fail(function(xhr, status, error) {
+            $('#workflow-executions-loading').hide();
+            $('#workflow-executions-container').show();
+            $('#no-workflow-executions').html('<i class="fas fa-exclamation-triangle"></i> Error loading workflow executions: ' + error).show();
+            $('#workflow-executions-container').find('table').hide();
         });
 }

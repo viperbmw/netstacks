@@ -1,0 +1,25 @@
+name: "Test Workflow - Simple Ping Check"
+description: "Test workflow to verify devices are reachable"
+devices:
+  - bms01-bidev.nae05.gi-nw.viasat.io
+  - dmsp01-cidev.nae05.gi-nw.viasat.io
+
+steps:
+  - name: "Ping Devices"
+    type: check_ping
+    on_success: send_success
+    on_failure: send_failure
+
+  - name: "Send Success Email"
+    id: send_success
+    type: email
+    to: "ops@test.com"
+    subject: "Test Workflow Success"
+    body: "All devices are reachable at {timestamp}"
+
+  - name: "Send Failure Email"
+    id: send_failure
+    type: email
+    to: "ops@test.com"
+    subject: "Test Workflow Failed"
+    body: "Some devices are not reachable"

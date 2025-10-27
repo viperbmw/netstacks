@@ -1,0 +1,31 @@
+# Simple Example Workflow
+# Basic workflow showing the most common pattern
+
+name: "Simple BGP Check"
+description: "Check BGP neighbors and send email"
+
+devices:
+  - router1
+  - router2
+
+steps:
+  # Check BGP
+  - name: "Check BGP Status"
+    type: check_bgp
+    expect_neighbor_count: 2
+    on_failure: send_alert
+
+  # Send success notification
+  - name: "Send Success Notification"
+    type: email
+    to: "neteng@company.com"
+    subject: "BGP Check Passed"
+    body: "All BGP neighbors are up on {workflow_name}"
+
+  # Alert on failure
+  - name: "Send Alert"
+    id: send_alert
+    type: email
+    to: "oncall@company.com"
+    subject: "BGP Check Failed!"
+    body: "BGP neighbor count mismatch detected"

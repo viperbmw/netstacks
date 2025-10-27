@@ -353,6 +353,40 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_steps_mop ON mop_steps(mop_id, step_order)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_executions_mop ON mop_executions(mop_id)')
 
+    # Workflow tables (YAML-based workflow engine)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS workflows (
+            workflow_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            yaml_content TEXT NOT NULL,
+            devices TEXT,
+            enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by TEXT
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS workflow_executions (
+            execution_id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            current_step INTEGER DEFAULT 0,
+            execution_log TEXT,
+            context TEXT,
+            error TEXT,
+            started_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            started_by TEXT,
+            FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id)
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_workflow_executions_workflow ON workflow_executions(workflow_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_workflow_executions_status ON workflow_executions(status)')
+
     # Initialize default menu items if table is empty
     cursor.execute("SELECT COUNT(*) FROM menu_items")
     if cursor.fetchone()[0] == 0:
@@ -377,6 +411,14 @@ def init_db():
         cursor.execute('''
             INSERT INTO menu_items (item_id, label, icon, url, order_index, visible)
             VALUES ('mop', 'Procedures (MOP)', 'list-check', '/mop', 7, 1)
+        ''')
+
+    # Migration: Add Workflows menu item if it doesn't exist
+    cursor.execute("SELECT COUNT(*) FROM menu_items WHERE item_id = 'workflows'")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute('''
+            INSERT INTO menu_items (item_id, label, icon, url, order_index, visible)
+            VALUES ('workflows', 'Workflows', 'sitemap', '/workflows', 8, 1)
         ''')
 
     conn.commit()
