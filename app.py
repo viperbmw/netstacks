@@ -5121,13 +5121,19 @@ def execute_workflow_api(workflow_id):
                             device_conn_info = get_device_connection_info(device_name)
                             if device_conn_info:
                                 # Extract relevant info for workflow context
+                                # Match the format expected by execute_getconfig_step
+                                conn_args = device_conn_info.get('connection_args', {})
+                                device_info = device_conn_info.get('device_info', {})
+
                                 context['devices'][device_name] = {
                                     'name': device_name,
-                                    'ip_address': device_conn_info.get('ip'),
-                                    'primary_ip4': device_conn_info.get('ip'),
-                                    'platform': device_conn_info.get('platform'),
-                                    'site': device_conn_info.get('site', {}).get('name') if isinstance(device_conn_info.get('site'), dict) else None
+                                    'ip_address': conn_args.get('host', device_name),
+                                    'primary_ip4': conn_args.get('host', device_name),
+                                    'platform': conn_args.get('device_type', 'cisco_ios'),
+                                    'site': device_info.get('site'),
+                                    'nornir_platform': conn_args.get('device_type')
                                 }
+                                log.info(f"Loaded device {device_name} for workflow: ip={conn_args.get('host')}, platform={conn_args.get('device_type')}")
                         except Exception as e:
                             log.warning(f"Could not get device info for {device_name}: {e}")
                             # Add basic device info with just the name
