@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}Procedures (MOP) - NetStacks{% endblock %}
+{% block title %}MOPs - NetStacks{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-md-12">
         <h1 class="mb-4">
-            <i class="fas fa-list-check"></i> Method of Procedures (MOP)
+            <i class="fas fa-sitemap"></i> MOPs
         </h1>
+        <p class="text-muted">YAML-based mop automation with conditional logic</p>
     </div>
 </div>
 
@@ -16,7 +17,7 @@
     <div class="col-md-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-folder"></i> Saved Procedures</h5>
+                <h5 class="mb-0"><i class="fas fa-folder"></i> Saved MOPs</h5>
                 <button class="btn btn-sm btn-primary" id="create-mop-btn">
                     <i class="fas fa-plus"></i> New
                 </button>
@@ -29,6 +30,26 @@
                 </div>
             </div>
         </div>
+
+        <!-- Example Templates -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-lightbulb"></i> Example Templates</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    <a href="#" class="list-group-item list-group-item-action load-example" data-example="maintenance">
+                        <i class="fas fa-tools"></i> Maintenance Window
+                    </a>
+                    <a href="#" class="list-group-item list-group-item-action load-example" data-example="simple">
+                        <i class="fas fa-check"></i> Simple BGP Check
+                    </a>
+                    <a href="#" class="list-group-item list-group-item-action load-example" data-example="custom">
+                        <i class="fas fa-code"></i> Custom Python Validation
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- MOP Editor -->
@@ -36,14 +57,14 @@
         <div id="no-mop-selected" class="card">
             <div class="card-body text-center text-muted py-5">
                 <i class="fas fa-arrow-left fa-3x mb-3"></i>
-                <h4>No Procedure Selected</h4>
-                <p>Select a procedure from the list or create a new one</p>
+                <h4>No MOP Selected</h4>
+                <p>Select a mop from the list, create a new one, or load an example</p>
             </div>
         </div>
 
         <div id="mop-editor" class="card" style="display: none;">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-edit"></i> <span id="mop-title">Procedure Editor</span></h5>
+                <h5 class="mb-0"><i class="fas fa-edit"></i> <span id="mop-title">MOP Editor</span></h5>
                 <div>
                     <button class="btn btn-sm btn-success" id="execute-mop-btn">
                         <i class="fas fa-play"></i> Execute
@@ -60,484 +81,255 @@
                 <input type="hidden" id="current-mop-id">
 
                 <div class="mb-3">
-                    <label for="mop-name" class="form-label">Procedure Name</label>
-                    <input type="text" class="form-control" id="mop-name" placeholder="My Network Change Procedure">
+                    <label for="mop-name" class="form-label">MOP Name</label>
+                    <input type="text" class="form-control" id="mop-name" placeholder="My Network MOP">
                 </div>
 
                 <div class="mb-3">
                     <label for="mop-description" class="form-label">Description</label>
-                    <textarea class="form-control" id="mop-description" rows="2" placeholder="Brief description of this procedure"></textarea>
+                    <textarea class="form-control" id="mop-description" rows="2" placeholder="Brief description of this mop"></textarea>
                 </div>
 
+                <!-- Visual Builder Toggle -->
                 <div class="mb-3">
-                    <label for="mop-devices" class="form-label">
-                        <i class="fas fa-server"></i> Target Devices
-                    </label>
-                    <div class="input-group mb-2">
-                        <select class="form-select" id="mop-device-dropdown">
-                            <option value="">Select a device...</option>
-                        </select>
-                        <button class="btn btn-outline-primary" type="button" id="add-mop-device-btn">
-                            <i class="fas fa-plus"></i> Add
+                    <ul class="nav nav-tabs" id="editor-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="visual-tab" data-bs-toggle="tab" data-bs-target="#visual-builder" type="button">
+                                <i class="fas fa-grip-vertical"></i> Visual Builder
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="yaml-tab" data-bs-toggle="tab" data-bs-target="#yaml-editor" type="button">
+                                <i class="fas fa-code"></i> YAML Editor
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="tab-content" id="editor-tab-content">
+                    <!-- Visual Builder Tab -->
+                    <div class="tab-pane fade show active" id="visual-builder" role="tabpanel">
+                        <!-- Device Selector -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <strong><i class="fas fa-server"></i> Target Devices</strong>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-2">
+                                    <div class="col-md-9">
+                                        <select class="form-select" id="mop-device-dropdown">
+                                            <option value="">Loading devices...</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-success w-100" id="add-device-btn">
+                                            <i class="fas fa-plus"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="selected-devices-list" class="list-group">
+                                    <div class="text-muted text-center p-2">
+                                        <small>No devices added yet</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Steps Card -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <strong><i class="fas fa-list"></i> Steps</strong>
+                                <button class="btn btn-sm btn-success float-end" id="add-step-btn">
+                                    <i class="fas fa-plus"></i> Add Step
+                                </button>
+                            </div>
+                            <div class="card-body p-2">
+                                <div id="visual-steps-list" class="list-group list-group-flush">
+                                    <div class="text-center text-muted p-3">
+                                        No steps added yet. Click "Add Step" to begin.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" id="generate-yaml-btn">
+                            <i class="fas fa-arrow-right"></i> Generate YAML
+                        </button>
+                        <button class="btn btn-outline-secondary ms-2" id="load-from-yaml-btn">
+                            <i class="fas fa-arrow-left"></i> Load from YAML
                         </button>
                     </div>
-                    <div id="mop-devices-list" class="border rounded p-2" style="min-height: 100px; max-height: 200px; overflow-y: auto;">
-                        <small class="text-muted">No devices added yet</small>
-                    </div>
-                    <small class="form-text text-muted">
-                        Add devices to this procedure. Steps can only use these devices.
-                    </small>
-                </div>
 
-                <!-- Variables Info -->
-                <div id="mop-variables-info" class="alert alert-info" style="display: none;">
-                    <strong><i class="fas fa-code"></i> Variables detected:</strong>
-                    <span id="mop-variables-list"></span>
+                    <!-- YAML Editor Tab -->
+                    <div class="tab-pane fade" id="yaml-editor" role="tabpanel">
+                        <div class="mb-3">
+                            <label for="mop-yaml" class="form-label">
+                                <i class="fas fa-code"></i> YAML Definition
+                                <a href="#" id="show-yaml-help" class="text-muted ms-2" data-bs-toggle="collapse" data-bs-target="#yaml-help">
+                                    <i class="fas fa-question-circle"></i> Help
+                                </a>
+                            </label>
+
+                    <!-- YAML Help Panel -->
+                    <div class="collapse" id="yaml-help">
+                        <div class="alert alert-info">
+                            <strong>YAML MOP Syntax:</strong>
+                            <pre class="mb-0" style="font-size: 12px;">name: "My MOP"
+description: "What this mop does"
+devices:
+  - device1.example.com
+  - device2.example.com
+
+steps:
+  - name: "Check BGP Neighbors"
+    id: check_bgp
+    type: check_bgp
+    expect_neighbor_count: 4
+    compare_to_netbox: true
+    on_success: deploy_stack
+    on_failure: send_alert
+
+  - name: "Deploy Stack"
+    id: deploy_stack
+    type: deploy_stack
+    stack_id: "my-stack-id"
+    on_success: send_success
+    on_failure: send_alert
+
+  - name: "Send Success Email"
+    id: send_success
+    type: email
+    to: "ops@company.com"
+    subject: "Deployment Complete"
+    body: "Deployed at {timestamp}"
+
+  - name: "Send Alert"
+    id: send_alert
+    type: email
+    to: "oncall@company.com"
+    subject: "MOP Failed"
+
+<strong>Available Step Types:</strong>
+- check_bgp, check_ping, check_interfaces
+- deploy_stack, run_command
+- email, webhook
+- custom_python, wait
+
+<strong>Variables:</strong>
+Use {timestamp}, {mop_name}, {device_name}, etc.</pre>
+                        </div>
+                    </div>
+
+                            <textarea class="form-control font-monospace" id="mop-yaml" rows="20"
+                                      placeholder="name: My MOP&#10;description: Description here&#10;devices:&#10;  - device1&#10;  - device2&#10;&#10;steps:&#10;  - name: Step 1&#10;    type: check_bgp"></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <button class="btn btn-sm btn-outline-secondary" id="validate-yaml-btn">
+                                <i class="fas fa-check-circle"></i> Validate YAML
+                            </button>
+                            <span id="yaml-validation-result" class="ms-2"></span>
+                        </div>
+                    </div>
                 </div>
 
                 <hr>
 
-                <!-- Execution Status (appears above steps during execution) -->
-                <div id="execution-status" class="mb-3" style="display: none;"></div>
-
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="mb-0"><i class="fas fa-list-ol"></i> Steps</h6>
-                    <button class="btn btn-sm btn-outline-primary" id="add-step-btn">
-                        <i class="fas fa-plus"></i> Add Step
-                    </button>
+                <!-- Execution History -->
+                <h5><i class="fas fa-history"></i> Execution History</h5>
+                <div id="mop-executions" class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Started</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mop-executions-body">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No executions yet</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-
-                <div id="steps-container">
-                    <div class="text-center text-muted py-3">
-                        No steps added yet. Click "Add Step" to begin.
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Hidden div for compatibility (no longer used) -->
-        <div id="execution-results" style="display: none;">
-            <div id="execution-steps-results"></div>
-        </div>
-    </div>
-</div>
-
-<!-- Create MOP Modal -->
-<div class="modal fade" id="createMopModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-plus"></i> Create New Procedure</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="create-mop-form">
-                    <div class="mb-3">
-                        <label for="new-mop-name" class="form-label">Procedure Name *</label>
-                        <input type="text" class="form-control" id="new-mop-name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="new-mop-description" class="form-label">Description</label>
-                        <textarea class="form-control" id="new-mop-description" rows="3"></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label for="new-mop-devices" class="form-label">
-                            <i class="fas fa-server"></i> Target Devices
-                        </label>
-                        <div class="input-group mb-2">
-                            <select class="form-select" id="new-mop-device-dropdown">
-                                <option value="">Select a device...</option>
-                            </select>
-                            <button class="btn btn-outline-primary" type="button" id="add-new-mop-device-btn">
-                                <i class="fas fa-plus"></i> Add
-                            </button>
-                        </div>
-                        <div id="new-mop-devices-list" class="border rounded p-2" style="min-height: 80px; max-height: 150px; overflow-y: auto;">
-                            <small class="text-muted">No devices added yet</small>
-                        </div>
-                        <small class="form-text text-muted">Add devices to this procedure.</small>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="confirm-create-mop-btn">
-                    <i class="fas fa-plus"></i> Create
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Add Step Modal -->
-<div class="modal fade" id="addStepModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-plus"></i> <span id="step-modal-title">Add Step</span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="edit-step-id">
-                <input type="hidden" id="edit-step-order">
-
-                <div class="mb-3">
-                    <label for="step-name" class="form-label">Step Name *</label>
-                    <input type="text" class="form-control" id="step-name" placeholder="e.g., Check BGP Status" required>
-                </div>
-
-                <div class="mb-3">
-                    <label for="step-type" class="form-label">Step Type *</label>
-                    <select class="form-select" id="step-type" required>
-                        <option value="">Select type...</option>
-                        <option value="getconfig">Get Config - Retrieve command output</option>
-                        <option value="setconfig">Set Config - Push configuration commands</option>
-                        <option value="template">Push Template - Deploy Jinja2 template</option>
-                        <option value="deploy_stack">Deploy Stack - Deploy a service stack</option>
-                        <option value="api">API Call - Call external API</option>
-                        <option value="code">Code/Script - Process data with Python</option>
-                    </select>
-                </div>
-
-                <div class="mb-3">
-                    <label for="step-devices" class="form-label">Target Devices *</label>
-                    <div class="btn-group btn-group-sm mb-2 w-100" role="group">
-                        <input type="radio" class="btn-check" name="device-mode" id="device-mode-select" checked autocomplete="off">
-                        <label class="btn btn-outline-primary" for="device-mode-select">
-                            <i class="fas fa-list"></i> Select Devices
-                        </label>
-                        <input type="radio" class="btn-check" name="device-mode" id="device-mode-variable" autocomplete="off">
-                        <label class="btn btn-outline-primary" for="device-mode-variable">
-                            <i class="fas fa-code"></i> Use Variable
-                        </label>
-                    </div>
-                    <select class="form-select" id="step-devices" multiple size="8" required>
-                        <option value="">Loading devices...</option>
-                    </select>
-                    <input type="text" class="form-control" id="step-devices-variable" placeholder="{{devices}}" style="display:none;">
-                    <small class="form-text text-muted" id="device-select-help">Hold Ctrl/Cmd to select multiple devices</small>
-                    <small class="form-text text-muted" id="device-variable-help" style="display:none;">
-                        Use <code>{{'{{'}}variable{{'}}'}}</code> syntax. You'll be prompted to select devices at runtime.
-                    </small>
-                </div>
-
-                <!-- Variable Reference Helper -->
-                <div class="mb-3">
-                    <button class="btn btn-sm btn-outline-info w-100" type="button" data-bs-toggle="collapse" data-bs-target="#variableHelperCollapse">
-                        <i class="fas fa-question-circle"></i> Variable Reference Guide
-                    </button>
-                    <div class="collapse mt-2" id="variableHelperCollapse">
-                        <div class="card card-body small">
-                            <h6><i class="fas fa-info-circle"></i> Understanding MOP Variables</h6>
-
-                            <div class="mb-3">
-                                <strong>Device-Centric Structure:</strong>
-                                <p class="mb-1">All data is organized by device name first, then by step:</p>
-                                <code>mop.devices.DEVICE_NAME.stepX.output</code>
-                            </div>
-
-                            <div class="mb-3">
-                                <strong>Available Variables:</strong>
-                                <table class="table table-sm">
-                                    <thead>
-                                        <tr>
-                                            <th>Variable</th>
-                                            <th>Description</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td><code>{{'{{'}}mop.devices.DEVICE_NAME.name{{'}}'}}</code></td>
-                                            <td>Device name</td>
-                                        </tr>
-                                        <tr>
-                                            <td><code>{{'{{'}}mop.devices.DEVICE_NAME.site{{'}}'}}</code></td>
-                                            <td>Device site/location</td>
-                                        </tr>
-                                        <tr>
-                                            <td><code>{{'{{'}}mop.devices.DEVICE_NAME.ip_address{{'}}'}}</code></td>
-                                            <td>Device IP address</td>
-                                        </tr>
-                                        <tr>
-                                            <td><code>{{'{{'}}mop.devices.DEVICE_NAME.device_type{{'}}'}}</code></td>
-                                            <td>Device type/model</td>
-                                        </tr>
-                                        <tr>
-                                            <td><code>{{'{{'}}mop.devices.DEVICE_NAME.step0.output{{'}}'}}</code></td>
-                                            <td>Output from step 0 for this device</td>
-                                        </tr>
-                                        <tr>
-                                            <td><code>{{'{{'}}mop.devices.DEVICE_NAME.step0.status{{'}}'}}</code></td>
-                                            <td>Status of step 0 for this device</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div class="mb-3">
-                                <strong>Step Outputs:</strong>
-                                <ul class="mb-1">
-                                    <li><strong>GetConfig/SetConfig/Template:</strong> Runs per-device, stores output at <code>mop.devices.DEVICE_NAME.stepX.output</code></li>
-                                    <li><strong>API:</strong> Runs once for entire MOP, stores result at <code>stepX.result</code></li>
-                                    <li><strong>Code:</strong> Runs once, can access all devices via <code>mop['devices']</code>, stores result at <code>stepX.result</code></li>
-                                </ul>
-                            </div>
-
-                            <div class="alert alert-warning mb-2">
-                                <strong><i class="fas fa-exclamation-triangle"></i> Important:</strong> Replace <code>DEVICE_NAME</code> with the actual device name (e.g., <code>router01</code>).
-                                You must know the device name to reference it in API/Code steps.
-                            </div>
-
-                            <div>
-                                <strong>Code Step Example (Loop All Devices):</strong>
-                                <pre class="bg-body-secondary p-2 rounded mb-0"><code># Loop through all devices selected in the MOP
-for device_name, device in mop['devices'].items():
-    output = device.get('step0', {}).get('output', '')
-    site = device.get('site', '')
-    print(f"{device_name} at {site}: {output}")
-
-result = {'processed': True}</code></pre>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- GetConfig Configuration -->
-                <div id="getconfig-config" style="display: none;">
-                    <h6 class="border-top pt-3">Get Config Options</h6>
-                    <div class="mb-3">
-                        <label for="getconfig-command" class="form-label">Command *</label>
-                        <input type="text" class="form-control" id="getconfig-command" placeholder="show running-config">
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="getconfig-cache">
-                        <label class="form-check-label" for="getconfig-cache">Enable Cache</label>
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="getconfig-textfsm">
-                        <label class="form-check-label" for="getconfig-textfsm">Use TextFSM</label>
-                    </div>
-                </div>
-
-                <!-- SetConfig Configuration -->
-                <div id="setconfig-config" style="display: none;">
-                    <h6 class="border-top pt-3">Set Config Options</h6>
-                    <div class="mb-3">
-                        <label for="setconfig-commands" class="form-label">Configuration Commands *</label>
-                        <textarea class="form-control font-monospace" id="setconfig-commands" rows="8" placeholder="interface GigabitEthernet0/1&#10;  description Configured via MOP&#10;  no shutdown"></textarea>
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="setconfig-dryrun">
-                        <label class="form-check-label" for="setconfig-dryrun">Dry Run (validate only)</label>
-                    </div>
-                </div>
-
-                <!-- Template Configuration -->
-                <div id="template-config" style="display: none;">
-                    <h6 class="border-top pt-3">Template Options</h6>
-                    <div class="mb-3">
-                        <label for="template-select" class="form-label">Select Template *</label>
-                        <select class="form-select" id="template-select">
-                            <option value="">Loading templates...</option>
-                        </select>
-                    </div>
-                    <div id="template-vars-container"></div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="template-dryrun">
-                        <label class="form-check-label" for="template-dryrun">Dry Run (validate only)</label>
-                    </div>
-                </div>
-
-                <!-- Deploy Stack Configuration -->
-                <div id="deploy-stack-config" style="display: none;">
-                    <h6 class="border-top pt-3">Deploy Stack Options</h6>
-                    <div class="alert alert-info small">
-                        <i class="fas fa-info-circle"></i> Deploy an existing service stack. The stack must be created beforehand in the Service Stacks page.
-                    </div>
-                    <div class="mb-3">
-                        <label for="stack-select" class="form-label">Select Service Stack *</label>
-                        <select class="form-select" id="stack-select">
-                            <option value="">Loading stacks...</option>
-                        </select>
-                        <small class="form-text text-muted">Choose a service stack to deploy</small>
-                    </div>
-                    <div id="stack-info-container" style="display:none;">
-                        <div class="alert alert-secondary small">
-                            <strong>Stack Details:</strong>
-                            <div id="stack-info-details"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- API Call Configuration -->
-                <div id="api-config" style="display: none;">
-                    <h6 class="border-top pt-3">API Call Options</h6>
-
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i> <strong>Simple Variable Reference:</strong>
-                        <ul class="mb-0 mt-2 small">
-                            <li><code>{{'{{'}}step0.output{{'}}'}}</code> - Output from step 0 (when using "For Each")</li>
-                            <li><code>{{'{{'}}step0.devices.router1.output{{'}}'}}</code> - Specific device output</li>
-                            <li><code>{{'{{'}}step1.result{{'}}'}}</code> - Result from a code step</li>
-                        </ul>
-                    </div>
-
-                    <!-- API Resource Selector -->
-                    <div class="mb-3">
-                        <label for="api-resource" class="form-label">
-                            <i class="fas fa-plug"></i> API Resource *
-                            <a href="/settings" target="_blank" class="text-decoration-none small ms-2">
-                                <i class="fas fa-cog"></i> Manage Resources
-                            </a>
-                        </label>
-                        <select class="form-select" id="api-resource" required>
-                            <option value="">-- Select an API Resource --</option>
-                        </select>
-                        <small class="form-text text-muted">Select a saved API resource (URL, auth configured in Settings)</small>
-                    </div>
-
-                    <!-- Resource Info Display -->
-                    <div class="mb-3" id="api-resource-info" style="display:none;">
-                        <div class="alert alert-secondary small mb-0">
-                            <strong>Base URL:</strong> <span id="resource-base-url"></span><br>
-                            <strong>Auth:</strong> <span id="resource-auth-type"></span>
-                        </div>
-                    </div>
-
-                    <!-- Endpoint Path -->
-                    <div class="mb-3">
-                        <label for="api-endpoint" class="form-label">Endpoint Path *</label>
-                        <input type="text" class="form-control" id="api-endpoint" placeholder="/api/devices/{{device}}" required>
-                        <small class="form-text text-muted">
-                            Path to append to the resource base URL<br>
-                            <i class="fas fa-lightbulb text-warning"></i> <strong>Tip:</strong> Use <code>{{'{{'}}variable{{'}}'}}</code> for substitution from previous steps
-                        </small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="api-method" class="form-label">HTTP Method</label>
-                        <select class="form-select" id="api-method">
-                            <option value="GET">GET</option>
-                            <option value="POST">POST</option>
-                            <option value="PUT">PUT</option>
-                            <option value="DELETE">DELETE</option>
-                            <option value="PATCH">PATCH</option>
-                        </select>
-                    </div>
-
-                    <!-- Request Body (shown for POST/PUT/PATCH) -->
-                    <div class="mb-3" id="api-body-group">
-                        <label for="api-body" class="form-label">Request Body (JSON)</label>
-                        <textarea class="form-control font-monospace" id="api-body" rows="6" placeholder='{"name": "{{device}}", "data": "{{step0_router1_output}}"}'></textarea>
-                        <small class="form-text text-muted">
-                            JSON body to send with POST/PUT/PATCH requests<br>
-                            <i class="fas fa-lightbulb text-warning"></i> <strong>Tip:</strong> Use <code>{{'{{'}}variable{{'}}'}}</code> for dynamic substitution
-                        </small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="api-jsonpath" class="form-label">JSONPath (Optional)</label>
-                        <input type="text" class="form-control" id="api-jsonpath" placeholder="$.data.ip_address">
-                        <small class="form-text text-muted">Path to extract specific value from API response (e.g., $.data.ip_address)</small>
-                    </div>
-
-                    <!-- Test API Section -->
-                    <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label mb-0"><strong>Test API Configuration</strong></label>
-                        </div>
-
-                        <!-- Test variable values -->
-                        <div class="mb-2" id="mop-test-variables-container" style="display:none;">
-                            <label class="form-label small">Test Variable Values</label>
-                            <div id="mop-test-variables-inputs"></div>
-                        </div>
-
-                        <button type="button" class="btn btn-sm btn-primary w-100" id="mop-test-api-btn">
-                            <i class="fas fa-flask"></i> Test API Call
-                        </button>
-
-                        <div id="mop-api-test-result" class="mt-2" style="display:none;">
-                            <!-- Test results will be shown here -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Code/Script Configuration -->
-                <div id="code-config" style="display: none;">
-                    <h6 class="border-top pt-3">Code/Script Options</h6>
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i> <strong>Device-centric access:</strong>
-                        <ul class="mb-0 mt-2 small">
-                            <li><code>mop['devices']['router01']['step0']['output']</code> - Specific device step output</li>
-                            <li><code>mop['devices']['router01']['site']</code> - Device metadata (site, ip_address, etc.)</li>
-                            <li><code>for device in mop['devices'].values():</code> - Loop through all devices</li>
-                        </ul>
-                    </div>
-                    <div class="mb-3">
-                        <label for="code-script" class="form-label">Python Code *</label>
-                        <textarea class="form-control font-monospace" id="code-script" rows="12" placeholder="# Example: Extract hostname from each device&#10;hostnames = {}&#10;for device_name, device in mop['devices'].items():&#10;    output = str(device.get('step0', {}).get('output', ''))&#10;    # Parse hostname&#10;    import re&#10;    match = re.search(r'hostname (\S+)', output)&#10;    hostnames[device_name] = match.group(1) if match else 'unknown'&#10;&#10;result = {'hostnames': hostnames}"></textarea>
-                        <small class="form-text text-muted">Store output in <code>result</code> dict. Available: mop, json, re modules</small>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="confirm-add-step-btn">
-                    <i class="fas fa-check"></i> <span id="step-confirm-text">Add Step</span>
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Execute MOP Variables Modal -->
-<div class="modal fade" id="executeMopModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-play"></i> Execute Procedure</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i> Provide runtime variables for this execution
-                </div>
-
-                <div id="execution-variables-container">
-                    <!-- Variables will be dynamically added here -->
-                </div>
-
-                <div id="no-variables-message" style="display: none;">
-                    <p class="text-muted">No variables detected in this procedure. Click Execute to run.</p>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="confirm-execute-mop-btn">
-                    <i class="fas fa-play"></i> Execute
-                </button>
             </div>
         </div>
     </div>
 </div>
 
 <!-- Execution Details Modal -->
-<div class="modal fade" id="executionDetailsModal" tabindex="-1">
+<div class="modal fade" id="executionModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-info-circle"></i> Step Execution Details</h5>
+                <h5 class="modal-title"><i class="fas fa-list"></i> MOP Execution Details</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <pre id="execution-detail-content" class="p-3 border rounded bg-body-secondary" style="max-height: 600px; overflow-y: auto;"></pre>
+                <div id="execution-details-content">
+                    <div class="text-center">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="copy-result-btn">
-                    <i class="fas fa-copy"></i> Copy
+                <button type="button" class="btn btn-primary" id="copy-execution-log">
+                    <i class="fas fa-copy"></i> Copy Log
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Step Modal -->
+<div class="modal fade" id="stepModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Step</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="step-form">
+                    <input type="hidden" id="step-index">
+
+                    <div class="mb-3">
+                        <label class="form-label">Step Name *</label>
+                        <input type="text" class="form-control" id="step-name" required>
+                        <small class="text-muted">A descriptive name for this step</small>
+                    </div>
+
+                    <input type="hidden" id="step-id">
+
+                    <div class="mb-3">
+                        <label class="form-label">Step Type *</label>
+                        <select class="form-select" id="step-type" required>
+                            <option value="">-- Select Type --</option>
+                        </select>
+                    </div>
+
+                    <!-- Dynamic parameters container -->
+                    <div id="dynamic-params-container" class="mb-3">
+                        <p class="text-muted"><small>Select a step type to see available parameters</small></p>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">On Success (Step ID)</label>
+                            <input type="text" class="form-control" id="step-on-success">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">On Failure (Step ID)</label>
+                            <input type="text" class="form-control" id="step-on-failure">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-step-btn">Save Step</button>
             </div>
         </div>
     </div>
@@ -546,5 +338,7 @@ result = {'processed': True}</code></pre>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/mop.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="/static/js/mops.js"></script>
+<script src="/static/js/visual-builder.js"></script>
 {% endblock %}

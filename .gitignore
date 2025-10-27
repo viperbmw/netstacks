@@ -50,3 +50,12 @@ Thumbs.db
 # Temporary files
 *.tmp
 /tmp/
+
+# Unnecessary directories
+/netstacker/
+/workflows/
+/data/
+*.backup
+*_README.md
+test_*.py
+*_SUMMARY.md

@@ -1,12 +1,12 @@
 /**
- * Workflows Management UI
- * YAML-based workflow engine interface
+ * MOPs Management UI
+ * YAML-based mop engine interface
  */
 
-let currentWorkflowId = null;
-let workflows = [];
+let currentMOPId = null;
+let mops = [];
 
-// Example workflow templates
+// Example mop templates
 const WORKFLOW_EXAMPLES = {
     maintenance: `name: "Maintenance Window - Deploy Customer VPN"
 description: "Check prerequisites, deploy stack, send notifications"
@@ -53,15 +53,15 @@ steps:
     id: send_success_email
     type: email
     to: "ops@company.com"
-    subject: "Maintenance Complete - {workflow_name}"
+    subject: "Maintenance Complete - {mop_name}"
     body: "Deployment successful at {timestamp}"
 
   - name: "Send Failure Email"
     id: send_failure_email
     type: email
     to: "oncall@company.com"
-    subject: "Maintenance Failed - {workflow_name}"
-    body: "Workflow failed. Check logs for details."`,
+    subject: "Maintenance Failed - {mop_name}"
+    body: "MOP failed. Check logs for details."`,
 
     simple: `name: "Simple BGP Check and Alert"
 description: "Check BGP neighbors and send email if there's an issue"
@@ -131,21 +131,26 @@ steps:
 };
 
 $(document).ready(function() {
-    loadWorkflows();
+    loadMOPs();
 
-    // Create new workflow
-    $('#create-workflow-btn').click(function() {
-        currentWorkflowId = null;
-        $('#current-workflow-id').val('');
-        $('#workflow-name').val('');
-        $('#workflow-description').val('');
-        $('#workflow-yaml').val('');
-        $('#workflow-executions-body').html('<tr><td colspan="4" class="text-center text-muted">No executions yet</td></tr>');
+    // Create new mop
+    $('#create-mop-btn').click(function() {
+        currentMOPId = null;
+        $('#current-mop-id').val('');
+        $('#mop-name').val('');
+        $('#mop-description').val('');
+        $('#mop-yaml').val('');
+        $('#mop-executions-body').html('<tr><td colspan="4" class="text-center text-muted">No executions yet</td></tr>');
 
-        $('#no-workflow-selected').hide();
-        $('#workflow-editor').show();
-        $('#workflow-title').text('New Workflow');
-        $('#delete-workflow-btn').hide();
+        // Clear Visual Builder
+        if (typeof clearVisualBuilder === 'function') {
+            clearVisualBuilder();
+        }
+
+        $('#no-mop-selected').hide();
+        $('#mop-editor').show();
+        $('#mop-title').text('New MOP');
+        $('#delete-mop-btn').hide();
     });
 
     // Load example templates
@@ -155,44 +160,44 @@ $(document).ready(function() {
         const yamlContent = WORKFLOW_EXAMPLES[exampleType];
 
         if (yamlContent) {
-            currentWorkflowId = null;
-            $('#current-workflow-id').val('');
+            currentMOPId = null;
+            $('#current-mop-id').val('');
 
             // Parse YAML to get name
             const nameMatch = yamlContent.match(/name:\s*"([^"]+)"/);
             const descMatch = yamlContent.match(/description:\s*"([^"]+)"/);
 
-            $('#workflow-name').val(nameMatch ? nameMatch[1] : 'Example Workflow');
-            $('#workflow-description').val(descMatch ? descMatch[1] : '');
-            $('#workflow-yaml').val(yamlContent);
-            $('#workflow-executions-body').html('<tr><td colspan="4" class="text-center text-muted">No executions yet</td></tr>');
+            $('#mop-name').val(nameMatch ? nameMatch[1] : 'Example MOP');
+            $('#mop-description').val(descMatch ? descMatch[1] : '');
+            $('#mop-yaml').val(yamlContent);
+            $('#mop-executions-body').html('<tr><td colspan="4" class="text-center text-muted">No executions yet</td></tr>');
 
-            $('#no-workflow-selected').hide();
-            $('#workflow-editor').show();
-            $('#workflow-title').text('Example: ' + (nameMatch ? nameMatch[1] : 'Workflow'));
-            $('#delete-workflow-btn').hide();
+            $('#no-mop-selected').hide();
+            $('#mop-editor').show();
+            $('#mop-title').text('Example: ' + (nameMatch ? nameMatch[1] : 'MOP'));
+            $('#delete-mop-btn').hide();
         }
     });
 
-    // Save workflow
-    $('#save-workflow-btn').click(function() {
-        saveWorkflow();
+    // Save mop
+    $('#save-mop-btn').click(function() {
+        saveMOP();
     });
 
-    // Delete workflow
-    $('#delete-workflow-btn').click(function() {
-        if (confirm('Are you sure you want to delete this workflow?')) {
-            deleteWorkflow(currentWorkflowId);
+    // Delete mop
+    $('#delete-mop-btn').click(function() {
+        if (confirm('Are you sure you want to delete this mop?')) {
+            deleteMOP(currentMOPId);
         }
     });
 
-    // Execute workflow
-    $('#execute-workflow-btn').click(function() {
-        if (!currentWorkflowId) {
-            alert('Please save the workflow first before executing');
+    // Execute mop
+    $('#execute-mop-btn').click(function() {
+        if (!currentMOPId) {
+            alert('Please save the mop first before executing');
             return;
         }
-        executeWorkflow(currentWorkflowId);
+        executeMOP(currentMOPId);
     });
 
     // Validate YAML
@@ -201,46 +206,46 @@ $(document).ready(function() {
     });
 });
 
-function loadWorkflows() {
-    $.get('/api/workflows')
+function loadMOPs() {
+    $.get('/api/mops')
         .done(function(data) {
             if (data.success) {
-                workflows = data.workflows;
-                renderWorkflowsList();
+                mops = data.mops;
+                renderMOPsList();
             }
         })
         .fail(function() {
-            $('#workflows-list').html('<div class="p-3 text-danger">Error loading workflows</div>');
+            $('#mops-list').html('<div class="p-3 text-danger">Error loading mops</div>');
         });
 }
 
-function renderWorkflowsList() {
-    const container = $('#workflows-list');
+function renderMOPsList() {
+    const container = $('#mops-list');
     container.empty();
 
-    if (workflows.length === 0) {
-        container.html('<div class="p-3 text-muted text-center">No workflows yet</div>');
+    if (mops.length === 0) {
+        container.html('<div class="p-3 text-muted text-center">No mops yet</div>');
         return;
     }
 
-    workflows.forEach(workflow => {
+    mops.forEach(mop => {
         const item = $('<a>')
             .addClass('list-group-item list-group-item-action')
             .attr('href', '#')
-            .data('workflow-id', workflow.workflow_id)
+            .data('mop-id', mop.mop_id)
             .html(`
                 <div class="d-flex w-100 justify-content-between">
-                    <h6 class="mb-1">${escapeHtml(workflow.name)}</h6>
-                    <small class="text-muted">${formatDate(workflow.created_at)}</small>
+                    <h6 class="mb-1">${escapeHtml(mop.name)}</h6>
+                    <small class="text-muted">${formatDate(mop.created_at)}</small>
                 </div>
-                ${workflow.description ? `<p class="mb-1 small text-muted">${escapeHtml(workflow.description)}</p>` : ''}
+                ${mop.description ? `<p class="mb-1 small text-muted">${escapeHtml(mop.description)}</p>` : ''}
             `)
             .click(function(e) {
                 e.preventDefault();
-                loadWorkflow(workflow.workflow_id);
+                loadMOP(mop.mop_id);
             });
 
-        if (currentWorkflowId === workflow.workflow_id) {
+        if (currentMOPId === mop.mop_id) {
             item.addClass('active');
         }
 
@@ -248,44 +253,49 @@ function renderWorkflowsList() {
     });
 }
 
-function loadWorkflow(workflowId) {
-    $.get(`/api/workflows/${workflowId}`)
+function loadMOP(mopId) {
+    $.get(`/api/mops/${mopId}`)
         .done(function(data) {
             if (data.success) {
-                const workflow = data.workflow;
-                currentWorkflowId = workflowId;
+                const mop = data.mop;
+                currentMOPId = mopId;
 
-                $('#current-workflow-id').val(workflowId);
-                $('#workflow-name').val(workflow.name);
-                $('#workflow-description').val(workflow.description || '');
-                $('#workflow-yaml').val(workflow.yaml_content);
+                $('#current-mop-id').val(mopId);
+                $('#mop-name').val(mop.name);
+                $('#mop-description').val(mop.description || '');
+                $('#mop-yaml').val(mop.yaml_content);
 
-                $('#no-workflow-selected').hide();
-                $('#workflow-editor').show();
-                $('#workflow-title').text(workflow.name);
-                $('#delete-workflow-btn').show();
+                $('#no-mop-selected').hide();
+                $('#mop-editor').show();
+                $('#mop-title').text(mop.name);
+                $('#delete-mop-btn').show();
+
+                // Load YAML into Visual Builder
+                if (typeof loadYAMLIntoVisualBuilder === 'function') {
+                    loadYAMLIntoVisualBuilder(mop.yaml_content);
+                }
 
                 // Load execution history
-                loadWorkflowExecutions(workflowId);
+                loadMOPExecutions(mopId);
 
                 // Update list highlighting
-                renderWorkflowsList();
+                renderMOPsList();
             }
         });
 }
 
-function saveWorkflow() {
-    const name = $('#workflow-name').val().trim();
-    const description = $('#workflow-description').val().trim();
-    const yamlContent = $('#workflow-yaml').val().trim();
+function saveMOP() {
+    const name = $('#mop-name').val().trim();
+    const description = $('#mop-description').val().trim();
+    const yamlContent = $('#mop-yaml').val().trim();
 
     if (!name) {
-        alert('Please enter a workflow name');
+        alert('Please enter a mop name');
         return;
     }
 
     if (!yamlContent) {
-        alert('Please enter YAML workflow definition');
+        alert('Please enter YAML mop definition');
         return;
     }
 
@@ -296,88 +306,88 @@ function saveWorkflow() {
         devices: []  // Extracted from YAML
     };
 
-    if (currentWorkflowId) {
+    if (currentMOPId) {
         // Update existing
         $.ajax({
-            url: `/api/workflows/${currentWorkflowId}`,
+            url: `/api/mops/${currentMOPId}`,
             method: 'PUT',
             contentType: 'application/json',
             data: JSON.stringify(data)
         })
         .done(function() {
-            showSuccess('Workflow updated successfully');
-            loadWorkflows();
+            showSuccess('MOP updated successfully');
+            loadMOPs();
         })
         .fail(function(xhr) {
-            showError('Error updating workflow: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            showError('Error updating mop: ' + (xhr.responseJSON?.error || 'Unknown error'));
         });
     } else {
         // Create new
         $.ajax({
-            url: '/api/workflows',
+            url: '/api/mops',
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify(data)
         })
         .done(function(data) {
             if (data.success) {
-                currentWorkflowId = data.workflow_id;
-                $('#current-workflow-id').val(currentWorkflowId);
-                $('#delete-workflow-btn').show();
-                showSuccess('Workflow created successfully');
-                loadWorkflows();
+                currentMOPId = data.mop_id;
+                $('#current-mop-id').val(currentMOPId);
+                $('#delete-mop-btn').show();
+                showSuccess('MOP created successfully');
+                loadMOPs();
             }
         })
         .fail(function(xhr) {
-            showError('Error creating workflow: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            showError('Error creating mop: ' + (xhr.responseJSON?.error || 'Unknown error'));
         });
     }
 }
 
-function deleteWorkflow(workflowId) {
+function deleteMOP(mopId) {
     $.ajax({
-        url: `/api/workflows/${workflowId}`,
+        url: `/api/mops/${mopId}`,
         method: 'DELETE'
     })
     .done(function() {
-        showSuccess('Workflow deleted');
-        currentWorkflowId = null;
-        $('#workflow-editor').hide();
-        $('#no-workflow-selected').show();
-        loadWorkflows();
+        showSuccess('MOP deleted');
+        currentMOPId = null;
+        $('#mop-editor').hide();
+        $('#no-mop-selected').show();
+        loadMOPs();
     })
     .fail(function(xhr) {
-        showError('Error deleting workflow: ' + (xhr.responseJSON?.error || 'Unknown error'));
+        showError('Error deleting mop: ' + (xhr.responseJSON?.error || 'Unknown error'));
     });
 }
 
-function executeWorkflow(workflowId) {
-    $('#execute-workflow-btn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Executing...');
+function executeMOP(mopId) {
+    $('#execute-mop-btn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Executing...');
 
     $.ajax({
-        url: `/api/workflows/${workflowId}/execute`,
+        url: `/api/mops/${mopId}/execute`,
         method: 'POST'
     })
     .done(function(data) {
         if (data.success) {
-            showSuccess('Workflow execution started');
+            showSuccess('MOP execution started');
 
             // Reload execution history after a short delay
             setTimeout(function() {
-                loadWorkflowExecutions(workflowId);
+                loadMOPExecutions(mopId);
             }, 1000);
         }
     })
     .fail(function(xhr) {
-        showError('Error executing workflow: ' + (xhr.responseJSON?.error || 'Unknown error'));
+        showError('Error executing mop: ' + (xhr.responseJSON?.error || 'Unknown error'));
     })
     .always(function() {
-        $('#execute-workflow-btn').prop('disabled', false).html('<i class="fas fa-play"></i> Execute');
+        $('#execute-mop-btn').prop('disabled', false).html('<i class="fas fa-play"></i> Execute');
     });
 }
 
-function loadWorkflowExecutions(workflowId) {
-    $.get(`/api/workflows/${workflowId}/executions`)
+function loadMOPExecutions(mopId) {
+    $.get(`/api/mops/${mopId}/executions`)
         .done(function(data) {
             if (data.success) {
                 renderExecutionHistory(data.executions);
@@ -386,7 +396,7 @@ function loadWorkflowExecutions(workflowId) {
 }
 
 function renderExecutionHistory(executions) {
-    const tbody = $('#workflow-executions-body');
+    const tbody = $('#mop-executions-body');
     tbody.empty();
 
     if (executions.length === 0) {
@@ -434,7 +444,7 @@ function viewExecutionDetails(executionId) {
     $('#executionModal').modal('show');
     $('#execution-details-content').html('<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</div>');
 
-    $.get(`/api/workflow-executions/${executionId}`)
+    $.get(`/api/mop-executions/${executionId}`)
         .done(function(data) {
             if (data.success) {
                 renderExecutionDetails(data.execution);
@@ -446,50 +456,68 @@ function viewExecutionDetails(executionId) {
 }
 
 function renderExecutionDetails(execution) {
+    // Build detailed execution info similar to monitor.js
     let html = `
         <div class="row mb-3">
-            <div class="col-md-4">
-                <strong>Status:</strong> ${getStatusBadge(execution.status)}
+            <div class="col-md-6">
+                <p class="mb-1"><strong>Status:</strong> ${getStatusBadge(execution.status)}</p>
+                <p class="mb-1"><strong>MOP Name:</strong> ${escapeHtml(execution.mop_name || 'Unknown')}</p>
+                <p class="mb-1"><strong>Execution ID:</strong> <small class="font-monospace">${escapeHtml(execution.execution_id)}</small></p>
+                <p class="mb-1"><strong>Current Step:</strong> ${execution.current_step !== null ? 'Step ' + (parseInt(execution.current_step) + 1) : 'N/A'}</p>
             </div>
-            <div class="col-md-4">
-                <strong>Started:</strong> ${formatDateTime(execution.started_at)}
-            </div>
-            <div class="col-md-4">
-                <strong>Duration:</strong> ${calculateDuration(execution.started_at, execution.completed_at)}
+            <div class="col-md-6">
+                <p class="mb-1"><strong>Started:</strong> ${formatDateTime(execution.started_at)}</p>
+                <p class="mb-1"><strong>Completed:</strong> ${execution.completed_at ? formatDateTime(execution.completed_at) : 'In Progress'}</p>
+                <p class="mb-1"><strong>Duration:</strong> ${calculateDuration(execution.started_at, execution.completed_at)}</p>
+                <p class="mb-1"><strong>Started By:</strong> ${escapeHtml(execution.started_by || 'N/A')}</p>
             </div>
         </div>
     `;
 
     if (execution.error) {
-        html += `<div class="alert alert-danger"><strong>Error:</strong> ${escapeHtml(execution.error)}</div>`;
+        html += `<div class="alert alert-danger"><strong><i class="fas fa-exclamation-triangle"></i> Error:</strong> ${escapeHtml(execution.error)}</div>`;
     }
 
+    // Format execution log with same style as monitor.js
+    html += '<h6 class="mt-3">Execution Log:</h6>';
+
     if (execution.execution_log && execution.execution_log.length > 0) {
-        html += '<h6 class="mt-3">Execution Log:</h6><div class="list-group">';
+        html += '<pre class="p-3 border rounded bg-dark text-light" style="max-height: 500px; overflow-y: auto; font-size: 0.9rem; white-space: pre-wrap; font-family: \'Courier New\', monospace;">';
 
         execution.execution_log.forEach(log => {
-            const icon = log.status === 'success' ? 'check-circle text-success' : 'times-circle text-danger';
-            html += `
-                <div class="list-group-item">
-                    <div class="d-flex w-100 justify-content-between">
-                        <h6 class="mb-1">
-                            <i class="fas fa-${icon}"></i> ${escapeHtml(log.step)}
-                        </h6>
-                        <small class="text-muted">${formatDateTime(log.timestamp)}</small>
-                    </div>
-                    ${log.message ? `<p class="mb-0 small">${escapeHtml(log.message)}</p>` : ''}
-                </div>
-            `;
+            const statusIcon = log.status === 'success' ? '✓' : log.status === 'failed' ? '✗' : '•';
+            const status = log.status ? log.status.toUpperCase() : 'UNKNOWN';
+            const timestamp = log.timestamp ? formatDateTime(log.timestamp) : '';
+
+            html += `${statusIcon} ${escapeHtml(log.step)}\n`;
+            html += `  Status: ${status}\n`;
+            if (log.message) {
+                html += `  Message: ${escapeHtml(log.message)}\n`;
+            }
+            // Show error details if step failed
+            if (log.error) {
+                html += `  Error: ${escapeHtml(log.error)}\n`;
+            }
+            // Show additional details if available
+            if (log.details) {
+                html += `  Details: ${escapeHtml(JSON.stringify(log.details))}\n`;
+            }
+            if (timestamp) {
+                html += `  Time: ${timestamp}\n`;
+            }
+            html += '\n';
         });
 
-        html += '</div>';
+        html += '</pre>';
+    } else {
+        html += '<pre class="p-3 border rounded bg-dark text-light" style="font-family: \'Courier New\', monospace;">No log available</pre>';
     }
 
     $('#execution-details-content').html(html);
 }
 
 function validateYAML() {
-    const yamlContent = $('#workflow-yaml').val();
+    const yamlContent = $('#mop-yaml').val();
     const resultSpan = $('#yaml-validation-result');
 
     try {
@@ -546,6 +574,21 @@ function formatDateTime(dateStr) {
     const date = new Date(dateStr);
     return date.toLocaleString();
 }
+
+// Copy execution log to clipboard
+$('#copy-execution-log').on('click', function() {
+    const logElement = $('#execution-details-content pre');
+    if (logElement.length > 0) {
+        const logText = logElement.text();
+        navigator.clipboard.writeText(logText).then(function() {
+            alert('Log copied to clipboard!');
+        }, function(err) {
+            alert('Failed to copy log: ' + err);
+        });
+    } else {
+        alert('No log available to copy');
+    }
+});
 
 function escapeHtml(text) {
     if (!text) return '';

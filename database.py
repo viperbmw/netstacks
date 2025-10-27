@@ -292,71 +292,46 @@ def init_db():
         )
     ''')
 
-    # MOP (Method of Procedures) tables
+    # MOP (Method of Procedures) tables - YAML-based workflow engine
+    # Migration: Rename old tables if they exist (check that _old doesn't already exist)
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mops_old'")
+    old_exists = cursor.fetchone() is not None
+
+    if not old_exists:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mops'")
+        if cursor.fetchone():
+            # Old MOP table exists and hasn't been renamed yet
+            try:
+                cursor.execute("ALTER TABLE mops RENAME TO mops_old")
+                log.info("Renamed old mops table to mops_old")
+            except:
+                pass  # Already renamed
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mop_steps'")
+        if cursor.fetchone():
+            try:
+                cursor.execute("ALTER TABLE mop_steps RENAME TO mop_steps_old")
+                log.info("Renamed old mop_steps table to mop_steps_old")
+            except:
+                pass
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mop_executions'")
+        if cursor.fetchone():
+            # Check if it's the new schema (has execution_log column) or old schema
+            cursor.execute("PRAGMA table_info(mop_executions)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if 'execution_log' not in columns:
+                # This is old schema, rename it
+                try:
+                    cursor.execute("ALTER TABLE mop_executions RENAME TO mop_executions_old")
+                    log.info("Renamed old mop_executions table to mop_executions_old")
+                except:
+                    pass
+
+    # Create new YAML-based MOP tables
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS mops (
             mop_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            devices TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    # Migration: Add devices column to mops if it doesn't exist
-    try:
-        cursor.execute("SELECT devices FROM mops LIMIT 1")
-    except sqlite3.OperationalError:
-        log.info("Migrating mops table: adding devices column")
-        cursor.execute("ALTER TABLE mops ADD COLUMN devices TEXT")
-        conn.commit()
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS mop_steps (
-            step_id TEXT PRIMARY KEY,
-            mop_id TEXT NOT NULL,
-            step_order INTEGER NOT NULL,
-            step_type TEXT NOT NULL,
-            step_name TEXT NOT NULL,
-            devices TEXT,
-            config TEXT,
-            enabled INTEGER DEFAULT 1,
-            FOREIGN KEY (mop_id) REFERENCES mops(mop_id) ON DELETE CASCADE
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS mop_executions (
-            execution_id TEXT PRIMARY KEY,
-            mop_id TEXT NOT NULL,
-            status TEXT DEFAULT 'pending',
-            current_step INTEGER DEFAULT 0,
-            results TEXT,
-            started_at TIMESTAMP,
-            completed_at TIMESTAMP,
-            FOREIGN KEY (mop_id) REFERENCES mops(mop_id)
-        )
-    ''')
-
-    # Add context and error columns if they don't exist (migration)
-    try:
-        cursor.execute('ALTER TABLE mop_executions ADD COLUMN context TEXT')
-    except:
-        pass  # Column already exists
-
-    try:
-        cursor.execute('ALTER TABLE mop_executions ADD COLUMN error TEXT')
-    except:
-        pass  # Column already exists
-
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_steps_mop ON mop_steps(mop_id, step_order)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_executions_mop ON mop_executions(mop_id)')
-
-    # Workflow tables (YAML-based workflow engine)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS workflows (
-            workflow_id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             description TEXT,
             yaml_content TEXT NOT NULL,
@@ -369,9 +344,9 @@ def init_db():
     ''')
 
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS workflow_executions (
+        CREATE TABLE IF NOT EXISTS mop_executions (
             execution_id TEXT PRIMARY KEY,
-            workflow_id TEXT NOT NULL,
+            mop_id TEXT NOT NULL,
             status TEXT DEFAULT 'pending',
             current_step INTEGER DEFAULT 0,
             execution_log TEXT,
@@ -380,12 +355,75 @@ def init_db():
             started_at TIMESTAMP,
             completed_at TIMESTAMP,
             started_by TEXT,
-            FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id)
+            FOREIGN KEY (mop_id) REFERENCES mops(mop_id)
         )
     ''')
 
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_workflow_executions_workflow ON workflow_executions(workflow_id)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_workflow_executions_status ON workflow_executions(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_executions_mop ON mop_executions(mop_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mop_executions_status ON mop_executions(status)')
+
+    # Step types table - defines available step types for MOPs
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS step_types (
+            step_type_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            category TEXT,
+            parameters_schema TEXT,
+            handler_function TEXT NOT NULL,
+            icon TEXT,
+            enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Seed default step types if table is empty
+    cursor.execute('SELECT COUNT(*) FROM step_types')
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding default step types")
+        default_step_types = [
+            ('check_bgp', 'Check BGP', 'Verify BGP neighbor status', 'Network Checks', '{"neighbor_count": {"type": "integer", "description": "Expected number of BGP neighbors"}}', 'execute_check_bgp', 'network-wired', 1),
+            ('check_ping', 'Check Ping', 'Verify device reachability', 'Network Checks', '{"timeout": {"type": "integer", "default": 5}}', 'execute_check_ping', 'wifi', 1),
+            ('check_interfaces', 'Check Interfaces', 'Verify interface status', 'Network Checks', '{}', 'execute_check_interfaces', 'ethernet', 1),
+            ('run_command', 'Run Command', 'Execute CLI command on devices', 'Commands', '{"command": {"type": "string", "required": true}, "use_textfsm": {"type": "boolean", "default": false}}', 'execute_run_command', 'terminal', 1),
+            ('deploy_stack', 'Deploy Stack', 'Deploy configuration stack', 'Configuration', '{"stack_name": {"type": "string", "required": true}}', 'execute_deploy_stack', 'upload', 1),
+            ('email', 'Send Email', 'Send email notification', 'Notifications', '{"to": {"type": "string", "required": true}, "subject": {"type": "string"}, "body": {"type": "string"}}', 'execute_email', 'envelope', 1),
+            ('webhook', 'Webhook', 'Send HTTP webhook', 'Notifications', '{"url": {"type": "string", "required": true}, "method": {"type": "string", "default": "POST"}}', 'execute_webhook', 'globe', 1),
+            ('custom_python', 'Custom Python', 'Execute custom Python code', 'Advanced', '{"code": {"type": "string", "required": true}}', 'execute_custom_python', 'code', 1),
+            ('wait', 'Wait', 'Wait for specified duration', 'Utility', '{"seconds": {"type": "integer", "required": true}}', 'execute_wait', 'clock', 1)
+        ]
+
+        for step_type_id, name, description, category, params_schema, handler, icon, enabled in default_step_types:
+            cursor.execute('''
+                INSERT INTO step_types (step_type_id, name, description, category, parameters_schema, handler_function, icon, enabled)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (step_type_id, name, description, category, params_schema, handler, icon, enabled))
+
+        conn.commit()
+        log.info(f"Seeded {len(default_step_types)} default step types")
+
+    # Migration: Copy data from workflows table to mops if workflows exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workflows'")
+    if cursor.fetchone():
+        log.info("Migrating workflows data to mops table")
+        cursor.execute('''
+            INSERT OR IGNORE INTO mops (mop_id, name, description, yaml_content, devices, enabled, created_at, updated_at, created_by)
+            SELECT workflow_id, name, description, yaml_content, devices, enabled, created_at, updated_at, created_by
+            FROM workflows
+        ''')
+        conn.commit()
+
+    # Migration: Copy data from workflow_executions to mop_executions
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_executions'")
+    if cursor.fetchone():
+        log.info("Migrating workflow_executions data to mop_executions table")
+        cursor.execute('''
+            INSERT OR IGNORE INTO mop_executions (execution_id, mop_id, status, current_step, execution_log, context, error, started_at, completed_at, started_by)
+            SELECT execution_id, workflow_id, status, current_step, execution_log, context, error, started_at, completed_at, started_by
+            FROM workflow_executions
+        ''')
+        conn.commit()
 
     # Initialize default menu items if table is empty
     cursor.execute("SELECT COUNT(*) FROM menu_items")
@@ -413,12 +451,15 @@ def init_db():
             VALUES ('mop', 'Procedures (MOP)', 'list-check', '/mop', 7, 1)
         ''')
 
-    # Migration: Add Workflows menu item if it doesn't exist
-    cursor.execute("SELECT COUNT(*) FROM menu_items WHERE item_id = 'workflows'")
+    # Migration: Remove old Workflows menu item if it exists
+    cursor.execute("DELETE FROM menu_items WHERE item_id = 'workflows'")
+
+    # Migration: Add Step Types menu item if it doesn't exist
+    cursor.execute("SELECT COUNT(*) FROM menu_items WHERE item_id = 'step_types'")
     if cursor.fetchone()[0] == 0:
         cursor.execute('''
             INSERT INTO menu_items (item_id, label, icon, url, order_index, visible)
-            VALUES ('workflows', 'Workflows', 'sitemap', '/workflows', 8, 1)
+            VALUES ('step_types', 'Step Types', 'puzzle-piece', '/step-types', 8, 1)
         ''')
 
     conn.commit()

@@ -50,7 +50,6 @@ function loadMonitor() {
     loadTasks();
     loadWorkers();
     loadMopExecutions();
-    loadWorkflowExecutions();
     loadTaskHistory();
 }
 
@@ -313,7 +312,7 @@ function loadMopExecutions() {
     $('#mop-executions-loading').show();
     $('#mop-executions-container').hide();
 
-    $.get('/api/mop/executions/running')
+    $.get('/api/mop-executions/running')
         .done(function(data) {
             const tbody = $('#mop-executions-body');
             tbody.empty();
@@ -337,17 +336,25 @@ function loadMopExecutions() {
                     else if (status === 'completed') statusBadge = 'badge-completed';
                     else if (status === 'failed') statusBadge = 'badge-failed';
 
+                    // Show cancel button only for running executions, view button for completed/failed
+                    let actionButton = '';
+                    if (status === 'running') {
+                        actionButton = `<button class="btn btn-sm btn-danger cancel-mop-btn" data-execution-id="${executionId}">
+                                            <i class="fas fa-stop"></i> Cancel
+                                        </button>`;
+                    } else {
+                        actionButton = `<button class="btn btn-sm btn-primary view-mop-execution-btn" data-execution-id="${executionId}">
+                                            <i class="fas fa-eye"></i> View
+                                        </button>`;
+                    }
+
                     tbody.append(`
                         <tr data-execution-id="${executionId}">
                             <td><small>${mopName}</small></td>
                             <td><span class="badge bg-secondary">Step ${currentStep !== 'N/A' ? parseInt(currentStep) + 1 : 'N/A'}</span></td>
                             <td><span class="badge ${statusBadge}">${status}</span></td>
                             <td><small>${startedAt}</small></td>
-                            <td>
-                                <button class="btn btn-sm btn-danger cancel-mop-btn" data-execution-id="${executionId}">
-                                    <i class="fas fa-stop"></i> Cancel
-                                </button>
-                            </td>
+                            <td>${actionButton}</td>
                         </tr>
                     `);
                 });
@@ -375,8 +382,16 @@ $(document).on('click', '.cancel-mop-btn', function(e) {
     }
 });
 
+// Event delegation for view MOP execution button
+$(document).on('click', '.view-mop-execution-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const executionId = $(this).data('execution-id');
+    showMopExecutionDetails(executionId);
+});
+
 function cancelMopExecution(executionId) {
-    $.post('/api/mop/executions/' + executionId + '/cancel')
+    $.post('/api/mop-executions/' + executionId + '/cancel')
         .done(function(data) {
             if (data.success) {
                 // Show success message
@@ -392,54 +407,111 @@ function cancelMopExecution(executionId) {
         });
 }
 
-function loadWorkflowExecutions() {
-    $('#workflow-executions-loading').show();
-    $('#workflow-executions-container').hide();
+function showMopExecutionDetails(executionId) {
+    // Show modal and loading state
+    const modal = new bootstrap.Modal(document.getElementById('mopExecutionDetailModal'));
+    modal.show();
 
-    $.get('/api/workflow-executions/running')
+    $('#mop-detail-loading').show();
+    $('#mop-detail-content').hide();
+
+    // Fetch execution details
+    $.get('/api/mop-executions/' + executionId)
         .done(function(data) {
-            const tbody = $('#workflow-executions-body');
-            tbody.empty();
+            if (data.success && data.execution) {
+                const exec = data.execution;
 
-            if (!data.success || !data.executions || data.executions.length === 0) {
-                $('#no-workflow-executions').show();
-                $('#workflow-executions-container').find('table').hide();
+                // Set status badge
+                let statusClass = 'bg-info';
+                if (exec.status === 'running') statusClass = 'badge-running';
+                else if (exec.status === 'completed') statusClass = 'badge-completed';
+                else if (exec.status === 'failed') statusClass = 'badge-failed';
+
+                $('#mop-detail-status').removeClass().addClass('badge ' + statusClass).text(exec.status || 'unknown');
+                $('#mop-detail-name').text(exec.mop_name || 'Unknown MOP');
+                $('#mop-detail-execution-id').text(executionId);
+                $('#mop-detail-current-step').text(exec.current_step !== null ? 'Step ' + (parseInt(exec.current_step) + 1) : 'N/A');
+                $('#mop-detail-started').text(exec.started_at ? formatDate(exec.started_at) : 'N/A');
+                $('#mop-detail-completed').text(exec.completed_at ? formatDate(exec.completed_at) : 'In Progress');
+                $('#mop-detail-started-by').text(exec.started_by || 'N/A');
+
+                // Calculate duration
+                if (exec.started_at && exec.completed_at) {
+                    const start = new Date(exec.started_at);
+                    const end = new Date(exec.completed_at);
+                    const duration = (end - start) / 1000;
+                    $('#mop-detail-duration').text(duration.toFixed(1) + 's');
+                } else {
+                    $('#mop-detail-duration').text('N/A');
+                }
+
+                // Show errors if any
+                if (exec.error) {
+                    $('#mop-detail-errors').text(exec.error);
+                    $('#mop-detail-errors-section').show();
+                } else {
+                    $('#mop-detail-errors-section').hide();
+                }
+
+                // Show execution log - format if it's an array of step objects
+                let logText = '';
+                if (exec.execution_log) {
+                    if (Array.isArray(exec.execution_log)) {
+                        // Format as readable step-by-step log
+                        exec.execution_log.forEach(function(step) {
+                            const timestamp = step.timestamp ? formatDate(step.timestamp) : '';
+                            const status = step.status ? step.status.toUpperCase() : 'UNKNOWN';
+                            const statusIcon = step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : '•';
+
+                            logText += `${statusIcon} ${step.step}\n`;
+                            logText += `  Status: ${status}\n`;
+                            if (step.message) {
+                                logText += `  Message: ${step.message}\n`;
+                            }
+                            // Show error details if step failed
+                            if (step.error) {
+                                logText += `  Error: ${step.error}\n`;
+                            }
+                            // Show additional details if available
+                            if (step.details) {
+                                logText += `  Details: ${JSON.stringify(step.details)}\n`;
+                            }
+                            if (timestamp) {
+                                logText += `  Time: ${timestamp}\n`;
+                            }
+                            logText += '\n';
+                        });
+                    } else if (typeof exec.execution_log === 'string') {
+                        logText = exec.execution_log;
+                    } else {
+                        // Fallback: JSON stringify
+                        logText = JSON.stringify(exec.execution_log, null, 2);
+                    }
+                } else {
+                    logText = 'No log available';
+                }
+                $('#mop-detail-log').text(logText);
+
+                $('#mop-detail-loading').hide();
+                $('#mop-detail-content').show();
             } else {
-                $('#no-workflow-executions').hide();
-                $('#workflow-executions-container').find('table').show();
-
-                data.executions.forEach(function(exec) {
-                    const executionId = exec.execution_id;
-                    const workflowName = exec.workflow_name || 'Unknown Workflow';
-                    const currentStep = exec.current_step !== null ? exec.current_step : 'N/A';
-                    const status = exec.status || 'running';
-                    const startedAt = exec.started_at ? formatDate(exec.started_at) : 'N/A';
-                    const startedBy = exec.started_by || 'Unknown';
-
-                    let statusBadge = 'bg-info';
-                    if (status === 'running') statusBadge = 'badge-running';
-                    else if (status === 'completed') statusBadge = 'badge-completed';
-                    else if (status === 'failed') statusBadge = 'badge-failed';
-
-                    tbody.append(`
-                        <tr data-execution-id="${executionId}">
-                            <td><small>${workflowName}</small></td>
-                            <td><span class="badge bg-secondary">Step ${currentStep !== 'N/A' ? parseInt(currentStep) + 1 : 'N/A'}</span></td>
-                            <td><span class="badge ${statusBadge}">${status}</span></td>
-                            <td><small>${startedAt}</small></td>
-                            <td><small>${startedBy}</small></td>
-                        </tr>
-                    `);
-                });
+                alert('Error loading MOP execution details: ' + (data.error || 'Unknown error'));
+                modal.hide();
             }
-
-            $('#workflow-executions-loading').hide();
-            $('#workflow-executions-container').show();
         })
         .fail(function(xhr, status, error) {
-            $('#workflow-executions-loading').hide();
-            $('#workflow-executions-container').show();
-            $('#no-workflow-executions').html('<i class="fas fa-exclamation-triangle"></i> Error loading workflow executions: ' + error).show();
-            $('#workflow-executions-container').find('table').hide();
+            alert('Error loading MOP execution details: ' + error);
+            modal.hide();
         });
 }
+
+// Copy MOP execution log to clipboard
+$('#copy-mop-details').on('click', function() {
+    const log = $('#mop-detail-log').text();
+    navigator.clipboard.writeText(log).then(function() {
+        alert('Log copied to clipboard!');
+    }, function(err) {
+        alert('Failed to copy log: ' + err);
+    });
+});
+

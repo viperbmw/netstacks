@@ -1,8 +1,8 @@
 """
-Simple YAML Workflow Engine for Network Automation
+Simple YAML MOP Engine for Network Automation
 
-This engine executes workflows defined in YAML with clear, simple syntax.
-Network engineers can create workflows without writing Python code.
+This engine executes mops defined in YAML with clear, simple syntax.
+Network engineers can create mops without writing Python code.
 """
 
 import yaml
@@ -16,17 +16,17 @@ import time
 log = logging.getLogger(__name__)
 
 
-class WorkflowExecutionError(Exception):
-    """Raised when a workflow step fails"""
+class MOPExecutionError(Exception):
+    """Raised when a mop step fails"""
     pass
 
 
-class WorkflowEngine:
+class MOPEngine:
     """
-    Executes workflows defined in YAML format.
+    Executes mops defined in YAML format.
 
-    Example workflow:
-        name: "Maintenance Window Workflow"
+    Example mop:
+        name: "Maintenance Window MOP"
         description: "Check BGP, deploy stack, send email"
         devices:
           - router1
@@ -47,24 +47,24 @@ class WorkflowEngine:
             on_failure: rollback_and_notify
     """
 
-    def __init__(self, workflow_yaml: str, context: Dict = None):
+    def __init__(self, mop_yaml: str, context: Dict = None):
         """
-        Initialize workflow engine
+        Initialize mop engine
 
         Args:
-            workflow_yaml: YAML string or path to YAML file
+            mop_yaml: YAML string or path to YAML file
             context: Initial context (device info, variables, etc.)
         """
-        # Load workflow from YAML
-        if workflow_yaml.endswith('.yaml') or workflow_yaml.endswith('.yml'):
-            with open(workflow_yaml, 'r') as f:
-                self.workflow = yaml.safe_load(f)
+        # Load mop from YAML
+        if mop_yaml.endswith('.yaml') or mop_yaml.endswith('.yml'):
+            with open(mop_yaml, 'r') as f:
+                self.mop = yaml.safe_load(f)
         else:
-            self.workflow = yaml.safe_load(workflow_yaml)
+            self.mop = yaml.safe_load(mop_yaml)
 
         # Initialize execution context
         self.context = context or {}
-        self.context['workflow_name'] = self.workflow.get('name', 'Unnamed Workflow')
+        self.context['mop_name'] = self.mop.get('name', 'Unnamed MOP')
         self.context['started_at'] = datetime.utcnow().isoformat()
         self.context['step_results'] = {}
 
@@ -72,22 +72,22 @@ class WorkflowEngine:
         self.current_step_index = 0
         self.execution_log = []
 
-        log.info(f"Initialized workflow: {self.workflow.get('name')}")
+        log.info(f"Initialized mop: {self.mop.get('name')}")
 
     def execute(self) -> Dict[str, Any]:
         """
-        Execute the entire workflow
+        Execute the entire mop
 
         Returns:
             Dict with execution results, logs, and final status
         """
-        log.info(f"Starting workflow execution: {self.workflow['name']}")
+        log.info(f"Starting mop execution: {self.mop['name']}")
 
         try:
-            steps = self.workflow.get('steps', [])
+            steps = self.mop.get('steps', [])
 
             if not steps:
-                raise WorkflowExecutionError("Workflow has no steps")
+                raise MOPExecutionError("MOP has no steps")
 
             # Execute steps sequentially
             while self.current_step_index < len(steps):
@@ -100,14 +100,29 @@ class WorkflowEngine:
                 step_id = step.get('id', step.get('name', f'step_{self.current_step_index}'))
                 self.context['step_results'][step_id] = result
 
-                # Log the result
-                self.execution_log.append({
+                # Log the result with detailed information
+                log_entry = {
                     'step': step.get('name'),
+                    'step_type': step.get('type'),
                     'step_index': self.current_step_index,
                     'status': result.get('status'),
                     'message': result.get('message', ''),
                     'timestamp': datetime.utcnow().isoformat()
-                })
+                }
+
+                # Add detailed data if available
+                if result.get('data'):
+                    log_entry['data'] = result.get('data')
+
+                # Add error details if failed
+                if result.get('error'):
+                    log_entry['error'] = result.get('error')
+
+                # Add execution details if available
+                if result.get('details'):
+                    log_entry['details'] = result.get('details')
+
+                self.execution_log.append(log_entry)
 
                 # Handle step result
                 if result['status'] == 'success':
@@ -131,25 +146,25 @@ class WorkflowEngine:
                             self.current_step_index = next_step
                             continue
                         else:
-                            raise WorkflowExecutionError(f"on_failure step '{step['on_failure']}' not found")
+                            raise MOPExecutionError(f"on_failure step '{step['on_failure']}' not found")
                     else:
-                        # No failure handler - stop workflow
-                        raise WorkflowExecutionError(f"Step '{step.get('name')}' failed: {result.get('error')}")
+                        # No failure handler - stop mop
+                        raise MOPExecutionError(f"Step '{step.get('name')}' failed: {result.get('error')}")
 
                 else:
-                    raise WorkflowExecutionError(f"Unknown step status: {result['status']}")
+                    raise MOPExecutionError(f"Unknown step status: {result['status']}")
 
-            # Workflow completed successfully
+            # MOP completed successfully
             return {
                 'status': 'completed',
-                'message': 'Workflow completed successfully',
+                'message': 'MOP completed successfully',
                 'execution_log': self.execution_log,
                 'context': self.context,
                 'completed_at': datetime.utcnow().isoformat()
             }
 
         except Exception as e:
-            log.error(f"Workflow execution failed: {e}", exc_info=True)
+            log.error(f"MOP execution failed: {e}", exc_info=True)
             return {
                 'status': 'failed',
                 'error': str(e),
@@ -160,7 +175,7 @@ class WorkflowEngine:
 
     def execute_step(self, step: Dict) -> Dict[str, Any]:
         """
-        Execute a single workflow step
+        Execute a single mop step
 
         Args:
             step: Step definition from YAML
@@ -205,7 +220,7 @@ class WorkflowEngine:
 
     def find_step_by_id(self, step_id: str) -> Optional[int]:
         """Find step index by ID or name"""
-        steps = self.workflow.get('steps', [])
+        steps = self.mop.get('steps', [])
         for i, step in enumerate(steps):
             if step.get('id') == step_id or step.get('name') == step_id:
                 return i
@@ -223,7 +238,7 @@ class WorkflowEngine:
               expect_neighbor_count: 4
               compare_to_netbox: true
         """
-        devices = step.get('devices') or self.workflow.get('devices', [])
+        devices = step.get('devices') or self.mop.get('devices', [])
         expected_count = step.get('expect_neighbor_count')
         compare_netbox = step.get('compare_to_netbox', False)
 
@@ -250,6 +265,7 @@ class WorkflowEngine:
             # Parse results
             results = {}
             all_passed = True
+            device_details = {}
 
             for device in devices:
                 device_data = self.context.get('devices', {}).get(device, {})
@@ -269,13 +285,26 @@ class WorkflowEngine:
                     'passed': passed
                 }
 
+                device_details[device] = {
+                    'status': 'passed' if passed else 'failed',
+                    'expected_count': expected_count,
+                    'actual_count': actual_count,
+                    'compare_to_netbox': compare_netbox
+                }
+
                 if not passed:
                     all_passed = False
 
             return {
                 'status': 'success' if all_passed else 'failed',
-                'message': f"BGP check {'passed' if all_passed else 'failed'}",
-                'data': results
+                'message': f"BGP check {'passed' if all_passed else 'failed'} on {len(devices)} devices",
+                'data': results,
+                'details': {
+                    'device_count': len(devices),
+                    'expected_neighbor_count': expected_count,
+                    'compare_to_netbox': compare_netbox,
+                    'devices': device_details
+                }
             }
 
         except Exception as e:
@@ -290,7 +319,7 @@ class WorkflowEngine:
             - name: "Verify Devices Online"
               type: check_ping
         """
-        devices = step.get('devices') or self.workflow.get('devices', [])
+        devices = step.get('devices') or self.mop.get('devices', [])
 
         if not devices:
             return {'status': 'failed', 'error': 'No devices specified'}
@@ -298,8 +327,10 @@ class WorkflowEngine:
         log.info(f"Pinging {len(devices)} devices")
 
         import subprocess
+        import re
         results = {}
         all_reachable = True
+        device_details = {}
 
         for device_name in devices:
             # Get device IP from context
@@ -315,9 +346,25 @@ class WorkflowEngine:
                     timeout=3
                 )
                 reachable = (result.returncode == 0)
+
+                # Try to extract response time
+                response_time = None
+                if reachable:
+                    output = result.stdout.decode('utf-8')
+                    time_match = re.search(r'time=([0-9.]+)\s*ms', output)
+                    if time_match:
+                        response_time = float(time_match.group(1))
+
                 results[device_name] = {
                     'reachable': reachable,
-                    'ip': device_ip
+                    'ip': device_ip,
+                    'response_time_ms': response_time
+                }
+
+                device_details[device_name] = {
+                    'status': 'reachable' if reachable else 'unreachable',
+                    'ip_address': device_ip,
+                    'response_time_ms': response_time
                 }
 
                 if not reachable:
@@ -330,12 +377,24 @@ class WorkflowEngine:
                     'reachable': False,
                     'error': str(e)
                 }
+                device_details[device_name] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
                 all_reachable = False
+
+        reachable_count = sum(1 for r in results.values() if r.get('reachable', False))
 
         return {
             'status': 'success' if all_reachable else 'failed',
-            'message': f'{"All" if all_reachable else "Some"} devices reachable',
-            'data': results
+            'message': f'{reachable_count}/{len(devices)} devices reachable',
+            'data': results,
+            'details': {
+                'device_count': len(devices),
+                'reachable_count': reachable_count,
+                'unreachable_count': len(devices) - reachable_count,
+                'devices': device_details
+            }
         }
 
     def execute_check_interfaces(self, step: Dict) -> Dict[str, Any]:
@@ -383,20 +442,41 @@ class WorkflowEngine:
 
             # Check result status
             if result.get('status') == 'success':
+                result_data = result.get('data', {})
+
+                # Extract deployment details
+                services_deployed = []
+                if isinstance(result_data, dict):
+                    services_deployed = result_data.get('services', [])
+
                 return {
                     'status': 'success',
                     'message': f"Stack '{stack_id}' deployed successfully",
-                    'data': result.get('data', {})
+                    'data': result_data,
+                    'details': {
+                        'stack_id': stack_id,
+                        'services_count': len(services_deployed) if isinstance(services_deployed, list) else 0,
+                        'services': services_deployed if isinstance(services_deployed, list) else []
+                    }
                 }
             else:
                 return {
                     'status': 'failed',
-                    'error': result.get('error', 'Stack deployment failed')
+                    'error': result.get('error', 'Stack deployment failed'),
+                    'details': {
+                        'stack_id': stack_id
+                    }
                 }
 
         except Exception as e:
             log.error(f"Error deploying stack: {e}", exc_info=True)
-            return {'status': 'failed', 'error': str(e)}
+            return {
+                'status': 'failed',
+                'error': str(e),
+                'details': {
+                    'stack_id': stack_id
+                }
+            }
 
     def execute_run_command(self, step: Dict) -> Dict[str, Any]:
         """
@@ -410,7 +490,7 @@ class WorkflowEngine:
               save_to_variable: "interface_data"
         """
         command = step.get('command')
-        devices = step.get('devices') or self.workflow.get('devices', [])
+        devices = step.get('devices') or self.mop.get('devices', [])
         use_textfsm = step.get('use_textfsm', False)
         save_to_variable = step.get('save_to_variable')
 
@@ -441,20 +521,51 @@ class WorkflowEngine:
 
             # Check result status
             if result.get('status') == 'success':
+                # Build detailed response
+                result_data = result.get('data', {})
+                device_results = result_data.get('results', [])
+
+                # Summarize results per device
+                details = {}
+                for device_result in device_results:
+                    device = device_result.get('device', 'unknown')
+                    details[device] = {
+                        'status': device_result.get('status'),
+                        'output_length': len(str(device_result.get('output', ''))) if device_result.get('output') else 0,
+                        'parsed_data_count': len(device_result.get('parsed_data', [])) if use_textfsm else None
+                    }
+
                 return {
                     'status': 'success',
-                    'message': f'Command executed on {len(devices)} devices',
-                    'data': result.get('data', {})
+                    'message': f'Command "{command}" executed on {len(devices)} devices',
+                    'data': result_data,
+                    'details': {
+                        'command': command,
+                        'use_textfsm': use_textfsm,
+                        'device_count': len(devices),
+                        'devices': details
+                    }
                 }
             else:
                 return {
                     'status': 'failed',
-                    'error': result.get('error', 'Command execution failed')
+                    'error': result.get('error', 'Command execution failed'),
+                    'details': {
+                        'command': command,
+                        'devices': devices
+                    }
                 }
 
         except Exception as e:
             log.error(f"Error executing command: {e}", exc_info=True)
-            return {'status': 'failed', 'error': str(e)}
+            return {
+                'status': 'failed',
+                'error': str(e),
+                'details': {
+                    'command': command,
+                    'devices': devices
+                }
+            }
 
     def execute_email(self, step: Dict) -> Dict[str, Any]:
         """
@@ -468,7 +579,7 @@ class WorkflowEngine:
               body: "Stack deployed successfully at {timestamp}"
         """
         to = step.get('to')
-        subject = step.get('subject', 'Workflow Notification')
+        subject = step.get('subject', 'MOP Notification')
         body = step.get('body', '')
 
         # Substitute variables in subject and body
@@ -481,7 +592,13 @@ class WorkflowEngine:
         return {
             'status': 'success',
             'message': f'Email sent to {to}',
-            'data': {'to': to, 'subject': subject}
+            'data': {'to': to, 'subject': subject, 'body': body},
+            'details': {
+                'recipients': to if isinstance(to, list) else [to],
+                'subject': subject,
+                'body_length': len(body),
+                'sent': True
+            }
         }
 
     def execute_webhook(self, step: Dict) -> Dict[str, Any]:
@@ -510,13 +627,36 @@ class WorkflowEngine:
 
             response.raise_for_status()
 
+            # Try to parse response body
+            response_body = None
+            try:
+                response_body = response.json()
+            except:
+                response_body = response.text[:500] if len(response.text) > 0 else None
+
             return {
                 'status': 'success',
                 'message': f'Webhook called: {url}',
-                'data': {'status_code': response.status_code}
+                'data': {
+                    'status_code': response.status_code,
+                    'response_body': response_body
+                },
+                'details': {
+                    'url': url,
+                    'method': method,
+                    'status_code': response.status_code,
+                    'response_length': len(response.text)
+                }
             }
         except Exception as e:
-            return {'status': 'failed', 'error': str(e)}
+            return {
+                'status': 'failed',
+                'error': str(e),
+                'details': {
+                    'url': url,
+                    'method': method
+                }
+            }
 
     def execute_custom_python(self, step: Dict) -> Dict[str, Any]:
         """
@@ -574,7 +714,7 @@ class WorkflowEngine:
         Substitute {variable} patterns with values from context
 
         Examples:
-            {workflow_name} -> Workflow name
+            {mop_name} -> MOP name
             {timestamp} -> Current timestamp
             {step_results.deploy_stack.data.stack_id} -> Result from previous step
         """
@@ -589,8 +729,8 @@ class WorkflowEngine:
             # Handle special variables
             if var_path == 'timestamp':
                 return datetime.utcnow().isoformat()
-            elif var_path == 'workflow_name':
-                return self.context.get('workflow_name', '')
+            elif var_path == 'mop_name':
+                return self.context.get('mop_name', '')
 
             # Handle nested paths like step_results.deploy_stack.data
             parts = var_path.split('.')
@@ -608,7 +748,7 @@ class WorkflowEngine:
 
 
 # Convenience function
-def execute_workflow_from_file(yaml_file: str, context: Dict = None) -> Dict[str, Any]:
-    """Execute a workflow from a YAML file"""
-    engine = WorkflowEngine(yaml_file, context)
+def execute_mop_from_file(yaml_file: str, context: Dict = None) -> Dict[str, Any]:
+    """Execute a mop from a YAML file"""
+    engine = MOPEngine(yaml_file, context)
     return engine.execute()
