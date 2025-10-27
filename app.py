@@ -5113,12 +5113,30 @@ def execute_workflow_api(workflow_id):
                 context = {'devices': {}}
 
                 # Get device info from Netbox if devices specified
+                # First try to get from database field
                 devices = json.loads(workflow.get('devices', '[]'))
+
+                # If no devices in database, parse from YAML
+                if not devices:
+                    import yaml as yaml_lib
+                    try:
+                        yaml_data = yaml_lib.safe_load(workflow['yaml_content'])
+                        devices = yaml_data.get('devices', [])
+                        log.info(f"Parsed {len(devices)} devices from YAML")
+                    except Exception as e:
+                        log.error(f"Could not parse YAML to extract devices: {e}")
+                        devices = []
+
+                log.info(f"Workflow has {len(devices)} devices: {devices}")
+
                 if devices:
                     for device_name in devices:
+                        log.info(f"Loading device info for: {device_name}")
                         try:
                             # Get device connection info (includes IP, platform, etc.)
                             device_conn_info = get_device_connection_info(device_name)
+                            log.info(f"get_device_connection_info returned: {device_conn_info is not None}")
+
                             if device_conn_info:
                                 # Extract relevant info for workflow context
                                 # Match the format expected by execute_getconfig_step
@@ -5133,13 +5151,16 @@ def execute_workflow_api(workflow_id):
                                     'site': device_info.get('site'),
                                     'nornir_platform': conn_args.get('device_type')
                                 }
-                                log.info(f"Loaded device {device_name} for workflow: ip={conn_args.get('host')}, platform={conn_args.get('device_type')}")
+                                log.info(f"SUCCESS: Loaded device {device_name}: ip={conn_args.get('host')}, platform={conn_args.get('device_type')}")
+                            else:
+                                log.error(f"FAILED: get_device_connection_info returned None for {device_name}")
+                                context['devices'][device_name] = {'name': device_name}
+
                         except Exception as e:
-                            log.warning(f"Could not get device info for {device_name}: {e}")
-                            # Add basic device info with just the name
-                            context['devices'][device_name] = {
-                                'name': device_name
-                            }
+                            log.error(f"EXCEPTION loading device {device_name}: {e}", exc_info=True)
+                            context['devices'][device_name] = {'name': device_name}
+
+                log.info(f"Workflow context devices: {list(context['devices'].keys())}")
 
                 # Execute workflow
                 engine = WorkflowEngine(workflow['yaml_content'], context)
