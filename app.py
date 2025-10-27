@@ -5116,9 +5116,24 @@ def execute_workflow_api(workflow_id):
                 devices = json.loads(workflow.get('devices', '[]'))
                 if devices:
                     for device_name in devices:
-                        device_info = get_device_info(device_name)
-                        if device_info:
-                            context['devices'][device_name] = device_info
+                        try:
+                            # Get device connection info (includes IP, platform, etc.)
+                            device_conn_info = get_device_connection_info(device_name)
+                            if device_conn_info:
+                                # Extract relevant info for workflow context
+                                context['devices'][device_name] = {
+                                    'name': device_name,
+                                    'ip_address': device_conn_info.get('ip'),
+                                    'primary_ip4': device_conn_info.get('ip'),
+                                    'platform': device_conn_info.get('platform'),
+                                    'site': device_conn_info.get('site', {}).get('name') if isinstance(device_conn_info.get('site'), dict) else None
+                                }
+                        except Exception as e:
+                            log.warning(f"Could not get device info for {device_name}: {e}")
+                            # Add basic device info with just the name
+                            context['devices'][device_name] = {
+                                'name': device_name
+                            }
 
                 # Execute workflow
                 engine = WorkflowEngine(workflow['yaml_content'], context)
