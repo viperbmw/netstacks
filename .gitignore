@@ -52,7 +52,6 @@ Thumbs.db
 /tmp/
 
 # Unnecessary directories
-/netstacker/
 /workflows/
 /data/
 *.backup
