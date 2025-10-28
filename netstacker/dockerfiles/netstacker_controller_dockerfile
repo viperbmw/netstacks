@@ -1,0 +1,20 @@
+FROM python:3.9-slim
+WORKDIR /usr/local/lib/python3.9/site-packages
+RUN apt-get update \
+    && apt-get install -y git gcc python3-dev \
+    && git clone https://github.com/networktocode/ntc-templates.git \
+    && mv ntc-templates ntc_templates \
+    && pip3 install --upgrade pip
+
+ADD netstacker/requirements.txt /code/
+RUN pip3 install -r /code/requirements.txt
+
+ADD netstacker/controller_addtl_requirements.txt /code/
+RUN pip3 install -r /code/controller_addtl_requirements.txt \
+    && apt-get remove -y gcc python3-dev \
+    && apt-get autoremove -y
+
+ADD . /code
+WORKDIR /code
+
+CMD gunicorn -p controller.pid -c gunicorn.conf.py netstacker.netstacker_controller:app
