@@ -11,8 +11,8 @@ const WORKFLOW_EXAMPLES = {
     maintenance: `name: "Maintenance Window - Deploy Customer VPN"
 description: "Check prerequisites, deploy stack, send notifications"
 devices:
-  - bms01-bidev.nae05.gi-nw.viasat.io
-  - dmsp01-cidev.nae05.gi-nw.viasat.io
+  - router1.example.com
+  - router2.example.com
 
 steps:
   - name: "Verify Devices Reachable"
