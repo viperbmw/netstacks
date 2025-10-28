@@ -435,7 +435,6 @@ def init_db():
             ('templates', 'Config Templates', 'file-code', '/templates', 3, 1),
             ('service-stacks', 'Service Stacks', 'layer-group', '/service-stacks', 4, 1),
             ('devices', 'Devices', 'server', '/devices', 5, 1),
-            ('network-map', 'Network Map', 'project-diagram', '/network-map', 6, 1),
             ('mop', 'Procedures (MOP)', 'list-check', '/mop', 7, 1),
         ]
         cursor.executemany('''
@@ -454,13 +453,8 @@ def init_db():
     # Migration: Remove old Workflows menu item if it exists
     cursor.execute("DELETE FROM menu_items WHERE item_id = 'workflows'")
 
-    # Migration: Add Step Types menu item if it doesn't exist
-    cursor.execute("SELECT COUNT(*) FROM menu_items WHERE item_id = 'step_types'")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute('''
-            INSERT INTO menu_items (item_id, label, icon, url, order_index, visible)
-            VALUES ('step_types', 'Step Types', 'puzzle-piece', '/step-types', 8, 1)
-        ''')
+    # Migration: Remove Network Map and Step Types menu items if they exist
+    cursor.execute("DELETE FROM menu_items WHERE item_id IN ('network-map', 'step_types')")
 
     conn.commit()
     conn.close()
