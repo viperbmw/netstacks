@@ -8,6 +8,7 @@ NetStacks is an open-source web application that provides a modern interface for
 
 ## 🚀 Features
 
+### Network Configuration Management
 - **Template-Based Services**: Deploy configurations using Jinja2 templates with variable substitution
 - **Service Stacks**: Group related services and deploy them as a stack with dependency management
 - **Validation**: Automatically validate deployed configurations against device running configs
@@ -16,6 +17,17 @@ NetStacks is an open-source web application that provides a modern interface for
 - **Netbox Integration**: Automatically fetch device inventory from Netbox
 - **Real-time Monitoring**: Track deployment progress and job status
 - **Template Metadata**: Link validation and delete templates to service templates
+
+### 🔄 MOP (Method of Procedures) Engine
+- **Visual MOP Builder**: Drag-and-drop interface for creating complex procedures without writing YAML
+- **Intelligent Step Types**: Auto-discovered from Python code - add new step types by adding functions
+- **Dynamic Forms**: Parameter fields adapt based on selected step type
+- **Conditional Logic**: Define success/failure paths for each step (on_success/on_failure)
+- **Bidirectional Editing**: Switch seamlessly between Visual Builder and YAML editor
+- **Execution Tracking**: Complete history and status tracking for all MOP executions
+- **Multiple Step Types**: SSH commands, delays, email notifications, HTTP requests, Python validation, and more
+
+### 🔐 Authentication & User Management
 - **🔐 Enterprise Authentication**: Flexible multi-method authentication system
   - **Local Authentication**: Database-backed username/password authentication
   - **LDAP / Active Directory**: Enterprise directory integration with STARTTLS support
@@ -193,6 +205,8 @@ NetStacks is a **complete network automation platform** with integrated frontend
 netstacks/
 ├── app.py                      # Flask application (Web UI)
 ├── database.py                 # SQLite database layer
+├── mop_engine.py               # MOP execution engine
+├── step_types_introspect.py   # Auto-discovery of step types
 ├── auth_ldap.py                # LDAP authentication module
 ├── auth_oidc.py                # OIDC/OAuth2 authentication module
 ├── netbox_client.py            # Netbox API client
@@ -205,6 +219,7 @@ netstacks/
 │   ├── index.html
 │   ├── services.html
 │   ├── service-stacks.html
+│   ├── mop.html                # MOP management page
 │   └── ...
 ├── static/                     # Static assets (CSS, JS)
 │   ├── css/
@@ -212,6 +227,8 @@ netstacks/
 │   └── js/
 │       ├── services.js
 │       ├── service-stacks.js
+│       ├── mops.js             # MOP management
+│       ├── visual-builder.js   # Visual MOP Builder
 │       └── ...
 └── netstacker/                 # Backend API platform
     ├── docker-compose.yml      # Backend-only deployment (optional)
@@ -263,6 +280,90 @@ snmp-server contact {{ snmp_contact }}
 3. Add services to the stack
 4. Define dependencies between services
 5. Save and deploy the stack
+
+### Creating and Running MOPs (Method of Procedures)
+
+MOPs allow you to automate complex, multi-step network procedures with conditional logic.
+
+#### Using the Visual Builder
+
+1. Navigate to **Procedures (MOP)** page
+2. Click **New** to create a new MOP
+3. Enter MOP name and description
+4. Click the **Visual Builder** tab
+5. Add target devices using the device selector
+6. Click **Add Step** to add procedure steps:
+   - Choose a step type (SSH Command, Delay, Email, HTTP Request, etc.)
+   - Fill in the dynamic parameter form
+   - Define success/failure transitions (optional)
+7. Click **Generate YAML** to convert to YAML format
+8. Click **Save** to store the MOP
+9. Click **Execute** to run the MOP on target devices
+
+#### Using the YAML Editor
+
+1. Navigate to **Procedures (MOP)** page
+2. Click **New** to create a new MOP
+3. Click the **YAML Editor** tab
+4. Write your MOP in YAML format:
+
+```yaml
+name: "Maintenance Window Example"
+description: "Disable BGP, perform maintenance, re-enable BGP"
+devices:
+  - router1.example.com
+  - router2.example.com
+
+steps:
+  - name: "Disable BGP"
+    id: disable_bgp
+    type: ssh_command
+    command: "configure terminal\nrouter bgp 65000\nshutdown"
+    on_success: wait_step
+    on_failure: send_alert
+
+  - name: "Wait 5 minutes"
+    id: wait_step
+    type: delay
+    seconds: 300
+    on_success: enable_bgp
+
+  - name: "Re-enable BGP"
+    id: enable_bgp
+    type: ssh_command
+    command: "configure terminal\nrouter bgp 65000\nno shutdown"
+    on_success: send_success
+    on_failure: send_alert
+
+  - name: "Send Success Email"
+    id: send_success
+    type: email
+    to: "network-team@example.com"
+    subject: "Maintenance Complete"
+    body: "BGP maintenance completed successfully"
+
+  - name: "Send Alert"
+    id: send_alert
+    type: email
+    to: "oncall@example.com"
+    subject: "Maintenance Failed"
+    body: "BGP maintenance encountered an error"
+```
+
+5. Click **Save** and then **Execute**
+
+#### Available Step Types
+
+The MOP engine automatically discovers step types from Python code. Current step types include:
+
+- **ssh_command** - Execute SSH commands on devices
+- **delay** - Wait for a specified duration
+- **email** - Send email notifications
+- **http_request** - Make HTTP/HTTPS requests
+- **validate_python** - Run custom Python validation code
+- **log** - Log messages for debugging
+
+To add new step types, simply add an `execute_<type>` method to `mop_engine.py`.
 
 ### Validating Configurations
 
