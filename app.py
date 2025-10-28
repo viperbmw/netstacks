@@ -28,9 +28,11 @@ try:
     from api_docs import api_bp
     app.register_blueprint(api_bp)
     log = logging.getLogger(__name__)
-    log.info("API documentation blueprint registered at /api/docs")
 except Exception as e:
-    logging.error(f"Failed to register API docs blueprint: {e}")
+    log = logging.getLogger(__name__)
+    log.warning(f"Could not register API docs: {e}")
+
+# Step Types API removed - step types are now managed directly in mop_engine.py
 
 # Configuration
 NETSTACKER_API_URL = os.environ.get('NETSTACKER_API_URL', 'http://netstacker-controller:9000')
@@ -115,6 +117,8 @@ def login_required(f):
 
 # Initialize default user on startup
 create_default_user()
+
+# Step Types routes removed - no longer needed
 
 
 # Template context processor to inject menu items
@@ -879,17 +883,17 @@ def devices():
     return render_template('devices.html')
 
 
-@app.route('/network-map')
-@login_required
-def network_map():
-    """Network map visualization page"""
-    return render_template('network-map.html')
-
-
 @app.route('/mop')
 @login_required
 def mop():
     """Method of Procedures (MOP) page"""
+    return render_template('mop.html')
+
+
+@app.route('/mop')
+@login_required
+def mops():
+    """MOPs page (YAML-based MOP engine)"""
     return render_template('mop.html')
 
 
@@ -4415,543 +4419,372 @@ def create_scheduled_config_operation():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ==================== MOP (Method of Procedures) Endpoints ====================
+# WORKFLOW API ENDPOINTS (YAML-based MOP engine)
+# ============================================================
 
-@app.route('/api/mop', methods=['GET'])
+@app.route('/api/step-types-introspect', methods=['GET'])
 @login_required
-def get_all_mops_api():
-    """Get all MOPs"""
+def get_step_types_introspect_api():
+    """Get step types by introspecting mop_engine.py"""
     try:
-        mops = db.get_all_mops()
-        return jsonify({'success': True, 'mops': mops})
+        from step_types_introspect import get_step_types
+        step_types = get_step_types()
+        return jsonify({'success': True, 'step_types': step_types})
+    except Exception as e:
+        log.error(f"Error introspecting step types: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mops', methods=['GET'])
+@login_required
+def get_mops_api():
+    """Get all workflows"""
+    try:
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT mop_id, name, description, devices, enabled, created_at, updated_at
+                FROM mops
+                ORDER BY created_at DESC
+            ''')
+            MOPs = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'mops': MOPs})
     except Exception as e:
         log.error(f"Error getting MOPs: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop', methods=['POST'])
+
+@app.route('/api/mops', methods=['POST'])
 @login_required
 def create_mop_api():
-    """Create a new MOP"""
+    """Create a new workflow"""
     try:
         data = request.json
         mop_id = str(uuid.uuid4())
-        name = data.get('name')
-        description = data.get('description', '')
-        devices = data.get('devices', [])
 
-        if not name:
-            return jsonify({'success': False, 'error': 'Name is required'}), 400
+        # Extract devices from YAML content
+        devices = []
+        yaml_content = data.get('yaml_content', '')
+        if yaml_content:
+            try:
+                import yaml as yaml_lib
+                yaml_data = yaml_lib.safe_load(yaml_content)
+                devices = yaml_data.get('devices', [])
+                log.info(f"Extracted {len(devices)} devices from YAML for new MOP")
+            except Exception as e:
+                log.warning(f"Could not parse YAML to extract devices: {e}")
 
-        db.create_mop(mop_id, name, description, devices)
-        log.info(f"Created MOP: {mop_id} with devices: {devices}")
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO mops (mop_id, name, description, yaml_content, devices, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                mop_id,
+                data.get('name'),
+                data.get('description'),
+                yaml_content,
+                json.dumps(devices),
+                session.get('username')
+            ))
+            conn.commit()
+
         return jsonify({'success': True, 'mop_id': mop_id})
-
     except Exception as e:
         log.error(f"Error creating MOP: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/<mop_id>', methods=['GET'])
+
+@app.route('/api/mops/<mop_id>', methods=['GET'])
 @login_required
 def get_mop_api(mop_id):
-    """Get a specific MOP with its steps"""
+    """Get a specific workflow"""
     try:
-        mop = db.get_mop(mop_id)
-        if not mop:
-            return jsonify({'success': False, 'error': 'MOP not found'}), 404
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM mops WHERE mop_id = ?', (mop_id,))
+            MOP = cursor.fetchone()
 
-        steps = db.get_mop_steps(mop_id)
-        mop['steps'] = steps
+            if not MOP:
+                return jsonify({'success': False, 'error': 'MOP not found'}), 404
 
-        return jsonify({'success': True, 'mop': mop})
+            return jsonify({'success': True, 'mop': dict(MOP)})
     except Exception as e:
         log.error(f"Error getting MOP: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/<mop_id>', methods=['PUT'])
+
+@app.route('/api/mops/<mop_id>', methods=['PUT'])
 @login_required
 def update_mop_api(mop_id):
-    """Update a MOP"""
+    """Update a workflow"""
     try:
         data = request.json
-        name = data.get('name')
-        description = data.get('description')
-        devices = data.get('devices')
 
-        db.update_mop(mop_id, name=name, description=description, devices=devices)
-        log.info(f"Updated MOP: {mop_id}")
+        # Extract devices from YAML content
+        devices = []
+        yaml_content = data.get('yaml_content', '')
+        if yaml_content:
+            try:
+                import yaml as yaml_lib
+                yaml_data = yaml_lib.safe_load(yaml_content)
+                devices = yaml_data.get('devices', [])
+                log.info(f"Extracted {len(devices)} devices from YAML for MOP update")
+            except Exception as e:
+                log.warning(f"Could not parse YAML to extract devices: {e}")
+
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE mops
+                SET name = ?, description = ?, yaml_content = ?, devices = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE mop_id = ?
+            ''', (
+                data.get('name'),
+                data.get('description'),
+                yaml_content,
+                json.dumps(devices),
+                mop_id
+            ))
+            conn.commit()
+
         return jsonify({'success': True})
-
     except Exception as e:
         log.error(f"Error updating MOP: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/<mop_id>', methods=['DELETE'])
+
+@app.route('/api/mops/<mop_id>', methods=['DELETE'])
 @login_required
 def delete_mop_api(mop_id):
-    """Delete a MOP"""
+    """Delete a workflow"""
     try:
-        db.delete_mop(mop_id)
-        log.info(f"Deleted MOP: {mop_id}")
-        return jsonify({'success': True})
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM mops WHERE mop_id = ?', (mop_id,))
+            conn.commit()
 
+        return jsonify({'success': True})
     except Exception as e:
         log.error(f"Error deleting MOP: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/<mop_id>/steps', methods=['GET'])
-@login_required
-def get_mop_steps_api(mop_id):
-    """Get all steps for a MOP"""
-    try:
-        steps = db.get_mop_steps(mop_id)
-        return jsonify({'success': True, 'steps': steps})
-    except Exception as e:
-        log.error(f"Error getting MOP steps: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/<mop_id>/steps', methods=['POST'])
-@login_required
-def create_mop_step_api(mop_id):
-    """Create a new step for a MOP"""
-    try:
-        data = request.json
-        step_id = str(uuid.uuid4())
-        step_order = data.get('step_order', 0)
-        step_type = data.get('step_type')  # 'getconfig', 'setconfig', 'template'
-        step_name = data.get('step_name')
-        devices = data.get('devices', [])
-        config = data.get('config', {})
-        enabled = data.get('enabled', 1)
-
-        if not step_type or not step_name:
-            return jsonify({'success': False, 'error': 'step_type and step_name are required'}), 400
-
-        db.create_mop_step(step_id, mop_id, step_order, step_type, step_name, devices, config, enabled)
-        log.info(f"Created MOP step: {step_id} for MOP: {mop_id}")
-        return jsonify({'success': True, 'step_id': step_id})
-
-    except Exception as e:
-        log.error(f"Error creating MOP step: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/mop/<mop_id>/steps/<step_id>', methods=['PUT'])
-@login_required
-def update_mop_step_api(mop_id, step_id):
-    """Update a MOP step"""
-    try:
-        data = request.json
-        step_order = data.get('step_order')
-        step_type = data.get('step_type')
-        step_name = data.get('step_name')
-        devices = data.get('devices')
-        config = data.get('config')
-        enabled = data.get('enabled')
-
-        db.update_mop_step(step_id, step_order=step_order, step_type=step_type,
-                          step_name=step_name, devices=devices, config=config, enabled=enabled)
-        log.info(f"Updated MOP step: {step_id}")
-        return jsonify({'success': True})
-
-    except Exception as e:
-        log.error(f"Error updating MOP step: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/mop/<mop_id>/steps/<step_id>', methods=['DELETE'])
-@login_required
-def delete_mop_step_api(mop_id, step_id):
-    """Delete a MOP step"""
-    try:
-        db.delete_mop_step(step_id)
-        log.info(f"Deleted MOP step: {step_id}")
-        return jsonify({'success': True})
-
-    except Exception as e:
-        log.error(f"Error deleting MOP step: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-def substitute_step_variables(step, variables, mop_context):
-    """Substitute {{variable}} patterns in step with runtime values
-
-    Supports dot notation for device-centric access:
-    - {{mop.devices.router01.site}}
-    - {{mop.devices.router01.step0.output}}
-    - {{device_name}} (runtime variables)
-    """
-    import re
-    import copy
-
-    # Create a deep copy to avoid modifying original
-    step = copy.deepcopy(step)
-
-    # Function to replace variables in a string
-    def replace_vars(text):
-        if not isinstance(text, str):
-            return text
-
-        # Pattern to match {{anything}}
-        pattern = r'\{\{([^}]+)\}\}'
-
-        def replacer(match):
-            var_path = match.group(1).strip()
-
-            # Handle mop.devices.XXX.YYY paths
-            if var_path.startswith('mop.devices.'):
-                parts = var_path.split('.')
-                # parts = ['mop', 'devices', 'router01', 'site'] or ['mop', 'devices', 'router01', 'step0', 'output']
-                if len(parts) >= 3:
-                    device_name = parts[2]  # router01
-                    if device_name in mop_context['devices']:
-                        device_data = mop_context['devices'][device_name]
-
-                        if len(parts) == 3:
-                            # Just device name: {{mop.devices.router01}}
-                            return device_name
-                        elif len(parts) == 4:
-                            # Device attribute: {{mop.devices.router01.site}}
-                            attr = parts[3]
-                            return str(device_data.get(attr, ''))
-                        elif len(parts) == 5:
-                            # Step result: {{mop.devices.router01.step0.output}}
-                            step_ref = parts[3]  # step0
-                            attr = parts[4]      # output
-                            return str(device_data.get(step_ref, {}).get(attr, ''))
-
-            # Handle simple runtime variables
-            elif var_path in variables:
-                var_value = variables[var_path]
-                if isinstance(var_value, list):
-                    return var_value  # Will be handled by caller
-                return str(var_value)
-
-            # Variable not found, return original
-            return match.group(0)
-
-        result = re.sub(pattern, replacer, text)
-        return result
-
-    # Substitute in devices array
-    if step.get('devices') and isinstance(step['devices'], list):
-        new_devices = []
-        for device in step['devices']:
-            replaced = replace_vars(device)
-            if isinstance(replaced, list):
-                # Device variable expanded to list of devices
-                new_devices.extend(replaced)
-            else:
-                new_devices.append(replaced)
-        step['devices'] = new_devices
-
-    # Substitute in config fields recursively
-    if step.get('config'):
-        def substitute_dict(obj):
-            if isinstance(obj, dict):
-                return {k: substitute_dict(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [substitute_dict(item) for item in obj]
-            elif isinstance(obj, str):
-                return replace_vars(obj)
-            else:
-                return obj
-
-        step['config'] = substitute_dict(step['config'])
-
-    return step
-
-@app.route('/api/mop/<mop_id>/execute', methods=['POST'])
+@app.route('/api/mops/<mop_id>/execute', methods=['POST'])
 @login_required
 def execute_mop_api(mop_id):
-    """Execute a MOP - run all steps sequentially in background"""
+    """Execute a workflow"""
     try:
-        # Get variables from request body
-        request_data = request.get_json() or {}
-        variables = request_data.get('variables', {})
+        # Get MOP from database
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM mops WHERE mop_id = ?', (mop_id,))
+            MOP_row = cursor.fetchone()
 
-        log.info(f"Executing MOP {mop_id} with variables: {variables}")
+            if not MOP_row:
+                return jsonify({'success': False, 'error': 'MOP not found'}), 404
 
-        # Get MOP and steps
-        mop = db.get_mop(mop_id)
-        if not mop:
-            return jsonify({'success': False, 'error': 'MOP not found'}), 404
-
-        steps = db.get_mop_steps(mop_id)
-        if not steps:
-            return jsonify({'success': False, 'error': 'No steps found for this MOP'}), 400
+            MOP = dict(MOP_row)
 
         # Create execution record
         execution_id = str(uuid.uuid4())
-        db.create_mop_execution(execution_id, mop_id)
 
-        # Start execution in background thread
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO mop_executions
+                (execution_id, mop_id, status, started_at, started_by)
+                VALUES (?, ?, 'running', CURRENT_TIMESTAMP, ?)
+            ''', (execution_id, mop_id, session.get('username')))
+            conn.commit()
+
+        # Execute MOP asynchronously
+        def run_mop():
+            from mop_engine import MOPEngine
+
+            try:
+                # Build context with device information
+                context = {'devices': {}}
+
+                # Get device info from Netbox if devices specified
+                # First try to get from database field
+                devices = json.loads(MOP.get('devices', '[]'))
+
+                # If no devices in database, parse from YAML
+                if not devices:
+                    import yaml as yaml_lib
+                    try:
+                        yaml_data = yaml_lib.safe_load(MOP['yaml_content'])
+                        devices = yaml_data.get('devices', [])
+                        log.info(f"Parsed {len(devices)} devices from YAML")
+                    except Exception as e:
+                        log.error(f"Could not parse YAML to extract devices: {e}")
+                        devices = []
+
+                log.info(f"MOP has {len(devices)} devices: {devices}")
+
+                if devices:
+                    for device_name in devices:
+                        log.info(f"Loading device info for: {device_name}")
+                        try:
+                            # Get device connection info (includes IP, platform, etc.)
+                            device_conn_info = get_device_connection_info(device_name)
+                            log.info(f"get_device_connection_info returned: {device_conn_info is not None}")
+
+                            if device_conn_info:
+                                # Extract relevant info for MOP context
+                                # Match the format expected by execute_getconfig_step
+                                conn_args = device_conn_info.get('connection_args', {})
+                                device_info = device_conn_info.get('device_info', {})
+
+                                context['devices'][device_name] = {
+                                    'name': device_name,
+                                    'ip_address': conn_args.get('host', device_name),
+                                    'primary_ip4': conn_args.get('host', device_name),
+                                    'platform': conn_args.get('device_type', 'cisco_ios'),
+                                    'site': device_info.get('site'),
+                                    'nornir_platform': conn_args.get('device_type')
+                                }
+                                log.info(f"SUCCESS: Loaded device {device_name}: ip={conn_args.get('host')}, platform={conn_args.get('device_type')}")
+                            else:
+                                log.error(f"FAILED: get_device_connection_info returned None for {device_name}")
+                                context['devices'][device_name] = {'name': device_name}
+
+                        except Exception as e:
+                            log.error(f"EXCEPTION loading device {device_name}: {e}", exc_info=True)
+                            context['devices'][device_name] = {'name': device_name}
+
+                log.info(f"MOP context devices: {list(context['devices'].keys())}")
+
+                # Execute MOP
+                engine = MOPEngine(MOP['yaml_content'], context)
+                result = engine.execute()
+
+                # Update execution record
+                with db.get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        UPDATE mop_executions
+                        SET status = ?, execution_log = ?, context = ?, completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = ?
+                    ''', (
+                        result['status'],
+                        json.dumps(result.get('execution_log', [])),
+                        json.dumps(result.get('context', {})),
+                        execution_id
+                    ))
+                    conn.commit()
+
+                log.info(f"MOP {mop_id} execution {execution_id} completed with status: {result['status']}")
+
+            except Exception as e:
+                log.error(f"Error executing MOP: {e}", exc_info=True)
+
+                # Update execution record with error
+                with db.get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        UPDATE mop_executions
+                        SET status = 'failed', error = ?, completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = ?
+                    ''', (str(e), execution_id))
+                    conn.commit()
+
+        # Start background thread
         import threading
-        thread = threading.Thread(
-            target=execute_mop_background,
-            args=(execution_id, mop_id, mop, steps, variables)
-        )
+        thread = threading.Thread(target=run_mop)
         thread.daemon = True
         thread.start()
 
-        # Return execution_id immediately so client can poll for progress
-        return jsonify({
-            'success': True,
-            'execution_id': execution_id,
-            'message': 'MOP execution started'
-        })
+        return jsonify({'success': True, 'execution_id': execution_id})
 
     except Exception as e:
         log.error(f"Error starting MOP execution: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def execute_mop_background(execution_id, mop_id, mop, steps, variables):
-    """Background worker to execute MOP steps"""
-    log.info(f"=== MOP BACKGROUND THREAD STARTED: {execution_id} ===")
-    try:
-        log.info(f"Background execution started for {execution_id}")
-
-        # Build device-centric MOP context
-        mop_context = {
-            'devices': {}
-        }
-
-        # Get device metadata for all MOP devices from cache
-        all_devices_list = []
-
-        # Collect all devices from all cache entries
-        for cache_key, cache_entry in device_cache.items():
-            if cache_key == 'ttl':
-                continue
-            if cache_entry and isinstance(cache_entry, dict) and 'devices' in cache_entry:
-                cached_devices = cache_entry.get('devices', [])
-                if cached_devices:
-                    all_devices_list.extend(cached_devices)
-
-        # If cache is empty, only use manual devices
-        if not all_devices_list:
-            manual_devices = db.get_all_manual_devices()
-            for device in manual_devices:
-                all_devices_list.append({
-                    'name': device['device_name'],
-                    'device_type': device['device_type'],
-                    'primary_ip': device['host'],
-                    'site': 'Manual',
-                    'status': 'Active',
-                    'device_role': '',
-                    'platform': '',
-                    'source': 'manual'
-                })
-
-        # Build context for each MOP device
-        for device_name in mop.get('devices', []):
-            device_info = next((dev for dev in all_devices_list if dev['name'] == device_name), None)
-
-            if device_info:
-                # Extract IP address (remove subnet mask if present)
-                primary_ip = device_info.get('primary_ip', '')
-                if primary_ip and '/' in primary_ip:
-                    ip_address = primary_ip.split('/')[0]
-                else:
-                    ip_address = primary_ip or device_name
-
-                mop_context['devices'][device_name] = {
-                    'name': device_name,
-                    'site': device_info.get('site', ''),
-                    'device_type': device_info.get('device_type', ''),
-                    'device_role': device_info.get('device_role', ''),
-                    'ip_address': ip_address,
-                    'platform': device_info.get('platform', ''),
-                    'status': device_info.get('status', ''),
-                }
-                log.info(f"Built MOP context for {device_name}: ip={ip_address}, platform={device_info.get('platform')}")
-            else:
-                # Device not found in inventory, use device name as IP
-                log.warning(f"Device {device_name} not found in inventory, will use device name as IP")
-                mop_context['devices'][device_name] = {
-                    'name': device_name,
-                    'ip_address': device_name,  # Fallback to using device name as IP
-                }
-
-        # Execute steps sequentially
-        results = []
-
-        for step_index, step in enumerate(steps):
-            # Substitute variables in step before execution
-            step = substitute_step_variables(step, variables, mop_context)
-
-            if not step['enabled']:
-                results.append({
-                    'step_id': step['step_id'],
-                    'step_name': step['step_name'],
-                    'status': 'skipped',
-                    'message': 'Step is disabled'
-                })
-                continue
-
-            log.info(f"Executing MOP step {step_index} (order {step['step_order']}): {step['step_name']}")
-
-            # Update execution status - use step_index not step_order
-            db.update_mop_execution(execution_id, current_step=step_index)
-
-            try:
-                # Execute the step based on its type - pass MOP context
-                if step['step_type'] == 'getconfig':
-                    result = execute_getconfig_step(step, mop_context, step_index)
-                elif step['step_type'] == 'setconfig':
-                    result = execute_setconfig_step(step, mop_context, step_index)
-                elif step['step_type'] == 'template':
-                    result = execute_template_step(step, mop_context, step_index)
-                elif step['step_type'] == 'deploy_stack':
-                    result = execute_deploy_stack_step(step, mop_context, step_index)
-                elif step['step_type'] == 'api':
-                    result = execute_api_step(step, mop_context, step_index)
-                elif step['step_type'] == 'code':
-                    result = execute_code_step(step, mop_context, step_index)
-                else:
-                    result = {
-                        'status': 'error',
-                        'message': f"Unknown step type: {step['step_type']}"
-                    }
-
-                # Build step result object
-                step_result = {
-                    'step_id': step['step_id'],
-                    'step_name': step['step_name'],
-                    'step_type': step['step_type'],
-                    'step_order': step['step_order'],
-                    'status': result.get('status', 'unknown'),
-                    'data': result.get('data'),
-                    'task_id': result.get('task_id'),
-                    'error': result.get('error')
-                }
-
-                results.append(step_result)
-
-                # Store results in device-centric structure: mop.devices[device_name].step0.output
-                step_ref = f"step{step['step_order']}"
-                if result.get('data') and isinstance(result.get('data'), list):
-                    for device_result in result.get('data'):
-                        device_name = device_result.get('device')
-                        if device_name and device_name in mop_context['devices']:
-                            # Add step results to device
-                            if step_ref not in mop_context['devices'][device_name]:
-                                mop_context['devices'][device_name][step_ref] = {}
-
-                            mop_context['devices'][device_name][step_ref] = {
-                                'output': device_result.get('output'),
-                                'status': device_result.get('task_status'),
-                                'task_id': device_result.get('task_id')
-                            }
-
-                log.info(f"Stored step {step_ref} results for devices")
-
-            except Exception as step_error:
-                log.error(f"Error executing step {step['step_id']}: {step_error}")
-                results.append({
-                    'step_id': step['step_id'],
-                    'step_name': step['step_name'],
-                    'status': 'error',
-                    'error': str(step_error)
-                })
-                # Continue with next step even if this one fails
-                continue
-
-        # Update execution status to completed with results and context
-        db.update_mop_execution(
-            execution_id,
-            status='completed',
-            results=results,
-            context=mop_context  # Store device-centric context
-        )
-
-        log.info(f"Completed MOP execution: {execution_id}")
-
-    except Exception as e:
-        log.error(f"Error in background MOP execution: {e}", exc_info=True)
-        # Update execution status to failed
-        db.update_mop_execution(execution_id, status='failed', error=str(e))
-
-@app.route('/api/mop/executions/running', methods=['GET'])
+@app.route('/api/mops/<mop_id>/executions', methods=['GET'])
 @login_required
-def get_all_running_mop_executions_api():
-    """Get all currently running MOP executions across all MOPs"""
+def get_mop_executions_api(mop_id):
+    """Get execution history for a workflow"""
     try:
         with db.get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT e.execution_id, e.mop_id, e.status, e.current_step, e.started_at, m.name as mop_name
-                FROM mop_executions e
-                JOIN mops m ON e.mop_id = m.mop_id
-                WHERE e.status = 'running'
-                ORDER BY e.started_at DESC
-            """)
-            executions = cursor.fetchall()
-            # Convert Row objects to dictionaries
-            executions_list = [dict(row) for row in executions]
-            return jsonify({'success': True, 'executions': executions_list})
-    except Exception as e:
-        log.error(f"Error getting running MOP executions: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/mop/executions/<execution_id>/cancel', methods=['POST'])
-@login_required
-def cancel_mop_execution_api(execution_id):
-    """Cancel a running MOP execution"""
-    try:
-        from datetime import datetime
-        db.update_mop_execution(
-            execution_id,
-            status='cancelled',
-            error='Cancelled by user',
-            completed_at=datetime.utcnow()
-        )
-        log.info(f"MOP execution {execution_id} cancelled by user")
-        return jsonify({'success': True, 'message': 'MOP execution cancelled'})
-    except Exception as e:
-        log.error(f"Error cancelling MOP execution: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/mop/<mop_id>/executions', methods=['GET'])
-@login_required
-def get_mop_executions_api(mop_id):
-    """Get execution history for a MOP"""
-    try:
-        limit = request.args.get('limit', 10, type=int)
-        executions = db.get_mop_executions(mop_id, limit=limit)
-        return jsonify({'success': True, 'executions': executions})
+            cursor.execute('''
+                SELECT execution_id, status, started_at, completed_at, started_by
+                FROM mop_executions
+                WHERE mop_id = ?
+                ORDER BY started_at DESC
+                LIMIT 50
+            ''', (mop_id,))
+            executions = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'executions': executions})
     except Exception as e:
         log.error(f"Error getting MOP executions: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/executions/<execution_id>', methods=['GET'])
+
+@app.route('/api/mop-executions/<execution_id>', methods=['GET'])
 @login_required
-def get_mop_execution_api(execution_id):
-    """Get a specific execution"""
+def get_mop_execution_details_api(execution_id):
+    """Get detailed execution information"""
     try:
-        execution = db.get_mop_execution(execution_id)
-        if not execution:
-            return jsonify({'success': False, 'error': 'Execution not found'}), 404
-        return jsonify({'success': True, 'execution': execution})
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT we.*, w.name as mop_name
+                FROM mop_executions we
+                LEFT JOIN mops w ON we.mop_id = w.mop_id
+                WHERE we.execution_id = ?
+            ''', (execution_id,))
+            execution = cursor.fetchone()
+
+            if not execution:
+                return jsonify({'success': False, 'error': 'Execution not found'}), 404
+
+            execution_dict = dict(execution)
+
+            # Parse JSON fields if they are strings
+            if execution_dict.get('execution_log'):
+                if isinstance(execution_dict['execution_log'], str):
+                    try:
+                        execution_dict['execution_log'] = json.loads(execution_dict['execution_log'])
+                    except:
+                        pass  # Keep as string if not valid JSON
+            if execution_dict.get('context'):
+                if isinstance(execution_dict['context'], str):
+                    try:
+                        execution_dict['context'] = json.loads(execution_dict['context'])
+                    except:
+                        pass  # Keep as string if not valid JSON
+
+            return jsonify({'success': True, 'execution': execution_dict})
     except Exception as e:
-        log.error(f"Error getting MOP execution: {e}", exc_info=True)
+        log.error(f"Error getting MOP execution details: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/mop/<mop_id>/current-execution', methods=['GET'])
+
+@app.route('/api/mop-executions/running', methods=['GET'])
 @login_required
-def get_current_mop_execution_api(mop_id):
-    """Get the current running execution for a MOP (if any)"""
+def get_running_mop_executions_api():
+    """Get recent MOP executions (last 20)"""
     try:
-        # Get recent executions for this MOP
-        executions = db.get_mop_executions(mop_id, limit=5)
-
-        # Find the first one that's still running
-        running_execution = next((e for e in executions if e.get('status') == 'running'), None)
-
-        if running_execution:
-            return jsonify({'success': True, 'execution': running_execution, 'has_running': True})
-        else:
-            return jsonify({'success': True, 'has_running': False})
+        with db.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT we.execution_id, we.mop_id, we.status, we.current_step,
+                       we.started_at, we.completed_at, we.started_by, w.name as mop_name
+                FROM mop_executions we
+                JOIN mops w ON we.mop_id = w.mop_id
+                ORDER BY we.started_at DESC
+                LIMIT 20
+            ''')
+            executions = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'executions': executions})
     except Exception as e:
-        log.error(f"Error getting current MOP execution: {e}", exc_info=True)
+        log.error(f"Error getting MOP executions: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/task/<task_id>/result', methods=['GET'])
 @login_required
