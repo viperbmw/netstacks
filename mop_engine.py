@@ -193,6 +193,7 @@ class MOPEngine:
 
         # Route to appropriate handler based on step type
         try:
+            # Built-in step types
             if step_type == 'check_bgp':
                 return self.execute_check_bgp(step)
             elif step_type == 'check_ping':
@@ -212,7 +213,8 @@ class MOPEngine:
             elif step_type == 'wait':
                 return self.execute_wait(step)
             else:
-                return {'status': 'failed', 'error': f'Unknown step type: {step_type}'}
+                # Check if it's a custom step type from database
+                return self.execute_custom_step_type(step_type, step)
 
         except Exception as e:
             log.error(f"Error executing step '{step_name}': {e}", exc_info=True)
@@ -745,6 +747,149 @@ class MOPEngine:
             return str(value)
 
         return re.sub(r'\{([^}]+)\}', replacer, text)
+
+    def execute_custom_step_type(self, step_type_id: str, step: Dict) -> Dict[str, Any]:
+        """
+        Execute a custom step type from database
+
+        Args:
+            step_type_id: The step type ID
+            step: Step definition from YAML
+
+        Returns:
+            Dict with status and result data
+        """
+        # Import database module
+        import database as db
+
+        # Get step type definition from database
+        step_type = db.get_step_type(step_type_id)
+
+        if not step_type:
+            return {'status': 'failed', 'error': f'Unknown step type: {step_type_id}'}
+
+        if not step_type.get('is_custom'):
+            return {'status': 'failed', 'error': f'Step type {step_type_id} is not a custom type'}
+
+        log.info(f"Executing custom step type: {step_type['name']}")
+
+        # Execute based on custom_type
+        custom_type = step_type.get('custom_type')
+
+        if custom_type == 'python':
+            return self._execute_custom_python_type(step_type, step)
+        elif custom_type == 'webhook':
+            return self._execute_custom_webhook_type(step_type, step)
+        else:
+            return {'status': 'failed', 'error': f'Unknown custom type: {custom_type}'}
+
+    def _execute_custom_python_type(self, step_type: Dict, step: Dict) -> Dict[str, Any]:
+        """Execute a custom Python step type"""
+        code = step_type.get('custom_code', '')
+
+        if not code:
+            return {'status': 'failed', 'error': 'No Python code defined for this step type'}
+
+        # Build execution environment with step parameters
+        step_params = {}
+        for key, value in step.items():
+            if key not in ['name', 'type', 'id', 'on_success', 'on_failure']:
+                # Substitute variables in parameter values
+                if isinstance(value, str):
+                    step_params[key] = self.substitute_variables(value)
+                else:
+                    step_params[key] = value
+
+        # Create safe execution environment
+        safe_globals = {
+            'context': self.context,
+            'step': step,
+            'params': step_params,
+            'log': log,
+            'datetime': datetime,
+            'json': json,
+            'requests': requests
+        }
+
+        try:
+            # Execute the custom code
+            exec(code, safe_globals)
+
+            # Code should set 'result' variable
+            if 'result' in safe_globals:
+                result = safe_globals['result']
+                # Ensure result has required fields
+                if isinstance(result, dict) and 'status' in result:
+                    return result
+                else:
+                    return {'status': 'success', 'data': result}
+            else:
+                return {'status': 'success', 'message': 'Custom code executed successfully'}
+
+        except Exception as e:
+            log.error(f"Error executing custom Python code: {e}", exc_info=True)
+            return {'status': 'failed', 'error': f'Python execution error: {str(e)}'}
+
+    def _execute_custom_webhook_type(self, step_type: Dict, step: Dict) -> Dict[str, Any]:
+        """Execute a custom webhook step type"""
+        url = step_type.get('custom_webhook_url')
+        method = step_type.get('custom_webhook_method', 'POST').upper()
+        headers = step_type.get('custom_webhook_headers', {})
+
+        if not url:
+            return {'status': 'failed', 'error': 'No webhook URL defined for this step type'}
+
+        # Substitute variables in URL
+        url = self.substitute_variables(url)
+
+        # Build request body with step parameters
+        body = {}
+        for key, value in step.items():
+            if key not in ['name', 'type', 'id', 'on_success', 'on_failure']:
+                # Substitute variables in parameter values
+                if isinstance(value, str):
+                    body[key] = self.substitute_variables(value)
+                else:
+                    body[key] = value
+
+        # Add context information
+        body['_context'] = {
+            'mop_name': self.context.get('mop_name'),
+            'step_name': step.get('name'),
+            'devices': step.get('devices') or self.mop.get('devices', [])
+        }
+
+        try:
+            # Execute webhook request
+            if method == 'POST':
+                response = requests.post(url, json=body, headers=headers, timeout=30)
+            elif method == 'GET':
+                response = requests.get(url, params=body, headers=headers, timeout=30)
+            elif method == 'PUT':
+                response = requests.put(url, json=body, headers=headers, timeout=30)
+            else:
+                return {'status': 'failed', 'error': f'Unsupported HTTP method: {method}'}
+
+            response.raise_for_status()
+
+            # Try to parse response as JSON
+            try:
+                response_data = response.json()
+            except:
+                response_data = response.text
+
+            return {
+                'status': 'success',
+                'message': f'Webhook called successfully: {url}',
+                'data': {
+                    'status_code': response.status_code,
+                    'response': response_data
+                }
+            }
+
+        except requests.exceptions.RequestException as e:
+            log.error(f"Error calling webhook: {e}", exc_info=True)
+            return {'status': 'failed', 'error': f'Webhook request failed: {str(e)}'}
 
 
 # Convenience function

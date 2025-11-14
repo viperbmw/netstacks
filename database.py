@@ -373,10 +373,29 @@ def init_db():
             handler_function TEXT NOT NULL,
             icon TEXT,
             enabled INTEGER DEFAULT 1,
+            is_custom INTEGER DEFAULT 0,
+            custom_type TEXT,
+            custom_code TEXT,
+            custom_webhook_url TEXT,
+            custom_webhook_method TEXT DEFAULT 'POST',
+            custom_webhook_headers TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Migrations for custom step type fields
+    try:
+        cursor.execute("SELECT is_custom FROM step_types LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE step_types ADD COLUMN is_custom INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE step_types ADD COLUMN custom_type TEXT")
+        cursor.execute("ALTER TABLE step_types ADD COLUMN custom_code TEXT")
+        cursor.execute("ALTER TABLE step_types ADD COLUMN custom_webhook_url TEXT")
+        cursor.execute("ALTER TABLE step_types ADD COLUMN custom_webhook_method TEXT DEFAULT 'POST'")
+        cursor.execute("ALTER TABLE step_types ADD COLUMN custom_webhook_headers TEXT")
+        conn.commit()
+        log.info("Added custom step type columns")
 
     # Seed default step types if table is empty
     cursor.execute('SELECT COUNT(*) FROM step_types')
@@ -1485,5 +1504,151 @@ def update_mop_execution(execution_id, status=None, current_step=None, results=N
             conn.commit()
             return cursor.rowcount > 0
         return False
+
+# Step Types Management
+
+def get_all_step_types():
+    """Get all step types (built-in and custom)"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT step_type_id, name, description, category, parameters_schema, handler_function,
+                   icon, enabled, is_custom, custom_type, custom_code, custom_webhook_url,
+                   custom_webhook_method, custom_webhook_headers, created_at, updated_at
+            FROM step_types
+            WHERE enabled = 1
+            ORDER BY is_custom ASC, name ASC
+        ''')
+        step_types = []
+        for row in cursor.fetchall():
+            step_type = dict(row)
+            if step_type['parameters_schema']:
+                step_type['parameters_schema'] = json.loads(step_type['parameters_schema'])
+            if step_type['custom_webhook_headers']:
+                step_type['custom_webhook_headers'] = json.loads(step_type['custom_webhook_headers'])
+            step_types.append(step_type)
+        return step_types
+
+def get_step_type(step_type_id):
+    """Get a specific step type by ID"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT step_type_id, name, description, category, parameters_schema, handler_function,
+                   icon, enabled, is_custom, custom_type, custom_code, custom_webhook_url,
+                   custom_webhook_method, custom_webhook_headers, created_at, updated_at
+            FROM step_types
+            WHERE step_type_id = ?
+        ''', (step_type_id,))
+        row = cursor.fetchone()
+        if row:
+            step_type = dict(row)
+            if step_type['parameters_schema']:
+                step_type['parameters_schema'] = json.loads(step_type['parameters_schema'])
+            if step_type['custom_webhook_headers']:
+                step_type['custom_webhook_headers'] = json.loads(step_type['custom_webhook_headers'])
+            return step_type
+        return None
+
+def create_custom_step_type(step_type_id, name, description, category, parameters_schema, icon,
+                            custom_type, custom_code=None, custom_webhook_url=None,
+                            custom_webhook_method='POST', custom_webhook_headers=None):
+    """Create a new custom step type"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO step_types (
+                step_type_id, name, description, category, parameters_schema, handler_function,
+                icon, enabled, is_custom, custom_type, custom_code, custom_webhook_url,
+                custom_webhook_method, custom_webhook_headers
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)
+        ''', (
+            step_type_id, name, description, category,
+            json.dumps(parameters_schema) if parameters_schema else '{}',
+            f'execute_custom_{step_type_id}',  # Handler function name
+            icon or 'cog', custom_type, custom_code, custom_webhook_url,
+            custom_webhook_method,
+            json.dumps(custom_webhook_headers) if custom_webhook_headers else None
+        ))
+        conn.commit()
+        return step_type_id
+
+def update_custom_step_type(step_type_id, name=None, description=None, category=None,
+                            parameters_schema=None, icon=None, custom_type=None,
+                            custom_code=None, custom_webhook_url=None,
+                            custom_webhook_method=None, custom_webhook_headers=None, enabled=None):
+    """Update an existing custom step type"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Verify it's a custom step type
+        cursor.execute('SELECT is_custom FROM step_types WHERE step_type_id = ?', (step_type_id,))
+        row = cursor.fetchone()
+        if not row or not row['is_custom']:
+            return False
+
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append('name = ?')
+            params.append(name)
+        if description is not None:
+            updates.append('description = ?')
+            params.append(description)
+        if category is not None:
+            updates.append('category = ?')
+            params.append(category)
+        if parameters_schema is not None:
+            updates.append('parameters_schema = ?')
+            params.append(json.dumps(parameters_schema) if parameters_schema else '{}')
+        if icon is not None:
+            updates.append('icon = ?')
+            params.append(icon)
+        if custom_type is not None:
+            updates.append('custom_type = ?')
+            params.append(custom_type)
+        if custom_code is not None:
+            updates.append('custom_code = ?')
+            params.append(custom_code)
+        if custom_webhook_url is not None:
+            updates.append('custom_webhook_url = ?')
+            params.append(custom_webhook_url)
+        if custom_webhook_method is not None:
+            updates.append('custom_webhook_method = ?')
+            params.append(custom_webhook_method)
+        if custom_webhook_headers is not None:
+            updates.append('custom_webhook_headers = ?')
+            params.append(json.dumps(custom_webhook_headers) if custom_webhook_headers else None)
+        if enabled is not None:
+            updates.append('enabled = ?')
+            params.append(enabled)
+
+        if updates:
+            updates.append('updated_at = CURRENT_TIMESTAMP')
+            params.append(step_type_id)
+            cursor.execute(f'''
+                UPDATE step_types
+                SET {', '.join(updates)}
+                WHERE step_type_id = ?
+            ''', params)
+            conn.commit()
+            return cursor.rowcount > 0
+        return False
+
+def delete_custom_step_type(step_type_id):
+    """Delete a custom step type (only custom types can be deleted)"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Verify it's a custom step type
+        cursor.execute('SELECT is_custom FROM step_types WHERE step_type_id = ?', (step_type_id,))
+        row = cursor.fetchone()
+        if not row or not row['is_custom']:
+            return False
+
+        cursor.execute('DELETE FROM step_types WHERE step_type_id = ?', (step_type_id,))
+        conn.commit()
+        return cursor.rowcount > 0
 
 

@@ -194,6 +194,27 @@
             </div>
         </div>
 
+        <!-- Custom MOP Step Types Section -->
+        <div class="card mt-3">
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-code-branch"></i> Custom MOP Step Types</h5>
+                    <button class="btn btn-light btn-sm" id="add-custom-step-type-btn">
+                        <i class="fas fa-plus"></i> Create Step Type
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Create reusable custom step types for your MOPs using Python code or webhooks</p>
+                <div id="custom-step-types-list">
+                    <div class="text-center text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Menu Items Order Section -->
         <div class="card mt-3">
             <div class="card-header">
@@ -301,6 +322,142 @@
         </div>
     </div>
 </div>
+
+<!-- Custom Step Type Modal -->
+<div class="modal fade" id="customStepTypeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="customStepTypeModalTitle">Create Custom Step Type</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="custom-step-type-form">
+                    <input type="hidden" id="custom-step-type-id-input">
+
+                    <div class="mb-3">
+                        <label for="step-type-id" class="form-label">Step Type ID *</label>
+                        <input type="text" class="form-control" id="step-type-id" placeholder="e.g., notify_slack" required>
+                        <small class="form-text text-muted">Unique identifier (lowercase, underscores only, no spaces)</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="step-type-name" class="form-label">Display Name *</label>
+                        <input type="text" class="form-control" id="step-type-name" placeholder="e.g., Notify Slack" required>
+                        <small class="form-text text-muted">Human-readable name shown in MOP builder</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="step-type-description" class="form-label">Description</label>
+                        <textarea class="form-control" id="step-type-description" rows="2" placeholder="Describe what this step type does"></textarea>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="step-type-category" class="form-label">Category</label>
+                            <select class="form-select" id="step-type-category">
+                                <option value="Custom">Custom</option>
+                                <option value="Notifications">Notifications</option>
+                                <option value="Network Checks">Network Checks</option>
+                                <option value="Configuration">Configuration</option>
+                                <option value="Monitoring">Monitoring</option>
+                                <option value="Utility">Utility</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label for="step-type-icon" class="form-label">Icon</label>
+                            <input type="text" class="form-control" id="step-type-icon" placeholder="cog" value="cog">
+                            <small class="form-text text-muted">FontAwesome icon name</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="step-type-implementation" class="form-label">Implementation Type *</label>
+                        <select class="form-select" id="step-type-implementation" required>
+                            <option value="">-- Select Type --</option>
+                            <option value="python">Python Code</option>
+                            <option value="webhook">HTTP Webhook</option>
+                        </select>
+                    </div>
+
+                    <!-- Python Code Implementation -->
+                    <div id="python-implementation" class="implementation-section" style="display: none;">
+                        <div class="mb-3">
+                            <label for="step-type-python-code" class="form-label">Python Code *</label>
+                            <textarea class="form-control font-monospace" id="step-type-python-code" rows="12" placeholder="# Available variables:
+# - context: MOP execution context
+# - step: Current step definition
+# - params: Step parameters
+# - log: Logger instance
+# - datetime, json, requests modules
+
+# Example:
+message = params.get('message', 'Hello')
+log.info(f'Custom step executed: {message}')
+
+# Set result (must include 'status' key)
+result = {
+    'status': 'success',
+    'message': f'Executed with message: {message}',
+    'data': {'timestamp': datetime.utcnow().isoformat()}
+}"></textarea>
+                            <small class="form-text text-muted">Python code to execute. Must set 'result' variable with 'status' key</small>
+                        </div>
+                    </div>
+
+                    <!-- Webhook Implementation -->
+                    <div id="webhook-implementation" class="implementation-section" style="display: none;">
+                        <div class="mb-3">
+                            <label for="step-type-webhook-url" class="form-label">Webhook URL *</label>
+                            <input type="url" class="form-control" id="step-type-webhook-url" placeholder="https://hooks.example.com/webhook">
+                            <small class="form-text text-muted">URL to call (supports variable substitution like {mop_name})</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="step-type-webhook-method" class="form-label">HTTP Method</label>
+                            <select class="form-select" id="step-type-webhook-method">
+                                <option value="POST">POST</option>
+                                <option value="GET">GET</option>
+                                <option value="PUT">PUT</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="step-type-webhook-headers" class="form-label">Custom Headers (JSON)</label>
+                            <textarea class="form-control font-monospace" id="step-type-webhook-headers" rows="3" placeholder='{"Authorization": "Bearer token", "Content-Type": "application/json"}'></textarea>
+                            <small class="form-text text-muted">Optional custom headers as JSON object</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Parameters Schema (Optional)</label>
+                        <textarea class="form-control font-monospace" id="step-type-parameters" rows="6" placeholder='{
+  "message": {
+    "type": "string",
+    "required": true,
+    "description": "Message to send"
+  },
+  "channel": {
+    "type": "string",
+    "required": false,
+    "description": "Slack channel"
+  }
+}'></textarea>
+                        <small class="form-text text-muted">JSON schema defining parameters users can configure</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-custom-step-type-btn">
+                    <i class="fas fa-save"></i> Save Step Type
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}

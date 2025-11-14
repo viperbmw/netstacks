@@ -1,44 +1,44 @@
 """
 Step Types Introspection
-Automatically discovers step types from mop_engine.py
+Returns step types from database (built-in and custom)
 """
-import re
-import ast
-import inspect
-from mop_engine import MOPEngine
+import database as db
 
 def get_step_types():
     """
-    Introspect MOPEngine to find all execute_* methods and their parameters
+    Get all step types from database (built-in and custom)
+    Returns them in the format expected by the visual builder
     """
     step_types = []
 
-    # Get the MOPEngine class
-    engine_class = MOPEngine
+    # Get all step types from database
+    db_step_types = db.get_all_step_types()
 
-    # Find all execute_* methods
-    for name, method in inspect.getmembers(engine_class, predicate=inspect.isfunction):
-        if name.startswith('execute_') and name != 'execute_step':
-            step_type_name = name.replace('execute_', '')
+    for step_type in db_step_types:
+        # Convert database format to visual builder format
+        params = []
+        if step_type.get('parameters_schema'):
+            schema = step_type['parameters_schema']
+            for param_name, param_def in schema.items():
+                params.append({
+                    'name': param_name,
+                    'type': param_def.get('type', 'string'),
+                    'required': param_def.get('required', False),
+                    'description': param_def.get('description', param_name.replace('_', ' ').title()),
+                    'default': param_def.get('default')
+                })
 
-            # Get docstring to extract parameters
-            docstring = inspect.getdoc(method) or ""
+        step_types.append({
+            'id': step_type['step_type_id'],
+            'name': step_type['name'],
+            'description': step_type['description'] or '',
+            'category': step_type.get('category', 'General'),
+            'parameters': params,
+            'icon': step_type.get('icon', 'cog'),
+            'is_custom': step_type.get('is_custom', 0) == 1
+        })
 
-            # Parse parameters from YAML example in docstring
-            params = extract_params_from_docstring(docstring)
-
-            # Get description
-            description = docstring.split('\n')[0] if docstring else f"Execute {step_type_name}"
-
-            step_types.append({
-                'id': step_type_name,
-                'name': step_type_name.replace('_', ' ').title(),
-                'description': description,
-                'parameters': params,
-                'icon': get_icon_for_type(step_type_name)
-            })
-
-    return sorted(step_types, key=lambda x: x['name'])
+    return sorted(step_types, key=lambda x: (x.get('is_custom', False), x['name']))
 
 
 def extract_params_from_docstring(docstring):

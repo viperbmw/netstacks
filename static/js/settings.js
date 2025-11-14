@@ -880,6 +880,11 @@ $(document).ready(function() {
         loadMenuItems();
         $('#save-menu-order-btn').click(saveMenuOrder);
     }
+
+    // Load custom step types
+    if ($('#custom-step-types-list').length > 0) {
+        loadCustomStepTypes();
+    }
 });
 
 
@@ -1012,3 +1017,221 @@ function saveMenuOrder() {
         }
     });
 }
+
+// ============================================================
+// Custom Step Types Management
+// ============================================================
+
+function loadCustomStepTypes() {
+    $.get('/api/custom-step-types', function(data) {
+        const $list = $('#custom-step-types-list');
+        $list.empty();
+
+        if (data.success && data.step_types && data.step_types.length > 0) {
+            data.step_types.forEach(function(stepType) {
+                const $item = $(`
+                    <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                        <div class="flex-grow-1">
+                            <strong><i class="fas fa-${stepType.icon}"></i> ${stepType.name}</strong>
+                            <br>
+                            <small class="text-muted">${stepType.description || 'No description'}</small>
+                            <br>
+                            <span class="badge bg-secondary">${stepType.category || 'Custom'}</span>
+                            <span class="badge ${stepType.custom_type === 'python' ? 'bg-info' : 'bg-success'}">${stepType.custom_type === 'python' ? 'Python' : 'Webhook'}</span>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary edit-custom-step-type" data-id="${stepType.step_type_id}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger delete-custom-step-type" data-id="${stepType.step_type_id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `);
+                $list.append($item);
+            });
+        } else {
+            $list.html('<div class="text-center text-muted py-3">No custom step types yet. Click "Create Step Type" to add one.</div>');
+        }
+    }).fail(function() {
+        $('#custom-step-types-list').html('<div class="alert alert-danger">Error loading custom step types</div>');
+    });
+}
+
+// Add custom step type button
+$('#add-custom-step-type-btn').click(function() {
+    $('#customStepTypeModalTitle').text('Create Custom Step Type');
+    $('#custom-step-type-form')[0].reset();
+    $('#custom-step-type-id-input').val('');
+    $('#step-type-id').prop('disabled', false);
+    $('.implementation-section').hide();
+    $('#customStepTypeModal').modal('show');
+});
+
+// Implementation type selector
+$('#step-type-implementation').change(function() {
+    const implType = $(this).val();
+    $('.implementation-section').hide();
+
+    if (implType === 'python') {
+        $('#python-implementation').show();
+    } else if (implType === 'webhook') {
+        $('#webhook-implementation').show();
+    }
+});
+
+// Save custom step type
+$('#save-custom-step-type-btn').click(function() {
+    const isEdit = $('#custom-step-type-id-input').val().length > 0;
+    const stepTypeId = isEdit ? $('#custom-step-type-id-input').val() : $('#step-type-id').val();
+    const implType = $('#step-type-implementation').val();
+
+    // Validation
+    if (!stepTypeId || !$('#step-type-name').val() || !implType) {
+        showAlert('danger', 'Please fill in all required fields');
+        return;
+    }
+
+    // Validate step type ID format (only for new step types)
+    if (!isEdit && !/^[a-z_]+$/.test(stepTypeId)) {
+        showAlert('danger', 'Step Type ID must contain only lowercase letters and underscores');
+        return;
+    }
+
+    // Build request data
+    const data = {
+        step_type_id: stepTypeId,
+        name: $('#step-type-name').val(),
+        description: $('#step-type-description').val(),
+        category: $('#step-type-category').val(),
+        icon: $('#step-type-icon').val() || 'cog',
+        custom_type: implType
+    };
+
+    // Add implementation-specific fields
+    if (implType === 'python') {
+        data.custom_code = $('#step-type-python-code').val();
+        if (!data.custom_code) {
+            showAlert('danger', 'Python code is required');
+            return;
+        }
+    } else if (implType === 'webhook') {
+        data.custom_webhook_url = $('#step-type-webhook-url').val();
+        data.custom_webhook_method = $('#step-type-webhook-method').val();
+
+        if (!data.custom_webhook_url) {
+            showAlert('danger', 'Webhook URL is required');
+            return;
+        }
+
+        const headers = $('#step-type-webhook-headers').val();
+        if (headers) {
+            try {
+                data.custom_webhook_headers = JSON.parse(headers);
+            } catch (e) {
+                showAlert('danger', 'Invalid JSON in webhook headers');
+                return;
+            }
+        }
+    }
+
+    // Parse parameters schema
+    const paramsText = $('#step-type-parameters').val();
+    if (paramsText) {
+        try {
+            data.parameters_schema = JSON.parse(paramsText);
+        } catch (e) {
+            showAlert('danger', 'Invalid JSON in parameters schema');
+            return;
+        }
+    }
+
+    // Send request
+    const url = isEdit ? `/api/custom-step-types/${stepTypeId}` : '/api/custom-step-types';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    $.ajax({
+        url: url,
+        method: method,
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(response) {
+            if (response.success) {
+                showAlert('success', `Custom step type ${isEdit ? 'updated' : 'created'} successfully`);
+                $('#customStepTypeModal').modal('hide');
+                loadCustomStepTypes();
+            } else {
+                showAlert('danger', response.error || 'Failed to save step type');
+            }
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            showAlert('danger', 'Error: ' + error);
+        }
+    });
+});
+
+// Edit custom step type
+$(document).on('click', '.edit-custom-step-type', function() {
+    const stepTypeId = $(this).data('id');
+
+    $.get(`/api/custom-step-types/${stepTypeId}`, function(data) {
+        if (data.success) {
+            const stepType = data.step_type;
+
+            $('#customStepTypeModalTitle').text('Edit Custom Step Type');
+            $('#custom-step-type-id-input').val(stepType.step_type_id);
+            $('#step-type-id').val(stepType.step_type_id).prop('disabled', true);
+            $('#step-type-name').val(stepType.name);
+            $('#step-type-description').val(stepType.description || '');
+            $('#step-type-category').val(stepType.category || 'Custom');
+            $('#step-type-icon').val(stepType.icon || 'cog');
+            $('#step-type-implementation').val(stepType.custom_type).trigger('change');
+
+            if (stepType.custom_type === 'python') {
+                $('#step-type-python-code').val(stepType.custom_code || '');
+            } else if (stepType.custom_type === 'webhook') {
+                $('#step-type-webhook-url').val(stepType.custom_webhook_url || '');
+                $('#step-type-webhook-method').val(stepType.custom_webhook_method || 'POST');
+                if (stepType.custom_webhook_headers) {
+                    $('#step-type-webhook-headers').val(JSON.stringify(stepType.custom_webhook_headers, null, 2));
+                }
+            }
+
+            if (stepType.parameters_schema) {
+                $('#step-type-parameters').val(JSON.stringify(stepType.parameters_schema, null, 2));
+            }
+
+            $('#customStepTypeModal').modal('show');
+        }
+    }).fail(function() {
+        showAlert('danger', 'Error loading step type');
+    });
+});
+
+// Delete custom step type
+$(document).on('click', '.delete-custom-step-type', function() {
+    const stepTypeId = $(this).data('id');
+
+    if (!confirm('Are you sure you want to delete this custom step type? This cannot be undone.')) {
+        return;
+    }
+
+    $.ajax({
+        url: `/api/custom-step-types/${stepTypeId}`,
+        method: 'DELETE',
+        success: function(response) {
+            if (response.success) {
+                showAlert('success', 'Custom step type deleted successfully');
+                loadCustomStepTypes();
+            } else {
+                showAlert('danger', response.error || 'Failed to delete step type');
+            }
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+            showAlert('danger', 'Error: ' + error);
+        }
+    });
+});
