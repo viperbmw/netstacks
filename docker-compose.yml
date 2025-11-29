@@ -9,13 +9,10 @@ services:
       # Database Configuration
       - DB_FILE=/data/netstacks.db
       - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
-      - USE_POSTGRES=${USE_POSTGRES:-false}
+      - USE_POSTGRES=${USE_POSTGRES:-true}
       # Celery Configuration
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      # Legacy Netstacker (will be removed)
-      - NETSTACKER_API_URL=http://netstacker-controller:9000
-      - NETSTACKER_API_KEY=${NETSTACKER_API_KEY:-2a84465a-cf38-46b2-9d86-b84Q7d57f288}
       # Timezone Configuration
       - TZ=${TZ:-America/New_York}
     ports:
@@ -72,7 +69,7 @@ services:
       - redis
     restart: unless-stopped
 
-  # Redis (shared by Celery and legacy Netstacker)
+  # Redis (message broker for Celery)
   redis:
     image: redis:7-alpine
     container_name: netstacks-redis
@@ -100,64 +97,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ==========================================================================
-  # Legacy Netstacker (keeping for backward compatibility during transition)
-  # These can be removed once all operations use Celery
-  # ==========================================================================
-
-  netstacker-controller:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_controller_dockerfile
-    container_name: netstacker-controller
-    environment:
-      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
-      - NETSTACKER_CONFIG=/code/config/config.json
-      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
-    ports:
-      - "9000:9000"
-    networks:
-      - netstacks-network
-    depends_on:
-      - redis
-    restart: unless-stopped
-    profiles:
-      - legacy
-
-  netstacker-worker-pinned:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_pinned_worker_dockerfile
-    container_name: netstacker-worker-pinned
-    environment:
-      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
-      - NETSTACKER_CONFIG=/code/config/config.json
-      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
-    depends_on:
-      - redis
-    networks:
-      - netstacks-network
-    restart: unless-stopped
-    profiles:
-      - legacy
-
-  netstacker-worker-fifo:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_fifo_worker_dockerfile
-    container_name: netstacker-worker-fifo
-    environment:
-      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
-      - NETSTACKER_CONFIG=/code/config/config.json
-      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
-    depends_on:
-      - redis
-    networks:
-      - netstacks-network
-    restart: unless-stopped
-    profiles:
-      - legacy
 
 networks:
   netstacks-network:

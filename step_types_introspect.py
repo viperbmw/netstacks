@@ -2,7 +2,7 @@
 Step Types Introspection
 Returns step types from database (built-in and custom)
 """
-import database as db
+import db
 
 def get_step_types():
     """

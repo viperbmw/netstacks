@@ -2,8 +2,7 @@
 Celery Tasks for NetStacks
 Network automation tasks using Netmiko, TextFSM, and Genie
 
-This replaces Netstacker's RQ-based worker system with Celery.
-Each task handles network device operations directly.
+Each task handles network device operations directly via Celery workers.
 """
 import os
 import logging

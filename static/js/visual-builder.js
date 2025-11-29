@@ -28,7 +28,7 @@ function loadStepTypes() {
         });
 }
 
-// Load devices from Netstacker API
+// Load devices from Netbox API
 function loadDevices() {
     console.log('Loading devices from API...');
     const $select = $('#mop-device-dropdown');

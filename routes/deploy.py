@@ -5,7 +5,7 @@ Configuration deployment using Celery tasks
 from flask import Blueprint, jsonify, request
 import logging
 
-import database as db
+import db
 from services.celery_device_service import celery_device_service
 from services.device_service import get_device_connection_info, get_device_credentials
 

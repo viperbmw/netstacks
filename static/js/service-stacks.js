@@ -110,7 +110,7 @@ function stopAutoSync() {
 }
 
 /**
- * Sync service instance states from Netstacker
+ * Sync service instance states from Celery
  * @param {boolean} showUI - Whether to show UI feedback (button state, status messages)
  */
 function syncServiceStates(showUI) {

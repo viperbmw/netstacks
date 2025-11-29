@@ -67,7 +67,7 @@ function loadTasks() {
                     const tbody = $('#tasks-body');
                     tbody.empty();
 
-                    // Netstacker returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
+                    // API returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
                     let taskIds = [];
                     if (data.data && data.data.task_id && Array.isArray(data.data.task_id)) {
                         taskIds = data.data.task_id;
@@ -225,7 +225,7 @@ function viewTaskDetails(taskId) {
     // Fetch task details
     $.get('/api/task/' + taskId)
         .done(function(data) {
-            // Netstacker returns: {status: 'success', data: {task_status: '...', task_result: ...}}
+            // API returns: {status: 'success', data: {task_status: '...', task_result: ...}}
             const task = data.data || data;
             const status = task.task_status || task.status || 'unknown';
             const result = task.task_result || task.data || 'No result available';

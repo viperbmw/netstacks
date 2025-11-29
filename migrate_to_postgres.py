@@ -566,6 +566,8 @@ def run_migration(dry_run=False):
 
 
 def main():
+    global SQLITE_DB, POSTGRES_URL
+
     parser = argparse.ArgumentParser(
         description='Migrate NetStacks data from SQLite to PostgreSQL'
     )
@@ -588,7 +590,6 @@ def main():
     args = parser.parse_args()
 
     # Update globals from args
-    global SQLITE_DB, POSTGRES_URL
     SQLITE_DB = args.sqlite_db
     POSTGRES_URL = args.postgres_url
 

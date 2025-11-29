@@ -1,6 +1,6 @@
 """
 Settings Routes
-Application settings, Netbox config, Netstacker config
+Application settings, Netbox configuration
 """
 from flask import Blueprint, jsonify, request
 import logging

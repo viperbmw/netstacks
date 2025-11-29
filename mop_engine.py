@@ -760,7 +760,7 @@ class MOPEngine:
             Dict with status and result data
         """
         # Import database module
-        import database as db
+        import db
 
         # Get step type definition from database
         step_type = db.get_step_type(step_type_id)

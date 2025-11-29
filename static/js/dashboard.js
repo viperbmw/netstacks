@@ -47,8 +47,12 @@ function loadDashboard() {
 function loadWorkerCount() {
     $.get('/api/workers')
         .done(function(data) {
-            const workerCount = data.length || 0;
-            $('#worker-count').text(workerCount);
+            // Filter out offline placeholder workers
+            let onlineWorkers = 0;
+            if (Array.isArray(data)) {
+                onlineWorkers = data.filter(w => w.status === 'online').length;
+            }
+            $('#worker-count').text(onlineWorkers);
         })
         .fail(function() {
             $('#worker-count').text('?');
@@ -109,7 +113,7 @@ function loadTasks() {
 
             $.get('/api/tasks')
                 .done(function(data) {
-                    // Netstacker returns: {status: 'success', data: {task_id: ['id1', 'id2']}}
+                    // API returns: {status: 'success', data: {task_id: ['id1', 'id2']}}
                     let taskIds = [];
                     if (data.data && data.data.task_id && Array.isArray(data.data.task_id)) {
                         taskIds = data.data.task_id;

@@ -1,4 +1,4 @@
-// Workers page JavaScript
+// Workers page JavaScript - Celery Workers
 
 $(document).ready(function() {
     loadWorkers();
@@ -16,145 +16,189 @@ function loadWorkers() {
     $('#workers-loading').show();
     $('#workers-container').hide();
 
-    // Fetch both workers and tasks to determine which workers are busy
-    $.when(
-        $.get('/api/workers'),
-        $.get('/api/tasks')
-    ).done(function(workersResponse, tasksResponse) {
-        const workers = workersResponse[0];
-        const tasks = tasksResponse[0];
-
-        const tbody = $('#workers-body');
-        tbody.empty();
-
-        if (!workers || workers.length === 0) {
-            tbody.append('<tr><td colspan="4" class="text-center text-muted">No active workers</td></tr>');
-            $('#worker-count-display').text('0');
+    $.get('/api/workers')
+        .done(function(workers) {
+            displayWorkers(workers);
+        })
+        .fail(function(xhr) {
+            const errorMsg = xhr.responseJSON?.error || 'Failed to connect to workers API';
+            $('#workers-body').html(`<tr><td colspan="5" class="text-center text-danger"><i class="fas fa-exclamation-triangle"></i> ${errorMsg}</td></tr>`);
             $('#workers-loading').hide();
             $('#workers-container').show();
-            return;
-        }
 
-        // Get list of running task IDs
-        const taskIds = tasks?.data?.task_id || [];
-
-        // Build a map of worker -> current task by checking running tasks
-        const workerTasks = {};
-        let tasksChecked = 0;
-
-        if (taskIds.length === 0) {
-            // No tasks - all workers are idle
-            displayWorkers(workers, {});
-        } else {
-            // Check each task to see which worker is handling it
-            taskIds.slice(0, 20).forEach(function(taskId) {
-                $.get('/api/task/' + taskId)
-                    .done(function(taskResponse) {
-                        const task = taskResponse.data || taskResponse;
-                        const status = task.task_status || task.status || 'unknown';
-
-                        // If task is running/started, try to find which worker has it
-                        if (status === 'started' || status === 'running') {
-                            // Netstacker doesn't expose worker assignment, so we'll show task ID
-                            // We can't directly map task to worker, so mark as "active"
-                            if (task.worker_name) {
-                                workerTasks[task.worker_name] = taskId;
-                            }
-                        }
-                    })
-                    .always(function() {
-                        tasksChecked++;
-                        if (tasksChecked === Math.min(taskIds.length, 20)) {
-                            displayWorkers(workers, workerTasks);
-                        }
-                    });
-            });
-
-            // If no tasks to check, display immediately
-            if (taskIds.length === 0) {
-                displayWorkers(workers, workerTasks);
-            }
-        }
-    }).fail(function() {
-        $('#workers-body').html('<tr><td colspan="4" class="text-center text-danger">Failed to load workers</td></tr>');
-        $('#workers-loading').hide();
-        $('#workers-container').show();
-    });
+            // Update stats to show error state
+            $('#total-workers-count').text('0');
+            $('#active-workers-count').text('0');
+            $('#active-tasks-count').text('0');
+            $('#broker-status').text('Error');
+        });
 }
 
-function displayWorkers(data, workerTasks) {
+function displayWorkers(data) {
     const tbody = $('#workers-body');
     tbody.empty();
 
-    if (!data || data.length === 0) {
-        tbody.append('<tr><td colspan="4" class="text-center text-muted">No active workers</td></tr>');
-        $('#worker-count-display').text('0');
-    } else {
-        $('#worker-count-display').text(data.length);
-
-        data.forEach(function(worker) {
-            const workerType = worker.name.includes('pinned') ? 'Pinned' : 'FIFO';
-
-            // Determine state based on worker data and assigned tasks
-            let state = 'idle';
-            let stateBadge = 'bg-success';
-            let currentJob = 'None';
-
-            // Check if this worker has a task assigned (from workerTasks map)
-            if (workerTasks[worker.name]) {
-                state = 'busy';
-                stateBadge = 'bg-primary';
-                currentJob = workerTasks[worker.name];
-            } else if (worker.state) {
-                // If worker has explicit state field (some Netstacker versions)
-                state = worker.state;
-                if (state === 'busy') stateBadge = 'bg-primary';
-                else if (state === 'failed') stateBadge = 'bg-danger';
-            } else if (worker.current_job || worker.current_job_id) {
-                // Worker has a current job - it's busy
-                state = 'busy';
-                stateBadge = 'bg-primary';
-                currentJob = worker.current_job || worker.current_job_id;
-            } else {
-                // Check if worker has recent activity (heartbeat within last 60 seconds)
-                const lastHeartbeat = new Date(worker.last_heartbeat);
-                const now = new Date();
-                const secondsSinceHeartbeat = (now - lastHeartbeat) / 1000;
-
-                if (secondsSinceHeartbeat > 90) {
-                    state = 'stale';
-                    stateBadge = 'bg-warning text-dark';
-                } else {
-                    state = 'idle';
-                    stateBadge = 'bg-success';
-                }
-            }
-
-            // Worker stats
-            const successCount = worker.successful_job_count || 0;
-            const failedCount = worker.failed_job_count || 0;
-            const totalJobs = successCount + failedCount;
-            const workingTime = worker.total_working_time ? worker.total_working_time.toFixed(2) + 's' : '0s';
-
-            const row = `
-                <tr>
-                    <td>
-                        <strong>${worker.name || 'Unknown'}</strong><br>
-                        <small class="text-muted">PID: ${worker.pid || 'N/A'} | Host: ${worker.hostname || 'N/A'}</small>
-                    </td>
-                    <td><span class="badge bg-info">${workerType}</span></td>
-                    <td>
-                        <span class="badge ${stateBadge}">${state.toUpperCase()}</span><br>
-                        <small class="text-muted">Jobs: ${totalJobs} (✓${successCount} ✗${failedCount})</small><br>
-                        <small class="text-muted">Time: ${workingTime}</small>
-                    </td>
-                    <td><small class="font-monospace text-muted">${currentJob}</small></td>
-                </tr>
-            `;
-            tbody.append(row);
-        });
+    // Handle case where data is an error response
+    if (data && data.error) {
+        tbody.append(`<tr><td colspan="5" class="text-center text-danger"><i class="fas fa-exclamation-triangle"></i> ${data.error}</td></tr>`);
+        $('#workers-loading').hide();
+        $('#workers-container').show();
+        return;
     }
+
+    // Handle no workers or single "offline" placeholder
+    if (!data || data.length === 0 || (data.length === 1 && data[0].status === 'offline')) {
+        tbody.append(`
+            <tr>
+                <td colspan="5" class="text-center">
+                    <div class="py-4">
+                        <i class="fas fa-server fa-3x text-muted mb-3 d-block"></i>
+                        <p class="text-muted mb-2">No Celery workers are currently connected</p>
+                        <small class="text-muted">Workers should automatically connect when the celery-worker container starts</small>
+                    </div>
+                </td>
+            </tr>
+        `);
+
+        $('#total-workers-count').text('0');
+        $('#active-workers-count').text('0');
+        $('#active-tasks-count').text('0');
+        $('#broker-status').html('<span class="text-warning">Waiting</span>');
+
+        $('#workers-loading').hide();
+        $('#workers-container').show();
+        $('#tasks-loading').hide();
+        $('#registered-tasks-container').html('<p class="text-muted text-center">No workers available to query tasks</p>').show();
+        return;
+    }
+
+    // Calculate stats
+    let totalWorkers = data.length;
+    let onlineWorkers = data.filter(w => w.status === 'online').length;
+    let totalActiveTasks = data.reduce((sum, w) => sum + (w.active_tasks || 0), 0);
+    let brokerConnected = data.some(w => w.broker);
+
+    // Update stats cards
+    $('#total-workers-count').text(totalWorkers);
+    $('#active-workers-count').text(onlineWorkers);
+    $('#active-tasks-count').text(totalActiveTasks);
+    $('#broker-status').html(brokerConnected ?
+        '<span class="text-success"><i class="fas fa-check-circle"></i> Redis</span>' :
+        '<span class="text-warning">Unknown</span>'
+    );
+
+    // Display workers
+    data.forEach(function(worker) {
+        // Determine status badge
+        let statusBadge = 'bg-secondary';
+        let statusText = worker.status || 'unknown';
+
+        if (worker.status === 'online') {
+            statusBadge = worker.active_tasks > 0 ? 'bg-primary' : 'bg-success';
+            statusText = worker.active_tasks > 0 ? 'Busy' : 'Ready';
+        } else if (worker.status === 'offline') {
+            statusBadge = 'bg-danger';
+            statusText = 'Offline';
+        }
+
+        // Format worker name
+        const workerName = worker.name || 'Unknown Worker';
+        const workerShortName = workerName.split('@')[0] || workerName;
+        const workerHost = workerName.split('@')[1] || 'localhost';
+
+        // Pool info
+        const poolInfo = worker.pool || 'N/A';
+
+        // Active tasks
+        const activeTasks = worker.active_tasks || 0;
+
+        // Broker
+        const broker = worker.broker || 'redis';
+
+        const row = `
+            <tr>
+                <td>
+                    <strong><i class="fas fa-microchip text-primary"></i> ${escapeHtml(workerShortName)}</strong>
+                    <br><small class="text-muted">${escapeHtml(workerHost)}</small>
+                </td>
+                <td><span class="badge ${statusBadge}">${statusText}</span></td>
+                <td><span class="badge bg-secondary">${poolInfo}</span></td>
+                <td>
+                    ${activeTasks > 0 ?
+                        `<span class="badge bg-info">${activeTasks} running</span>` :
+                        '<span class="text-muted">Idle</span>'
+                    }
+                </td>
+                <td><small class="text-muted"><i class="fas fa-database"></i> ${escapeHtml(broker)}</small></td>
+            </tr>
+        `;
+        tbody.append(row);
+    });
 
     $('#workers-loading').hide();
     $('#workers-container').show();
+
+    // Load registered tasks from first online worker
+    loadRegisteredTasks();
+}
+
+function loadRegisteredTasks() {
+    $.get('/api/workers/tasks')
+        .done(function(data) {
+            $('#tasks-loading').hide();
+
+            if (data && data.tasks && data.tasks.length > 0) {
+                const container = $('#registered-tasks-list');
+                container.empty();
+
+                // Group tasks by prefix
+                const taskGroups = {};
+                data.tasks.forEach(task => {
+                    const prefix = task.split('.')[0] || 'other';
+                    if (!taskGroups[prefix]) taskGroups[prefix] = [];
+                    taskGroups[prefix].push(task);
+                });
+
+                // Display task groups
+                Object.keys(taskGroups).sort().forEach(group => {
+                    const tasks = taskGroups[group];
+                    const groupHtml = `
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header py-2">
+                                    <strong><i class="fas fa-folder text-warning"></i> ${escapeHtml(group)}</strong>
+                                    <span class="badge bg-secondary float-end">${tasks.length}</span>
+                                </div>
+                                <div class="card-body py-2">
+                                    <ul class="list-unstyled mb-0" style="font-size: 0.85rem;">
+                                        ${tasks.map(t => `<li><i class="fas fa-code text-muted"></i> ${escapeHtml(t.split('.').slice(1).join('.') || t)}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.append(groupHtml);
+                });
+
+                $('#registered-tasks-container').show();
+            } else {
+                $('#registered-tasks-container').html('<p class="text-muted text-center">No registered tasks found</p>').show();
+            }
+        })
+        .fail(function() {
+            $('#tasks-loading').hide();
+            $('#registered-tasks-container').html('<p class="text-muted text-center">Could not load registered tasks</p>').show();
+        });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
 }

@@ -116,7 +116,7 @@ def swagger_spec():
                 "get": {
                     "tags": ["tasks"],
                     "summary": "Get all task IDs",
-                    "description": "Retrieves list of all task IDs from Netstacker",
+                    "description": "Retrieves list of all task IDs from Celery",
                     "responses": {
                         "200": {
                             "description": "Success",
@@ -189,7 +189,7 @@ def swagger_spec():
                 "get": {
                     "tags": ["workers"],
                     "summary": "Get all workers",
-                    "description": "Fetch list of active Netstacker workers",
+                    "description": "Fetch list of active Celery workers",
                     "responses": {
                         "200": {
                             "description": "Success",

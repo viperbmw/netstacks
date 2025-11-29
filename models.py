@@ -40,10 +40,11 @@ class User(Base):
 
 
 class Template(Base):
-    """Template metadata (actual templates stored in Netstacker)"""
+    """Jinja2 configuration templates"""
     __tablename__ = 'templates'
 
     name = Column(String(255), primary_key=True)
+    content = Column(Text, nullable=True)  # Jinja2 template content
     type = Column(String(50), default='deploy')  # 'deploy', 'delete', 'validation'
     validation_template = Column(String(255), nullable=True)
     delete_template = Column(String(255), nullable=True)
@@ -319,7 +320,7 @@ class StepType(Base):
 class TaskHistory(Base):
     """
     Task history - replaces the JSON file storage
-    Stores Netstacker task IDs for monitoring
+    Stores Celery task IDs for monitoring
     """
     __tablename__ = 'task_history'
 

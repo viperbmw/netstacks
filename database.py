@@ -66,6 +66,14 @@ def init_db():
         cursor.execute("ALTER TABLE templates ADD COLUMN type TEXT DEFAULT 'deploy'")
         conn.commit()
 
+    # Migration: Add content column if it doesn't exist
+    try:
+        cursor.execute("SELECT content FROM templates LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE templates ADD COLUMN content TEXT")
+        conn.commit()
+        log.info("Migrated templates table: added content column")
+
     # Service stacks table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS service_stacks (
@@ -575,25 +583,71 @@ def get_user_theme(username):
         row = cursor.fetchone()
         return row['theme'] if row else 'dark'
 
-# Template metadata operations
+# Template operations
 def get_template_metadata(name):
-    """Get template metadata"""
+    """Get template metadata including content"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM templates WHERE name = ?', (name,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
-def save_template_metadata(name, metadata):
-    """Save template metadata"""
+def get_template_content(name):
+    """Get template content by name"""
     with get_db() as conn:
         cursor = conn.cursor()
+        cursor.execute('SELECT content FROM templates WHERE name = ?', (name,))
+        row = cursor.fetchone()
+        return row['content'] if row else None
+
+def save_template(name, content, metadata=None):
+    """Save template with content and optional metadata"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if metadata:
+            cursor.execute('''
+                INSERT OR REPLACE INTO templates
+                (name, content, type, validation_template, delete_template, description, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                name,
+                content,
+                metadata.get('type', 'deploy'),
+                metadata.get('validation_template'),
+                metadata.get('delete_template'),
+                metadata.get('description')
+            ))
+        else:
+            # Preserve existing metadata if any
+            cursor.execute('SELECT * FROM templates WHERE name = ?', (name,))
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute('''
+                    UPDATE templates SET content = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                ''', (content, name))
+            else:
+                cursor.execute('''
+                    INSERT INTO templates (name, content, type, updated_at)
+                    VALUES (?, ?, 'deploy', CURRENT_TIMESTAMP)
+                ''', (name, content))
+
+def save_template_metadata(name, metadata):
+    """Save template metadata (content unchanged)"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # First check if template exists
+        cursor.execute('SELECT content FROM templates WHERE name = ?', (name,))
+        existing = cursor.fetchone()
+        content = existing['content'] if existing else None
+
         cursor.execute('''
             INSERT OR REPLACE INTO templates
-            (name, type, validation_template, delete_template, description, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (name, content, type, validation_template, delete_template, description, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             name,
+            content,
             metadata.get('type', 'deploy'),
             metadata.get('validation_template'),
             metadata.get('delete_template'),
@@ -601,14 +655,14 @@ def save_template_metadata(name, metadata):
         ))
 
 def delete_template_metadata(name):
-    """Delete template metadata"""
+    """Delete template (including content)"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM templates WHERE name = ?', (name,))
         return cursor.rowcount > 0
 
 def get_all_templates():
-    """Get all template metadata"""
+    """Get all templates with metadata"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM templates ORDER BY name')

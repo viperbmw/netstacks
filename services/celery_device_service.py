@@ -1,8 +1,6 @@
 """
 Celery-based Device Service
-Handles device operations via Celery tasks instead of Netstacker API
-
-This is the replacement for netstacker_client.py
+Handles device operations via Celery tasks
 """
 import logging
 from typing import Dict, List, Any, Optional
@@ -16,7 +14,6 @@ log = logging.getLogger(__name__)
 class CeleryDeviceService:
     """
     Service for device operations using Celery tasks.
-    Drop-in replacement for NetstackerClient.
     """
 
     def __init__(self):

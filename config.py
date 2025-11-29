@@ -27,11 +27,7 @@ class Config:
         'postgresql://netstacks:netstacks_secret_change_me@postgres:5432/netstacks'
     )
 
-    # Netstacker Backend (will be replaced by Celery in future)
-    NETSTACKER_API_URL = os.environ.get('NETSTACKER_API_URL', 'http://netstacker-controller:9000')
-    NETSTACKER_API_KEY = os.environ.get('NETSTACKER_API_KEY', '2a84465a-cf38-46b2-9d86-b84Q7d57f288')
-
-    # Celery (future - Phase 3)
+    # Celery Configuration
     CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
     CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
 
@@ -46,13 +42,6 @@ class Config:
     # Device Cache TTL (seconds)
     DEVICE_CACHE_TTL = int(os.environ.get('DEVICE_CACHE_TTL', '300'))
 
-    @classmethod
-    def get_netstacker_headers(cls):
-        """Get headers for Netstacker API calls"""
-        return {
-            'x-api-key': cls.NETSTACKER_API_KEY,
-            'Content-Type': 'application/json'
-        }
 
 
 # Singleton instance

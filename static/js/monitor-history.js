@@ -10,7 +10,7 @@ function loadTaskHistory() {
             const tbody = $('#history-body');
             tbody.empty();
 
-            // Netstacker returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
+            // API returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
             let taskIds = [];
             if (data.data && data.data.task_id && Array.isArray(data.data.task_id)) {
                 taskIds = data.data.task_id;

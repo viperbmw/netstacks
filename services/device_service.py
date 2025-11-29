@@ -2,14 +2,13 @@
 Device Service
 Handles device connections, credential management, and Netbox synchronization
 
-This service abstracts device operations. Currently uses Netstacker API,
-but will switch to direct Celery tasks in Phase 3.
+This service abstracts device operations using Celery tasks for network automation.
 """
 import logging
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
-import database as db
+import db
 from netbox_client import NetboxClient, get_netmiko_device_type
 
 log = logging.getLogger(__name__)
