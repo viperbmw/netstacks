@@ -85,9 +85,30 @@ services:
       - netstacks-network
     restart: always
 
+  # PostgreSQL Database (Phase 1 - Future Migration Target)
+  # Currently not used by the app - preparing for SQLite migration
+  postgres:
+    image: postgres:15-alpine
+    container_name: netstacks-postgres
+    environment:
+      - POSTGRES_DB=netstacks
+      - POSTGRES_USER=netstacks
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-netstacks_secret_change_me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - netstacks-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netstacks"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   netstacks-network:
     name: netstacks-network
 
 volumes:
   netstacks-data:
+  postgres-data:
