@@ -1,5 +1,5 @@
 services:
-  # NetStacks Web UI (Frontend)
+  # NetStacks Web UI (Frontend + API)
   netstacks:
     build:
       context: .
@@ -8,85 +8,81 @@ services:
     environment:
       # Database Configuration
       - DB_FILE=/data/netstacks.db
-      # Netstacker Backend Connection
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - USE_POSTGRES=${USE_POSTGRES:-false}
+      # Celery Configuration
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # Legacy Netstacker (will be removed)
       - NETSTACKER_API_URL=http://netstacker-controller:9000
       - NETSTACKER_API_KEY=${NETSTACKER_API_KEY:-2a84465a-cf38-46b2-9d86-b84Q7d57f288}
       # Timezone Configuration
-      - TZ=America/New_York
+      - TZ=${TZ:-America/New_York}
     ports:
       - "8089:8088"
     volumes:
-      # Mount database directory for persistence
       - netstacks-data:/data
-      # Mount host timezone files
       - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # Celery Worker for device operations
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netstacks-celery-worker
+    command: celery -A tasks worker -l info -Q device_tasks,celery -c 4
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DB_FILE=/data/netstacks.db
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - netstacks-data:/data
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Celery Beat for scheduled tasks (Netbox sync, etc.)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netstacks-celery-beat
+    command: celery -A tasks beat -l info --schedule=/data/celerybeat-schedule
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DB_FILE=/data/netstacks.db
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - netstacks-data:/data
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Redis (shared by Celery and legacy Netstacker)
+  redis:
+    image: redis:7-alpine
+    container_name: netstacks-redis
+    volumes:
+      - redis-data:/data
     networks:
       - netstacks-network
     restart: unless-stopped
 
-  # Netstacker API Controller (Backend)
-  netstacker-controller:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_controller_dockerfile
-    container_name: netstacker-controller
-    environment:
-      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
-      - NETSTACKER_CONFIG=/code/config/config.json
-      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
-    ports:
-      - "9000:9000"
-    networks:
-      - netstacks-network
-    depends_on:
-      - redis
-    restart: always
-
-  # Netstacker Pinned Worker
-  netstacker-worker-pinned:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_pinned_worker_dockerfile
-    container_name: netstacker-worker-pinned
-    environment:
-      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
-      - NETSTACKER_CONFIG=/code/config/config.json
-      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
-    depends_on:
-      - redis
-    networks:
-      - netstacks-network
-    restart: always
-
-  # Netstacker FIFO Worker
-  netstacker-worker-fifo:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_fifo_worker_dockerfile
-    container_name: netstacker-worker-fifo
-    environment:
-      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
-      - NETSTACKER_CONFIG=/code/config/config.json
-      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
-    depends_on:
-      - redis
-    networks:
-      - netstacks-network
-    restart: always
-
-  # Redis (Queue/Cache for Netstacker)
-  redis:
-    build:
-      context: ./netstacker
-      dockerfile: ./dockerfiles/netstacker_redis_dockerfile
-    container_name: netstacker-redis
-    networks:
-      - netstacks-network
-    restart: always
-
-  # PostgreSQL Database (Phase 1 - Future Migration Target)
-  # Currently not used by the app - preparing for SQLite migration
+  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: netstacks-postgres
@@ -106,58 +102,62 @@ services:
       retries: 5
 
   # ==========================================================================
-  # Celery Workers (Phase 2 - Will Replace Netstacker Workers)
-  # Currently disabled - uncomment to enable Celery-based network operations
+  # Legacy Netstacker (keeping for backward compatibility during transition)
+  # These can be removed once all operations use Celery
   # ==========================================================================
 
-  # Celery Worker for device operations
-  # celery-worker:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   container_name: netstacks-celery-worker
-  #   command: celery -A tasks worker -l info -Q device_tasks -c 4
-  #   environment:
-  #     - CELERY_BROKER_URL=redis://celery-redis:6379/0
-  #     - CELERY_RESULT_BACKEND=redis://celery-redis:6379/0
-  #     - DB_FILE=/data/netstacks.db
-  #     - TZ=America/New_York
-  #   volumes:
-  #     - netstacks-data:/data
-  #     - /etc/localtime:/etc/localtime:ro
-  #   networks:
-  #     - netstacks-network
-  #   depends_on:
-  #     - celery-redis
-  #   restart: unless-stopped
+  netstacker-controller:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_controller_dockerfile
+    container_name: netstacker-controller
+    environment:
+      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
+      - NETSTACKER_CONFIG=/code/config/config.json
+      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
+    ports:
+      - "9000:9000"
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+    restart: unless-stopped
+    profiles:
+      - legacy
 
-  # Celery Beat for scheduled tasks (Netbox sync, etc.)
-  # celery-beat:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   container_name: netstacks-celery-beat
-  #   command: celery -A tasks beat -l info
-  #   environment:
-  #     - CELERY_BROKER_URL=redis://celery-redis:6379/0
-  #     - CELERY_RESULT_BACKEND=redis://celery-redis:6379/0
-  #     - DB_FILE=/data/netstacks.db
-  #     - TZ=America/New_York
-  #   volumes:
-  #     - netstacks-data:/data
-  #   networks:
-  #     - netstacks-network
-  #   depends_on:
-  #     - celery-redis
-  #   restart: unless-stopped
+  netstacker-worker-pinned:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_pinned_worker_dockerfile
+    container_name: netstacker-worker-pinned
+    environment:
+      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
+      - NETSTACKER_CONFIG=/code/config/config.json
+      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
+    depends_on:
+      - redis
+    networks:
+      - netstacks-network
+    restart: unless-stopped
+    profiles:
+      - legacy
 
-  # Redis for Celery (separate from Netstacker Redis)
-  # celery-redis:
-  #   image: redis:7-alpine
-  #   container_name: netstacks-celery-redis
-  #   networks:
-  #     - netstacks-network
-  #   restart: unless-stopped
+  netstacker-worker-fifo:
+    build:
+      context: ./netstacker
+      dockerfile: ./dockerfiles/netstacker_fifo_worker_dockerfile
+    container_name: netstacker-worker-fifo
+    environment:
+      - NET_TEXTFSM=/usr/local/lib/python3.9/site-packages/ntc_templates/templates/
+      - NETSTACKER_CONFIG=/code/config/config.json
+      - NETSTACKER_LOG_CONFIG_FILENAME=/code/config/log-config.yml
+    depends_on:
+      - redis
+    networks:
+      - netstacks-network
+    restart: unless-stopped
+    profiles:
+      - legacy
 
 networks:
   netstacks-network:
@@ -166,3 +166,4 @@ networks:
 volumes:
   netstacks-data:
   postgres-data:
+  redis-data:

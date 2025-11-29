@@ -32,6 +32,14 @@ except Exception as e:
     log = logging.getLogger(__name__)
     log.warning(f"Could not register API docs: {e}")
 
+# Register Celery deploy routes
+try:
+    from routes.deploy import deploy_bp
+    app.register_blueprint(deploy_bp)
+    log.info("Registered Celery deploy routes at /api/celery/*")
+except Exception as e:
+    log.warning(f"Could not register Celery deploy routes: {e}")
+
 # Step Types API removed - step types are now managed directly in mop_engine.py
 
 # Configuration
