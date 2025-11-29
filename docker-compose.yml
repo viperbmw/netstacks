@@ -105,6 +105,60 @@ services:
       timeout: 5s
       retries: 5
 
+  # ==========================================================================
+  # Celery Workers (Phase 2 - Will Replace Netstacker Workers)
+  # Currently disabled - uncomment to enable Celery-based network operations
+  # ==========================================================================
+
+  # Celery Worker for device operations
+  # celery-worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: netstacks-celery-worker
+  #   command: celery -A tasks worker -l info -Q device_tasks -c 4
+  #   environment:
+  #     - CELERY_BROKER_URL=redis://celery-redis:6379/0
+  #     - CELERY_RESULT_BACKEND=redis://celery-redis:6379/0
+  #     - DB_FILE=/data/netstacks.db
+  #     - TZ=America/New_York
+  #   volumes:
+  #     - netstacks-data:/data
+  #     - /etc/localtime:/etc/localtime:ro
+  #   networks:
+  #     - netstacks-network
+  #   depends_on:
+  #     - celery-redis
+  #   restart: unless-stopped
+
+  # Celery Beat for scheduled tasks (Netbox sync, etc.)
+  # celery-beat:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: netstacks-celery-beat
+  #   command: celery -A tasks beat -l info
+  #   environment:
+  #     - CELERY_BROKER_URL=redis://celery-redis:6379/0
+  #     - CELERY_RESULT_BACKEND=redis://celery-redis:6379/0
+  #     - DB_FILE=/data/netstacks.db
+  #     - TZ=America/New_York
+  #   volumes:
+  #     - netstacks-data:/data
+  #   networks:
+  #     - netstacks-network
+  #   depends_on:
+  #     - celery-redis
+  #   restart: unless-stopped
+
+  # Redis for Celery (separate from Netstacker Redis)
+  # celery-redis:
+  #   image: redis:7-alpine
+  #   container_name: netstacks-celery-redis
+  #   networks:
+  #     - netstacks-network
+  #   restart: unless-stopped
+
 networks:
   netstacks-network:
     name: netstacks-network
