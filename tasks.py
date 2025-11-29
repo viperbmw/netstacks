@@ -158,6 +158,37 @@ def parse_with_genie(output: str, command: str, device_type: str) -> Dict:
         return {'raw_output': output}
 
 
+def parse_with_ttp(output: str, ttp_template: str) -> List[Dict]:
+    """
+    Parse CLI output using TTP (Template Text Parser)
+
+    Args:
+        output: Raw CLI output
+        ttp_template: TTP template string
+
+    Returns:
+        List of parsed records
+    """
+    try:
+        from ttp import ttp
+
+        parser = ttp(data=output, template=ttp_template)
+        parser.parse()
+        results = parser.result()
+
+        # TTP returns nested list structure [[results]]
+        if results and len(results) > 0 and len(results[0]) > 0:
+            return results[0]
+        return []
+
+    except ImportError:
+        log.warning("TTP not available")
+        return []
+    except Exception as e:
+        log.error(f"TTP parsing error: {e}")
+        return []
+
+
 def render_jinja2_template(template_content: str, variables: Dict) -> str:
     """
     Render a Jinja2 template with variables
@@ -176,7 +207,8 @@ def render_jinja2_template(template_content: str, variables: Dict) -> str:
 
 @celery_app.task(bind=True, name='tasks.get_config')
 def get_config(self, connection_args: Dict, command: str,
-               use_textfsm: bool = False, use_genie: bool = False) -> Dict:
+               use_textfsm: bool = False, use_genie: bool = False,
+               use_ttp: bool = False, ttp_template: str = None) -> Dict:
     """
     Get configuration or command output from a device
 
@@ -185,6 +217,8 @@ def get_config(self, connection_args: Dict, command: str,
         command: CLI command to execute
         use_textfsm: Parse output with TextFSM
         use_genie: Parse output with Genie
+        use_ttp: Parse output with TTP
+        ttp_template: TTP template string (required if use_ttp=True)
 
     Returns:
         Dict with output, parsed_output (if parsing enabled), and metadata
@@ -204,8 +238,17 @@ def get_config(self, connection_args: Dict, command: str,
             result['output'] = output
             result['status'] = 'success'
 
+            # Parse with TTP if requested (user-provided template)
+            if use_ttp and ttp_template:
+                parsed = parse_with_ttp(output, ttp_template)
+                if parsed:
+                    result['parsed_output'] = parsed
+                    result['parser'] = 'ttp'
+                else:
+                    log.warning("TTP parsing returned no results")
+
             # Parse with TextFSM if requested
-            if use_textfsm:
+            if use_textfsm and not result.get('parsed_output'):
                 device_type = connection_args.get('device_type', 'cisco_ios')
                 template_path = get_textfsm_template_path(device_type, command)
                 if template_path:

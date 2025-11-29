@@ -20,7 +20,8 @@ class CeleryDeviceService:
         self.app = celery_app
 
     def execute_get_config(self, connection_args: Dict, command: str,
-                           use_textfsm: bool = False, use_genie: bool = False) -> str:
+                           use_textfsm: bool = False, use_genie: bool = False,
+                           use_ttp: bool = False, ttp_template: str = None) -> str:
         """
         Execute a show command on a device asynchronously.
 
@@ -29,6 +30,8 @@ class CeleryDeviceService:
             command: CLI command to execute
             use_textfsm: Parse with TextFSM
             use_genie: Parse with Genie
+            use_ttp: Parse with TTP
+            ttp_template: TTP template string
 
         Returns:
             Task ID for polling results
@@ -40,7 +43,9 @@ class CeleryDeviceService:
             connection_args=clean_args,
             command=command,
             use_textfsm=use_textfsm,
-            use_genie=use_genie
+            use_genie=use_genie,
+            use_ttp=use_ttp,
+            ttp_template=ttp_template
         )
 
         log.info(f"Dispatched get_config task {task.id} to {clean_args.get('host')}")

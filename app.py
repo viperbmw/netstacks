@@ -1896,12 +1896,23 @@ def deploy_getconfig():
         connection_args = payload.get('connection_args', {})
         command = payload.get('command', 'show running-config')
 
+        # Extract parsing options from payload.args (where frontend sends them)
+        args = payload.get('args', {})
+        use_textfsm = args.get('use_textfsm', False)
+        use_genie = args.get('use_genie', False)
+        use_ttp = args.get('use_ttp', False)
+        ttp_template = args.get('ttp_template', None)
+
+        log.info(f"Parsing options: textfsm={use_textfsm}, genie={use_genie}, ttp={use_ttp}")
+
         # Execute via Celery
         task_id = celery_device_service.execute_get_config(
             connection_args=connection_args,
             command=command,
-            use_textfsm=payload.get('use_textfsm', False),
-            use_genie=payload.get('use_genie', False)
+            use_textfsm=use_textfsm,
+            use_genie=use_genie,
+            use_ttp=use_ttp,
+            ttp_template=ttp_template
         )
 
         if task_id:
