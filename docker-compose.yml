@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: netstacks-celery-worker
-    command: celery -A tasks worker -l info -Q device_tasks,celery -c 4
+    command: celery -A tasks worker -l info -Q device_tasks,celery -c ${CELERY_WORKERS:-20}
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

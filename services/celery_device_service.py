@@ -6,7 +6,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from celery.result import AsyncResult
 
-from tasks import celery_app, get_config, set_config, run_commands, validate_config
+from tasks import celery_app, get_config, set_config, run_commands, validate_config, backup_device_config, validate_config_from_backup
 
 log = logging.getLogger(__name__)
 
@@ -169,6 +169,51 @@ class CeleryDeviceService:
         """
         result = AsyncResult(task_id, app=self.app)
         return result.status
+
+    def execute_backup(self, connection_args: Dict, device_name: str,
+                       device_platform: str = None, juniper_set_format: bool = True) -> str:
+        """
+        Backup device configuration asynchronously.
+
+        Args:
+            connection_args: Device connection parameters
+            device_name: Name of the device
+            device_platform: Platform name (to identify Juniper)
+            juniper_set_format: Get Juniper configs in set format
+
+        Returns:
+            Task ID for polling results
+        """
+        clean_args = {k: v for k, v in connection_args.items() if v is not None}
+
+        task = backup_device_config.delay(
+            connection_args=clean_args,
+            device_name=device_name,
+            device_platform=device_platform,
+            juniper_set_format=juniper_set_format
+        )
+
+        log.info(f"Dispatched backup_device_config task {task.id} for {device_name}")
+        return task.id
+
+    def execute_validate_from_backup(self, config_content: str, expected_patterns: List[str]) -> str:
+        """
+        Validate configuration patterns against backed-up config.
+
+        Args:
+            config_content: The backed-up configuration text
+            expected_patterns: Regex patterns to look for
+
+        Returns:
+            Task ID for polling results
+        """
+        task = validate_config_from_backup.delay(
+            config_content=config_content,
+            expected_patterns=expected_patterns
+        )
+
+        log.info(f"Dispatched validate_config_from_backup task {task.id}")
+        return task.id
 
 
 # Global instance

@@ -42,6 +42,7 @@ function loadDashboard() {
     loadScheduledTasks();
     loadCompletedSchedules();
     loadServiceStacksSummary();
+    loadBackupSchedule();
 }
 
 function loadWorkerCount() {
@@ -265,118 +266,212 @@ function loadDeviceCount() {
 }
 
 function loadScheduledTasks() {
-    $.get('/api/scheduled-operations')
-        .done(function(data) {
-            $('#scheduled-tasks-loading').hide();
-            
-            if (data.success && data.schedules && data.schedules.length > 0) {
-                const schedules = data.schedules.filter(s => s.enabled);
-                
-                if (schedules.length === 0) {
-                    $('#no-scheduled-tasks').show();
-                    $('#scheduled-tasks-container').hide();
-                    return;
-                }
-                
-                const tbody = $('#scheduled-tasks-body');
-                tbody.empty();
-                
-                // Sort by next_run
-                schedules.sort((a, b) => {
-                    if (!a.next_run) return 1;
-                    if (!b.next_run) return -1;
-                    return new Date(a.next_run) - new Date(b.next_run);
+    // Load both scheduled operations AND backup schedule
+    Promise.all([
+        $.get('/api/scheduled-operations'),
+        $.get('/api/backup-schedule')
+    ])
+    .then(function([scheduleData, backupData]) {
+        $('#scheduled-tasks-loading').hide();
+
+        const allSchedules = [];
+
+        // Add scheduled operations
+        if (scheduleData.success && scheduleData.schedules) {
+            scheduleData.schedules.filter(s => s.enabled).forEach(s => {
+                allSchedules.push({
+                    ...s,
+                    source: 'operations'
                 });
-                
-                // Show only next 10 schedules
-                schedules.slice(0, 10).forEach(schedule => {
-                    const operationIcons = {
-                        'deploy': '<i class="fas fa-rocket text-primary"></i>',
-                        'validate': '<i class="fas fa-check-circle text-info"></i>',
-                        'delete': '<i class="fas fa-trash text-danger"></i>',
-                        'config_deploy': '<i class="fas fa-cog text-warning"></i>'
-                    };
+            });
+        }
 
-                    const operationLabels = {
-                        'deploy': 'Deploy Stack',
-                        'validate': 'Validate Stack',
-                        'delete': 'Delete Stack',
-                        'config_deploy': 'Deploy Config'
-                    };
+        // Add backup schedule if enabled
+        if (backupData.success && backupData.schedule && backupData.schedule.enabled) {
+            allSchedules.push({
+                schedule_id: 'backup-schedule',
+                operation_type: 'config_backup',
+                schedule_type: 'interval',
+                next_run: backupData.schedule.next_run,
+                last_run: backupData.schedule.last_run,
+                interval_hours: backupData.schedule.interval_hours,
+                enabled: true,
+                source: 'backup'
+            });
+        }
 
-                    const scheduleTypeLabels = {
-                        'once': 'One-time',
-                        'daily': 'Daily',
-                        'weekly': 'Weekly',
-                        'monthly': 'Monthly'
-                    };
-
-                    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-                    let scheduleDetails = '';
-                    if (schedule.schedule_type === 'once') {
-                        scheduleDetails = formatDateInUserTimezone(schedule.scheduled_time);
-                    } else if (schedule.schedule_type === 'daily') {
-                        scheduleDetails = `Daily at ${schedule.scheduled_time}`;
-                    } else if (schedule.schedule_type === 'weekly') {
-                        scheduleDetails = `${dayNames[schedule.day_of_week]} at ${schedule.scheduled_time}`;
-                    } else if (schedule.schedule_type === 'monthly') {
-                        scheduleDetails = `Day ${schedule.day_of_month} at ${schedule.scheduled_time}`;
-                    }
-
-                    const nextRun = schedule.next_run ? formatDateInUserTimezone(schedule.next_run) : 'Not scheduled';
-                    const statusBadge = schedule.enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>';
-
-                    // Determine target/stack info
-                    let targetInfo = 'N/A';
-                    if (schedule.operation_type === 'config_deploy' && schedule.config_data) {
-                        try {
-                            const configData = JSON.parse(schedule.config_data);
-                            const devices = configData.devices || [];
-                            targetInfo = devices.length > 0 ? `${devices.length} device(s)` : 'N/A';
-                        } catch (e) {
-                            targetInfo = 'Config Deploy';
-                        }
-                    } else if (schedule.stack_id) {
-                        targetInfo = schedule.stack_id;
-                    }
-
-                    const row = `
-                        <tr>
-                            <td>
-                                ${operationIcons[schedule.operation_type] || '<i class="fas fa-question"></i>'}
-                                <strong>${operationLabels[schedule.operation_type] || 'Unknown'}</strong>
-                                <br><small class="text-muted">${scheduleTypeLabels[schedule.schedule_type]}</small>
-                            </td>
-                            <td><small>${nextRun}</small></td>
-                            <td><small>${targetInfo}</small></td>
-                            <td>
-                                <div class="btn-group btn-group-sm" role="group">
-                                    <button class="btn btn-outline-primary edit-schedule-btn" data-schedule-id="${schedule.schedule_id}" title="Edit">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-outline-danger delete-schedule-btn" data-schedule-id="${schedule.schedule_id}" title="Delete">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                    tbody.append(row);
-                });
-                
-                $('#scheduled-tasks-container').show();
-                $('#no-scheduled-tasks').hide();
-            } else {
-                $('#no-scheduled-tasks').show();
-                $('#scheduled-tasks-container').hide();
-            }
-        })
-        .fail(function() {
-            $('#scheduled-tasks-loading').hide();
+        if (allSchedules.length === 0) {
             $('#no-scheduled-tasks').show();
             $('#scheduled-tasks-container').hide();
+            return;
+        }
+
+        const tbody = $('#scheduled-tasks-body');
+        tbody.empty();
+
+        // Sort by next_run
+        allSchedules.sort((a, b) => {
+            if (!a.next_run) return 1;
+            if (!b.next_run) return -1;
+            return new Date(a.next_run) - new Date(b.next_run);
         });
+
+        // Operation icons and labels
+        const operationIcons = {
+            'deploy': '<i class="fas fa-rocket text-primary"></i>',
+            'validate': '<i class="fas fa-check-circle text-info"></i>',
+            'delete': '<i class="fas fa-trash text-danger"></i>',
+            'config_deploy': '<i class="fas fa-cog text-warning"></i>',
+            'config_backup': '<i class="fas fa-download text-success"></i>'
+        };
+
+        const operationLabels = {
+            'deploy': 'Deploy Stack',
+            'validate': 'Validate Stack',
+            'delete': 'Delete Stack',
+            'config_deploy': 'Deploy Config',
+            'config_backup': 'Device Backup'
+        };
+
+        const scheduleTypeLabels = {
+            'once': 'One-time',
+            'daily': 'Daily',
+            'weekly': 'Weekly',
+            'monthly': 'Monthly',
+            'interval': 'Recurring'
+        };
+
+        const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+        // Show only next 10 schedules
+        allSchedules.slice(0, 10).forEach(schedule => {
+            let scheduleDetails = '';
+            if (schedule.schedule_type === 'once') {
+                scheduleDetails = formatDateInUserTimezone(schedule.scheduled_time);
+            } else if (schedule.schedule_type === 'daily') {
+                scheduleDetails = `Daily at ${schedule.scheduled_time}`;
+            } else if (schedule.schedule_type === 'weekly') {
+                scheduleDetails = `${dayNames[schedule.day_of_week]} at ${schedule.scheduled_time}`;
+            } else if (schedule.schedule_type === 'monthly') {
+                scheduleDetails = `Day ${schedule.day_of_month} at ${schedule.scheduled_time}`;
+            } else if (schedule.schedule_type === 'interval') {
+                scheduleDetails = `Every ${schedule.interval_hours}h`;
+            }
+
+            const nextRun = schedule.next_run ? formatDateInUserTimezone(schedule.next_run) : 'Not scheduled';
+
+            // Determine target/stack info
+            let targetInfo = 'N/A';
+            if (schedule.operation_type === 'config_backup') {
+                targetInfo = 'All devices';
+            } else if (schedule.operation_type === 'config_deploy' && schedule.config_data) {
+                try {
+                    const configData = JSON.parse(schedule.config_data);
+                    const devices = configData.devices || [];
+                    targetInfo = devices.length > 0 ? `${devices.length} device(s)` : 'N/A';
+                } catch (e) {
+                    targetInfo = 'Config Deploy';
+                }
+            } else if (schedule.stack_id) {
+                targetInfo = schedule.stack_id;
+            }
+
+            // Different action buttons for backup vs other schedules
+            let actionButtons = '';
+            if (schedule.source === 'backup') {
+                actionButtons = `
+                    <a href="/devices" class="btn btn-outline-primary btn-sm" title="Manage">
+                        <i class="fas fa-cog"></i>
+                    </a>
+                `;
+            } else {
+                actionButtons = `
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-primary edit-schedule-btn" data-schedule-id="${schedule.schedule_id}" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger delete-schedule-btn" data-schedule-id="${schedule.schedule_id}" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+            }
+
+            const row = `
+                <tr>
+                    <td>
+                        ${operationIcons[schedule.operation_type] || '<i class="fas fa-question"></i>'}
+                        <strong>${operationLabels[schedule.operation_type] || 'Unknown'}</strong>
+                        <br><small class="text-muted">${scheduleTypeLabels[schedule.schedule_type] || schedule.schedule_type}</small>
+                    </td>
+                    <td><small>${nextRun}</small></td>
+                    <td><small>${targetInfo}</small></td>
+                    <td>${actionButtons}</td>
+                </tr>
+            `;
+            tbody.append(row);
+        });
+
+        $('#scheduled-tasks-container').show();
+        $('#no-scheduled-tasks').hide();
+    })
+    .catch(function() {
+        $('#scheduled-tasks-loading').hide();
+        $('#no-scheduled-tasks').show();
+        $('#scheduled-tasks-container').hide();
+    });
+}
+
+// Load backup schedule (for completed schedules panel)
+function loadBackupSchedule() {
+    // This is already included in loadScheduledTasks, but we can use it for additional UI updates
+    $.get('/api/backup-schedule')
+        .done(function(data) {
+            if (data.success && data.schedule) {
+                // Update completed schedules if backup has run
+                if (data.schedule.last_run) {
+                    addBackupToCompletedSchedules(data.schedule);
+                }
+            }
+        });
+}
+
+// Add backup schedule to completed schedules panel
+function addBackupToCompletedSchedules(schedule) {
+    const tbody = $('#completed-schedules-body');
+
+    // Check if backup row already exists
+    if ($('#backup-schedule-completed-row').length > 0) {
+        // Update existing row
+        $('#backup-schedule-completed-row .last-run-time').text(formatDateInUserTimezone(schedule.last_run));
+        return;
+    }
+
+    const lastRun = schedule.last_run ? formatDateInUserTimezone(schedule.last_run) : 'Never';
+
+    const row = `
+        <tr id="backup-schedule-completed-row">
+            <td>
+                <i class="fas fa-download text-success"></i>
+                <strong>Device Backup</strong>
+                <br><small class="text-muted">All devices</small>
+            </td>
+            <td><small class="last-run-time">${lastRun}</small></td>
+            <td><span class="badge bg-info">Recurring</span></td>
+            <td>
+                <a href="/devices" class="btn btn-sm btn-outline-info" title="View Backups">
+                    <i class="fas fa-eye"></i>
+                </a>
+            </td>
+        </tr>
+    `;
+
+    // Prepend to top of list
+    tbody.prepend(row);
+
+    // Show container if it was hidden
+    $('#completed-schedules-container').show();
+    $('#no-completed-schedules').hide();
 }
 
 // Edit schedule button

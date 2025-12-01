@@ -6,94 +6,23 @@
 <div class="row">
     <div class="col-md-12">
         <h1 class="mb-4">
-            <i class="fas fa-server"></i> Devices
+            <i class="fas fa-server"></i> Devices & Snapshots
         </h1>
+        <p class="text-muted">Manage devices and create configuration snapshots</p>
     </div>
 </div>
 
 <div class="row">
-    <div class="col-md-12 mb-3">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5><i class="fas fa-plus-circle"></i> Add Manual Device</h5>
-                <button class="btn btn-sm btn-primary" id="show-add-device-form-btn">
-                    <i class="fas fa-plus"></i> Add Device
-                </button>
-            </div>
-            <div class="card-body" id="add-device-form-container" style="display: none;">
-                <form id="add-device-form">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <div class="mb-3">
-                                <label for="device-name" class="form-label">Device Name <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" id="device-name" required>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="mb-3">
-                                <label for="device-type" class="form-label">Device Type <span class="text-danger">*</span></label>
-                                <select class="form-control" id="device-type" required>
-                                    <option value="">Select type...</option>
-                                    <option value="cisco_ios">Cisco IOS</option>
-                                    <option value="cisco_nxos">Cisco NX-OS</option>
-                                    <option value="cisco_xe">Cisco IOS XE</option>
-                                    <option value="arista_eos">Arista EOS</option>
-                                    <option value="juniper_junos">Juniper Junos</option>
-                                    <option value="linux">Linux</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="mb-3">
-                                <label for="device-host" class="form-label">Host/IP <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" id="device-host" required>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="mb-3">
-                                <label for="device-port" class="form-label">Port</label>
-                                <input type="number" class="form-control" id="device-port" value="22">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="device-username" class="form-label">Username (optional)</label>
-                                <input type="text" class="form-control" id="device-username">
-                                <small class="text-muted">Leave blank to use service credentials</small>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="device-password" class="form-label">Password (optional)</label>
-                                <input type="password" class="form-control" id="device-password">
-                                <small class="text-muted">Leave blank to use service credentials</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-success">
-                            <i class="fas fa-save"></i> Save Device
-                        </button>
-                        <button type="button" class="btn btn-secondary" id="cancel-add-device-btn">
-                            <i class="fas fa-times"></i> Cancel
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-12">
+    <!-- Left Panel: Device List (70%) -->
+    <div class="col-lg-8">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5><i class="fas fa-list"></i> Device List <small id="filter-info" class="text-muted"></small></h5>
                 <div class="d-flex gap-2">
                     <button class="btn btn-sm btn-outline-primary" id="clear-cache-btn" title="Clear cache and reload devices">
-                        <i class="fas fa-sync-alt"></i> Clear Cache & Reload
+                        <i class="fas fa-sync-alt"></i> Reload
                     </button>
-                    <input type="text" id="device-search" class="form-control form-control-sm" placeholder="Search devices..." style="width: 300px;">
+                    <input type="text" id="device-search" class="form-control form-control-sm" placeholder="Search devices..." style="width: 200px;">
                 </div>
             </div>
             <div class="card-body">
@@ -111,7 +40,7 @@
                             <i class="fas fa-upload"></i> Set Config
                         </button>
                         <button class="btn btn-sm btn-secondary" id="clear-selection-btn">
-                            <i class="fas fa-times"></i> Clear Selection
+                            <i class="fas fa-times"></i> Clear
                         </button>
                     </div>
                 </div>
@@ -130,9 +59,9 @@
                             <i class="fas fa-times"></i> Select None
                         </button>
                     </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped">
-                            <thead>
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-hover table-striped table-sm">
+                            <thead class="sticky-top bg-light">
                                 <tr>
                                     <th style="width: 40px;">
                                         <input type="checkbox" id="select-all-checkbox" class="form-check-input">
@@ -140,6 +69,7 @@
                                     <th>Device Name</th>
                                     <th>Type</th>
                                     <th>Source</th>
+                                    <th>Last Backup</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -148,10 +78,165 @@
                         </table>
                     </div>
                     <div class="mt-3">
-                        <p class="text-muted">
+                        <p class="text-muted mb-0">
                             <strong id="device-count-display">0</strong> devices total
                         </p>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel: Collapsible Settings (30%) -->
+    <div class="col-lg-4">
+        <!-- Snapshot Settings Panel -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <h6 class="mb-0">
+                    <i class="fas fa-camera"></i> Snapshots
+                </h6>
+                <div>
+                    <button class="btn btn-sm btn-primary" id="create-snapshot-btn">
+                        <i class="fas fa-plus"></i> Create Snapshot
+                    </button>
+                    <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#snapshot-settings-panel">
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="collapse show" id="snapshot-settings-panel">
+                <div class="card-body py-2">
+                    <!-- Snapshot Summary -->
+                    <div class="row text-center mb-3" id="backup-summary">
+                        <div class="col-4">
+                            <strong id="total-backups" class="d-block">0</strong>
+                            <small class="text-muted">Backups</small>
+                        </div>
+                        <div class="col-4">
+                            <strong id="devices-with-backups" class="d-block">0</strong>
+                            <small class="text-muted">Devices</small>
+                        </div>
+                        <div class="col-4">
+                            <strong id="latest-backup" class="d-block">Never</strong>
+                            <small class="text-muted">Latest</small>
+                        </div>
+                    </div>
+
+                    <!-- Recent Snapshots -->
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <small class="text-muted fw-bold">Recent Snapshots</small>
+                            <button class="btn btn-sm btn-link p-0" id="view-all-snapshots-btn">
+                                View All
+                            </button>
+                        </div>
+                        <div id="recent-snapshots-list" style="max-height: 150px; overflow-y: auto;">
+                            <div class="text-muted small text-center py-2">Loading...</div>
+                        </div>
+                    </div>
+
+                    <!-- Schedule Settings -->
+                    <div class="border-top pt-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <small class="text-muted fw-bold">Scheduled Snapshots</small>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="schedule-enabled">
+                                <label class="form-check-label small" for="schedule-enabled">Enabled</label>
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Interval (hours)</label>
+                                <input type="number" class="form-control form-control-sm" id="schedule-interval" value="24" min="1" max="168">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Retention (days)</label>
+                                <input type="number" class="form-control form-control-sm" id="schedule-retention" value="30" min="1" max="365">
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="schedule-juniper-set" checked>
+                                <label class="form-check-label small" for="schedule-juniper-set">Juniper Set Format</label>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <label class="form-label small mb-1">Exclude Patterns (regex)</label>
+                            <input type="text" class="form-control form-control-sm" id="schedule-exclude" placeholder="e.g. ^test-.*, .*-lab$">
+                        </div>
+                        <div class="mt-2 small text-muted">
+                            <strong>Last:</strong> <span id="last-run">Never</span><br>
+                            <strong>Next:</strong> <span id="next-run">Not scheduled</span>
+                        </div>
+                        <div class="mt-2 d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" id="save-schedule-btn">
+                                <i class="fas fa-save"></i> Save
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning" id="cleanup-backups-btn">
+                                <i class="fas fa-broom"></i> Cleanup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Manual Device Panel -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <h6 class="mb-0">
+                    <i class="fas fa-plus-circle"></i> Add Manual Device
+                </h6>
+                <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#add-device-panel">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+            <div class="collapse" id="add-device-panel">
+                <div class="card-body py-2">
+                    <form id="add-device-form">
+                        <div class="mb-2">
+                            <label for="device-name" class="form-label small mb-1">Device Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm" id="device-name" required>
+                        </div>
+                        <div class="mb-2">
+                            <label for="device-type" class="form-label small mb-1">Device Type <span class="text-danger">*</span></label>
+                            <select class="form-control form-control-sm" id="device-type" required>
+                                <option value="">Select type...</option>
+                                <option value="cisco_ios">Cisco IOS</option>
+                                <option value="cisco_nxos">Cisco NX-OS</option>
+                                <option value="cisco_xe">Cisco IOS XE</option>
+                                <option value="arista_eos">Arista EOS</option>
+                                <option value="juniper_junos">Juniper Junos</option>
+                                <option value="linux">Linux</option>
+                            </select>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-8">
+                                <label for="device-host" class="form-label small mb-1">Host/IP <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm" id="device-host" required>
+                            </div>
+                            <div class="col-4">
+                                <label for="device-port" class="form-label small mb-1">Port</label>
+                                <input type="number" class="form-control form-control-sm" id="device-port" value="22">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label for="device-username" class="form-label small mb-1">Username (optional)</label>
+                            <input type="text" class="form-control form-control-sm" id="device-username">
+                        </div>
+                        <div class="mb-2">
+                            <label for="device-password" class="form-label small mb-1">Password (optional)</label>
+                            <input type="password" class="form-control form-control-sm" id="device-password">
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-sm btn-success">
+                                <i class="fas fa-save"></i> Save Device
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" id="cancel-add-device-btn">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -308,6 +393,331 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <a href="/monitor" class="btn btn-primary">View Jobs</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Backup Modal -->
+<div class="modal fade" id="viewBackupModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-file-code"></i> <span id="view-backup-title">Config Backup</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <strong>Device:</strong> <span id="view-device"></span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Format:</strong> <span id="view-format"></span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Size:</strong> <span id="view-size"></span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Time:</strong> <span id="view-time"></span>
+                    </div>
+                </div>
+
+                <!-- View Mode Tabs -->
+                <ul class="nav nav-tabs mb-3" id="backupViewTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-view" type="button" role="tab">
+                            <i class="fas fa-file-alt"></i> Configuration
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff-view" type="button" role="tab">
+                            <i class="fas fa-code-compare"></i> Compare with Previous
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Config View Tab -->
+                    <div class="tab-pane fade show active" id="config-view" role="tabpanel">
+                        <div class="mb-3">
+                            <label class="form-label">Configuration Content</label>
+                            <textarea class="form-control font-monospace" id="view-config-content" rows="20" readonly></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Diff View Tab -->
+                    <div class="tab-pane fade" id="diff-view" role="tabpanel">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <label class="form-label mb-0">Compare with:</label>
+                                    <select class="form-select form-select-sm d-inline-block ms-2" id="diff-compare-backup" style="width: auto;">
+                                        <option value="">Select backup to compare...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <span class="badge bg-success me-2"><i class="fas fa-plus"></i> <span id="diff-added-count">0</span> added</span>
+                                    <span class="badge bg-danger me-2"><i class="fas fa-minus"></i> <span id="diff-removed-count">0</span> removed</span>
+                                    <span class="badge bg-secondary"><i class="fas fa-equals"></i> <span id="diff-unchanged-count">0</span> unchanged</span>
+                                </div>
+                            </div>
+                            <div id="diff-loading" class="text-center py-4" style="display: none;">
+                                <div class="spinner-border spinner-border-sm" role="status"></div>
+                                <span class="ms-2">Loading comparison...</span>
+                            </div>
+                            <div id="diff-no-previous" class="alert alert-info" style="display: none;">
+                                <i class="fas fa-info-circle"></i> No previous backup available for comparison.
+                            </div>
+                            <div id="diff-no-changes" class="alert alert-success" style="display: none;">
+                                <i class="fas fa-check-circle"></i> No changes detected between the selected backups.
+                            </div>
+                            <div id="diff-content-container" class="border rounded" style="max-height: 500px; overflow-y: auto; display: none;">
+                                <pre id="diff-content" class="m-0 p-2" style="white-space: pre-wrap; font-size: 0.85rem;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="copy-config-btn">
+                    <i class="fas fa-copy"></i> Copy to Clipboard
+                </button>
+                <button type="button" class="btn btn-success" id="download-config-btn">
+                    <i class="fas fa-download"></i> Download
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- All Snapshots Modal -->
+<div class="modal fade" id="allSnapshotsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-camera"></i> All Snapshots</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Created</th>
+                                <th>Status</th>
+                                <th>Devices</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="all-snapshots-table-body">
+                            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Snapshot Modal -->
+<div class="modal fade" id="viewSnapshotModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-camera"></i> <span id="view-snapshot-title">Snapshot</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <strong>Status:</strong> <span id="view-snapshot-status"></span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Devices:</strong> <span id="view-snapshot-devices"></span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Success:</strong> <span id="view-snapshot-success" class="text-success"></span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Failed:</strong> <span id="view-snapshot-failed" class="text-danger"></span>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th>Device</th>
+                                <th>Status</th>
+                                <th>Format</th>
+                                <th>Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="snapshot-backups-table-body">
+                            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" id="delete-snapshot-btn">
+                    <i class="fas fa-trash"></i> Delete Snapshot
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Running Tasks Card (floating) -->
+<div class="card position-fixed" id="running-tasks-card" style="display: none; bottom: 20px; right: 20px; width: 350px; z-index: 1050; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-tasks"></i> Snapshot Tasks</span>
+        <button type="button" class="btn-close btn-close-white" id="close-tasks-card"></button>
+    </div>
+    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+        <div id="running-tasks-list"></div>
+    </div>
+</div>
+
+<!-- Edit Device Modal -->
+<div class="modal fade" id="editDeviceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Device Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-device-form">
+                    <input type="hidden" id="edit-device-name">
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Device:</strong> <span id="edit-device-display-name"></span>
+                        <br><small class="text-muted">Override settings for this device. Leave fields blank to use defaults.</small>
+                    </div>
+
+                    <!-- Connection Settings -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-plug"></i> Connection Settings</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-type" class="form-label">Device Type (Platform)</label>
+                                <select class="form-control" id="edit-device-type">
+                                    <option value="">Use default</option>
+                                    <option value="cisco_ios">Cisco IOS</option>
+                                    <option value="cisco_nxos">Cisco NX-OS</option>
+                                    <option value="cisco_xe">Cisco IOS XE</option>
+                                    <option value="cisco_xr">Cisco IOS XR</option>
+                                    <option value="arista_eos">Arista EOS</option>
+                                    <option value="juniper_junos">Juniper Junos</option>
+                                    <option value="linux">Linux</option>
+                                    <option value="paloalto_panos">Palo Alto PAN-OS</option>
+                                    <option value="fortinet">Fortinet FortiOS</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-host" class="form-label">Host/IP Override</label>
+                                <input type="text" class="form-control" id="edit-device-host" placeholder="Leave blank to use default">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-port" class="form-label">Port Override</label>
+                                <input type="number" class="form-control" id="edit-device-port" placeholder="22">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Credentials -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-key"></i> Credential Overrides</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="edit-device-username" placeholder="Leave blank to use service creds">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="edit-device-password" placeholder="Leave blank to use service creds">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-secret" class="form-label">Enable Secret</label>
+                                <input type="password" class="form-control" id="edit-device-secret" placeholder="Leave blank if not needed">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timeouts -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-clock"></i> Timeout Settings (seconds)</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-timeout" class="form-label">Command Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-conn-timeout" class="form-label">Connection Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-conn-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-auth-timeout" class="form-label">Auth Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-auth-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-banner-timeout" class="form-label">Banner Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-banner-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Settings -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-cog"></i> Additional Settings</h6>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label for="edit-device-notes" class="form-label">Notes</label>
+                                <textarea class="form-control" id="edit-device-notes" rows="2" placeholder="Optional notes about this device..."></textarea>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" id="edit-device-disabled">
+                                    <label class="form-check-label" for="edit-device-disabled">Disable device (exclude from bulk operations)</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger me-auto" id="delete-device-override-btn">
+                    <i class="fas fa-trash"></i> Clear Overrides
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-device-override-btn">
+                    <i class="fas fa-save"></i> Save Settings
+                </button>
             </div>
         </div>
     </div>

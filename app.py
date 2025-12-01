@@ -117,7 +117,133 @@ def login_required(f):
 # Initialize default user on startup
 create_default_user()
 
-# Step Types routes removed - no longer needed
+
+# =============================================================================
+# Step Types Management Routes
+# =============================================================================
+
+@app.route('/step-types')
+@login_required
+def step_types_page():
+    """Step types management page"""
+    return render_template('step_types.html')
+
+
+@app.route('/api/step-types', methods=['GET'])
+@login_required
+def get_step_types_api():
+    """Get all step types"""
+    try:
+        step_types = db.get_all_step_types_full()
+        return jsonify({'success': True, 'step_types': step_types})
+    except Exception as e:
+        log.error(f"Error getting step types: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>', methods=['GET'])
+@login_required
+def get_step_type_api(step_type_id):
+    """Get a specific step type"""
+    try:
+        step_type = db.get_step_type(step_type_id)
+        if not step_type:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+        return jsonify({'success': True, 'step_type': step_type})
+    except Exception as e:
+        log.error(f"Error getting step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types', methods=['POST'])
+@login_required
+def create_step_type_api():
+    """Create a new step type"""
+    try:
+        data = request.json
+
+        if not data.get('name'):
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        if not data.get('action_type'):
+            return jsonify({'success': False, 'error': 'Action type is required'}), 400
+
+        # Validate action type
+        valid_action_types = ['get_config', 'set_config', 'api_call', 'validate', 'wait', 'manual', 'deploy_stack']
+        if data.get('action_type') not in valid_action_types:
+            return jsonify({'success': False, 'error': f'Invalid action type. Must be one of: {valid_action_types}'}), 400
+
+        # For api_call types, validate URL is provided in config
+        if data.get('action_type') == 'api_call':
+            config = data.get('config', {})
+            if not config.get('url'):
+                return jsonify({'success': False, 'error': 'URL is required for API Call step types'}), 400
+
+        step_type_id = db.save_step_type(data)
+        return jsonify({'success': True, 'step_type_id': step_type_id})
+    except Exception as e:
+        log.error(f"Error creating step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>', methods=['PUT'])
+@login_required
+def update_step_type_api(step_type_id):
+    """Update a step type"""
+    try:
+        data = request.json
+        data['step_type_id'] = step_type_id
+
+        existing = db.get_step_type(step_type_id)
+        if not existing:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+
+        db.save_step_type(data)
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error updating step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>', methods=['DELETE'])
+@login_required
+def delete_step_type_api(step_type_id):
+    """Delete a step type"""
+    try:
+        existing = db.get_step_type(step_type_id)
+        if not existing:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+
+        # Don't allow deleting built-in types
+        if existing.get('is_builtin'):
+            return jsonify({'success': False, 'error': 'Cannot delete built-in step types'}), 400
+
+        db.delete_step_type(step_type_id)
+        return jsonify({'success': True})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        log.error(f"Error deleting step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>/toggle', methods=['POST'])
+@login_required
+def toggle_step_type_api(step_type_id):
+    """Enable or disable a step type"""
+    try:
+        data = request.json
+        enabled = data.get('enabled', True)
+
+        existing = db.get_step_type(step_type_id)
+        if not existing:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+
+        db.toggle_step_type(step_type_id, enabled)
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error toggling step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # Template context processor to inject menu items
@@ -135,12 +261,11 @@ def inject_menu_items():
     return {'menu_items': []}
 
 
-# Device list cache
-device_cache = {
-    'devices': None,
-    'timestamp': None,
-    'ttl': 300  # 5 minutes
-}
+# Device cache is now managed by services/device_service.py
+# Import the device service functions for cache operations
+from services.device_service import get_devices as device_service_get_devices
+from services.device_service import get_cached_devices as device_service_get_cached
+from services.device_service import clear_device_cache as device_service_clear_cache
 
 
 # Task history management
@@ -497,20 +622,34 @@ def get_device_connection_info(device_name, credential_override=None):
 
         # Fallback to netbox platform if nornir platform not set
         if not nornir_platform:
-            platform = device.get('platform', {})
-            device_type = device.get('device_type', {})
-
-            # Handle device_type being either dict or string
-            if isinstance(device_type, dict):
-                manufacturer = device_type.get('manufacturer', {})
+            # Check if device_type is already a netmiko device type string (from cache)
+            device_type = device.get('device_type')
+            if isinstance(device_type, str) and device_type:
+                # device_type is already the netmiko platform string from cache
+                nornir_platform = device_type
+                log.info(f"Using cached device_type as platform: {nornir_platform}")
             else:
-                manufacturer = {}
+                # device_type is a dict (from Netbox API), need to extract platform
+                platform = device.get('platform', {})
 
-            platform_name = platform.get('name') if isinstance(platform, dict) else None
-            manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
+                # Handle device_type being either dict or string
+                if isinstance(device_type, dict):
+                    manufacturer = device_type.get('manufacturer', {})
+                else:
+                    manufacturer = {}
 
-            from netbox_client import get_netmiko_device_type
-            nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
+                # Handle platform being either string or dict
+                if isinstance(platform, str):
+                    platform_name = platform
+                elif isinstance(platform, dict):
+                    platform_name = platform.get('name')
+                else:
+                    platform_name = None
+
+                manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
+
+                from netbox_client import get_netmiko_device_type
+                nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
 
         # Get IP address
         primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
@@ -1169,82 +1308,21 @@ def proxy_api_call():
 @app.route('/api/devices', methods=['GET', 'POST'])
 @login_required
 def get_devices():
-    """Get device list from manual devices and Netbox (if configured)"""
+    """Get device list from manual devices and Netbox (if configured).
+    Uses centralized device cache from device_service.
+    """
     try:
         # Get filters from request if provided (POST body or query params)
         filters = []
         if request.method == 'POST' and request.json:
             filter_list = request.json.get('filters', [])
-            # Keep as list to support multiple values for same key
             for f in filter_list:
                 if 'key' in f and 'value' in f:
                     filters.append({'key': f['key'], 'value': f['value']})
 
-        # Create cache key based on filters
-        cache_key = json.dumps({'filters': filters}, sort_keys=True)
-
-        # Check cache (with filter-specific key)
-        now = datetime.now().timestamp()
-        cache_entry = device_cache.get(cache_key, {})
-        if (cache_entry.get('devices') is not None and
-            cache_entry.get('timestamp') is not None and
-            (now - cache_entry['timestamp']) < device_cache.get('ttl', 300)):
-            log.info(f"Returning cached device list ({len(cache_entry['devices'])} devices)")
-            return jsonify({'success': True, 'devices': cache_entry['devices'], 'cached': True})
-
-        # Fetch devices from all available sources
-        all_devices = []
-        sources_used = []
-
-        # Always fetch manual devices
-        log.info(f"Fetching manual devices...")
-        manual_devices = db.get_all_manual_devices()
-        # Format manual devices to match Netbox device structure
-        for device in manual_devices:
-            all_devices.append({
-                'name': device['device_name'],
-                'device_type': device['device_type'],
-                'primary_ip': device['host'],
-                'site': 'Manual',
-                'status': 'Active',
-                'source': 'manual'
-            })
-        log.info(f"Found {len(manual_devices)} manual devices")
-        if len(manual_devices) > 0:
-            sources_used.append('manual')
-
-        # Try to fetch Netbox devices if configured
-        settings = get_settings()
-        netbox_url = settings.get('netbox_url', '').strip()
-        netbox_token = settings.get('netbox_token', '').strip()
-
-        if netbox_url and netbox_token:
-            try:
-                log.info(f"Fetching device list from Netbox with filters: {filters}...")
-                netbox_client = get_netbox_client()
-                netbox_devices = netbox_client.get_devices_with_details(filters=filters)
-                # Mark Netbox devices with source
-                for device in netbox_devices:
-                    device['source'] = 'netbox'
-                all_devices.extend(netbox_devices)
-                log.info(f"Found {len(netbox_devices)} Netbox devices")
-                if len(netbox_devices) > 0:
-                    sources_used.append('netbox')
-            except Exception as netbox_error:
-                log.warning(f"Could not fetch devices from Netbox: {netbox_error}")
-                # Continue with manual devices only
-        else:
-            log.info("Netbox not configured, using manual devices only")
-
-        # Update cache with filter-specific key
-        device_cache[cache_key] = {
-            'devices': all_devices,
-            'timestamp': now
-        }
-
-        sources_str = ', '.join(sources_used) if sources_used else 'none'
-        log.info(f"Cached {len(all_devices)} total devices from sources: {sources_str}")
-        return jsonify({'success': True, 'devices': all_devices, 'cached': False, 'sources': sources_used})
+        # Use device service to get devices (handles caching internally)
+        result = device_service_get_devices(filters=filters)
+        return jsonify(result)
     except Exception as e:
         log.error(f"Error fetching devices: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1252,16 +1330,32 @@ def get_devices():
 
 @app.route('/api/devices/clear-cache', methods=['POST'])
 @login_required
-def clear_device_cache():
+def clear_device_cache_endpoint():
     """Clear the device cache"""
     try:
-        global device_cache
-        device_cache.clear()
-        device_cache['ttl'] = 300  # Restore TTL
-        log.info("Device cache cleared")
+        device_service_clear_cache()
         return jsonify({'success': True, 'message': 'Cache cleared successfully'})
     except Exception as e:
         log.error(f"Error clearing cache: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/cached', methods=['GET'])
+@login_required
+def get_cached_devices_endpoint():
+    """Get devices from cache only - does NOT call NetBox.
+    Uses centralized device cache from device_service.
+    """
+    try:
+        devices = device_service_get_cached()
+        return jsonify({
+            'success': True,
+            'devices': devices,
+            'from_cache': True,
+            'count': len(devices)
+        })
+    except Exception as e:
+        log.error(f"Error getting cached devices: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -1375,6 +1469,594 @@ def delete_manual_device(device_name):
     except Exception as e:
         log.error(f"Error deleting manual device: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+### Device Override Endpoints ###
+
+@app.route('/api/device-overrides', methods=['GET'])
+@login_required
+def get_all_device_overrides():
+    """Get all device overrides"""
+    try:
+        overrides = db.get_all_device_overrides()
+        return jsonify({'success': True, 'overrides': overrides})
+    except Exception as e:
+        log.error(f"Error getting device overrides: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/device-overrides/<device_name>', methods=['GET'])
+@login_required
+def get_device_override(device_name):
+    """Get device-specific overrides for a device"""
+    try:
+        override = db.get_device_override(device_name)
+        if not override:
+            return jsonify({'success': True, 'override': None, 'message': 'No override found for this device'})
+        return jsonify({'success': True, 'override': override})
+    except Exception as e:
+        log.error(f"Error getting device override for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/device-overrides/<device_name>', methods=['PUT'])
+@login_required
+def save_device_override(device_name):
+    """Save or update device-specific overrides"""
+    try:
+        data = request.json
+        data['device_name'] = device_name
+
+        # Don't store empty strings - convert to None
+        for key in ['device_type', 'host', 'username', 'password', 'secret', 'notes']:
+            if key in data and data[key] == '':
+                data[key] = None
+
+        # Convert numeric fields
+        for key in ['port', 'timeout', 'conn_timeout', 'auth_timeout', 'banner_timeout']:
+            if key in data and data[key] is not None:
+                if data[key] == '' or data[key] == 0:
+                    data[key] = None
+                else:
+                    try:
+                        data[key] = int(data[key])
+                    except (ValueError, TypeError):
+                        data[key] = None
+
+        if db.save_device_override(data):
+            log.info(f"Device override saved for: {device_name}")
+            return jsonify({'success': True, 'message': f'Override saved for {device_name}'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save override'}), 500
+    except Exception as e:
+        log.error(f"Error saving device override for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/device-overrides/<device_name>', methods=['DELETE'])
+@login_required
+def delete_device_override(device_name):
+    """Delete device-specific overrides"""
+    try:
+        if db.delete_device_override(device_name):
+            log.info(f"Device override deleted: {device_name}")
+            return jsonify({'success': True, 'message': f'Override deleted for {device_name}'})
+        else:
+            return jsonify({'success': False, 'error': 'Override not found'}), 404
+    except Exception as e:
+        log.error(f"Error deleting device override for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+### Config Backup Endpoints ###
+
+@app.route('/api/config-backups', methods=['GET'])
+@login_required
+def list_config_backups():
+    """List config backups with optional filters"""
+    try:
+        device_name = request.args.get('device')
+        limit = request.args.get('limit', 100, type=int)
+        offset = request.args.get('offset', 0, type=int)
+
+        backups = db.get_config_backups(device_name=device_name, limit=limit, offset=offset)
+        summary = db.get_backup_summary()
+
+        return jsonify({
+            'success': True,
+            'backups': backups,
+            'summary': summary,
+            'limit': limit,
+            'offset': offset
+        })
+    except Exception as e:
+        log.error(f"Error listing config backups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/<backup_id>', methods=['GET'])
+@login_required
+def get_config_backup(backup_id):
+    """Get a specific backup by ID"""
+    try:
+        backup = db.get_config_backup(backup_id)
+        if not backup:
+            return jsonify({'success': False, 'error': 'Backup not found'}), 404
+
+        return jsonify({'success': True, 'backup': backup})
+    except Exception as e:
+        log.error(f"Error getting backup {backup_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/<backup_id>', methods=['DELETE'])
+@login_required
+def delete_config_backup(backup_id):
+    """Delete a specific backup"""
+    try:
+        if db.delete_config_backup(backup_id):
+            log.info(f"Config backup deleted: {backup_id}")
+            return jsonify({'success': True, 'message': 'Backup deleted'})
+        else:
+            return jsonify({'success': False, 'error': 'Backup not found'}), 404
+    except Exception as e:
+        log.error(f"Error deleting backup {backup_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/device/<device_name>/latest', methods=['GET'])
+@login_required
+def get_latest_device_backup(device_name):
+    """Get the latest backup for a specific device"""
+    try:
+        backup = db.get_latest_backup_for_device(device_name)
+        if not backup:
+            return jsonify({'success': False, 'error': f'No backup found for device {device_name}'}), 404
+
+        return jsonify({'success': True, 'backup': backup})
+    except Exception as e:
+        log.error(f"Error getting latest backup for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/run-single', methods=['POST'])
+@login_required
+def run_single_device_backup():
+    """Run a backup for a single device"""
+    try:
+        data = request.json
+        device_name = data.get('device_name')
+
+        if not device_name:
+            return jsonify({'success': False, 'error': 'device_name is required'}), 400
+
+        # Get device connection info
+        from services.device_service import get_device_connection_info as get_conn_info
+        credential_override = None
+        if data.get('username') and data.get('password'):
+            credential_override = {'username': data['username'], 'password': data['password']}
+
+        device_info = get_conn_info(device_name, credential_override)
+        if not device_info:
+            return jsonify({'success': False, 'error': f'Device {device_name} not found'}), 404
+
+        # Get Juniper format preference - from request or fallback to schedule settings
+        if 'juniper_set_format' in data:
+            juniper_set_format = data.get('juniper_set_format', True)
+        else:
+            schedule = db.get_backup_schedule()
+            juniper_set_format = schedule.get('juniper_set_format', True) if schedule else True
+
+        # Submit backup task
+        task_id = celery_device_service.execute_backup(
+            connection_args=device_info['connection_args'],
+            device_name=device_name,
+            device_platform=device_info['device_info'].get('platform'),
+            juniper_set_format=juniper_set_format
+        )
+
+        if task_id:
+            # Save task ID for tracking
+            save_task_id(task_id, device_name=f"backup:{device_name}:{task_id}")
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': f'Backup task submitted for {device_name}'
+        })
+    except Exception as e:
+        log.error(f"Error running single device backup: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/run-all', methods=['POST'])
+@login_required
+def run_all_device_backups():
+    """Run backups for all devices in cache, creating a snapshot (does NOT call NetBox)"""
+    try:
+        data = request.json or {}
+
+        # Get all devices from centralized device cache
+        devices = device_service_get_cached()
+
+        if not devices:
+            # Cache is empty - user needs to load devices first on another page
+            log.warning("Device cache is empty. Backups can only run for cached devices.")
+            return jsonify({
+                'success': False,
+                'error': 'No devices in cache. Load devices on the Devices page first.'
+            }), 400
+
+        log.info(f"Found {len(devices)} devices for backup")
+
+        # Get backup schedule settings
+        schedule = db.get_backup_schedule()
+        juniper_set_format = schedule.get('juniper_set_format', True) if schedule else True
+        exclude_patterns = schedule.get('exclude_patterns', []) if schedule else []
+
+        # Filter out excluded devices
+        if exclude_patterns:
+            import re
+            filtered_devices = []
+            for device in devices:
+                device_name = device.get('name', '')
+                excluded = False
+                for pattern in exclude_patterns:
+                    if re.search(pattern, device_name, re.IGNORECASE):
+                        excluded = True
+                        break
+                if not excluded:
+                    filtered_devices.append(device)
+            devices = filtered_devices
+
+        # Create a snapshot to group all backups
+        snapshot_name = data.get('name') or f"Snapshot {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        snapshot_id = db.create_config_snapshot({
+            'name': snapshot_name,
+            'description': data.get('description'),
+            'snapshot_type': data.get('snapshot_type', 'manual'),
+            'total_devices': len(devices),
+            'created_by': session.get('username', 'system')
+        })
+        log.info(f"Created snapshot {snapshot_id} for {len(devices)} devices")
+
+        # Submit backup tasks
+        from services.device_service import get_device_connection_info as get_conn_info
+        submitted = []
+        failed = []
+
+        for device in devices:
+            device_name = device.get('name')
+            try:
+                device_info = get_conn_info(device_name)
+                if device_info:
+                    task_id = celery_device_service.execute_backup(
+                        connection_args=device_info['connection_args'],
+                        device_name=device_name,
+                        device_platform=device_info['device_info'].get('platform'),
+                        juniper_set_format=juniper_set_format
+                    )
+                    submitted.append({'device': device_name, 'task_id': task_id, 'snapshot_id': snapshot_id})
+                    save_task_id(task_id, device_name=f"snapshot:{snapshot_id}:backup:{device_name}:{task_id}")
+                else:
+                    failed.append({'device': device_name, 'error': 'Could not get connection info'})
+                    db.increment_snapshot_counts(snapshot_id, success=False)
+            except Exception as e:
+                failed.append({'device': device_name, 'error': str(e)})
+                db.increment_snapshot_counts(snapshot_id, success=False)
+
+        # Update schedule last run time
+        if schedule:
+            from datetime import timedelta
+            last_run = datetime.utcnow()
+            interval_hours = schedule.get('interval_hours', 24)
+            next_run = last_run + timedelta(hours=interval_hours)
+            db.update_backup_schedule_run_times(last_run, next_run)
+
+        return jsonify({
+            'success': True,
+            'snapshot_id': snapshot_id,
+            'submitted': len(submitted),
+            'failed': len(failed),
+            'tasks': submitted,
+            'errors': failed
+        })
+    except Exception as e:
+        log.error(f"Error running all device backups: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/task/<task_id>', methods=['GET'])
+@login_required
+def get_backup_task_status(task_id):
+    """Get status of a backup task and save result if complete"""
+    try:
+        # Get optional snapshot_id from query params (passed by frontend for snapshot tasks)
+        snapshot_id = request.args.get('snapshot_id')
+
+        result = celery_device_service.get_task_result(task_id)
+        log.info(f"Task {task_id} status: {result.get('status')}, has_result: {bool(result.get('result'))}")
+
+        # If task is complete and successful, save the backup
+        # celery_device_service normalizes status to lowercase 'success' when task completes
+        if result.get('status') == 'success' and result.get('result'):
+            task_result = result['result']
+            log.info(f"Task {task_id} result status: {task_result.get('status')}, has_config: {bool(task_result.get('config_content'))}")
+            if task_result.get('status') == 'success' and task_result.get('config_content'):
+                # Calculate config hash
+                config_hash = hashlib.sha256(task_result['config_content'].encode()).hexdigest()
+
+                # Check if we already saved this backup (prevent duplicates from polling)
+                device_name = task_result.get('device_name', 'unknown')
+                existing = db.get_latest_backup_for_device(device_name)
+
+                if existing and existing.get('config_hash') == config_hash:
+                    # Already saved, return existing backup info
+                    result['backup_id'] = existing['backup_id']
+                    result['saved'] = True
+                    result['status'] = 'success'  # Normalize status for frontend
+                else:
+                    # Generate backup ID and save
+                    backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{device_name}"
+
+                    backup_data = {
+                        'backup_id': backup_id,
+                        'device_name': device_name,
+                        'device_ip': task_result.get('host'),
+                        'platform': task_result.get('device_platform'),
+                        'config_content': task_result['config_content'],
+                        'config_format': task_result.get('config_format', 'native'),
+                        'config_hash': config_hash,
+                        'backup_type': 'snapshot' if snapshot_id else 'manual',
+                        'status': 'success',
+                        'file_size': len(task_result['config_content']),
+                        'snapshot_id': snapshot_id,
+                        'created_by': session.get('user', 'system')
+                    }
+
+                    db.save_config_backup(backup_data)
+                    log.info(f"Saved backup {backup_id} for device {device_name}" + (f" (snapshot: {snapshot_id})" if snapshot_id else ""))
+
+                    # Update snapshot counts if this is part of a snapshot
+                    if snapshot_id:
+                        db.increment_snapshot_counts(snapshot_id, success=True)
+
+                    result['backup_id'] = backup_id
+                    result['saved'] = True
+                    result['status'] = 'success'  # Normalize status for frontend
+            elif task_result.get('status') == 'failed':
+                result['status'] = 'failed'
+                # Update snapshot counts if this is part of a snapshot
+                if snapshot_id:
+                    db.increment_snapshot_counts(snapshot_id, success=False)
+        elif result.get('status') == 'failed':
+            # Task failed - already normalized to lowercase by celery_device_service
+            # Update snapshot counts if this is part of a snapshot
+            if snapshot_id:
+                db.increment_snapshot_counts(snapshot_id, success=False)
+
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        log.error(f"Error getting backup task status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/backup-schedule', methods=['GET'])
+@login_required
+def get_backup_schedule_api():
+    """Get the backup schedule configuration"""
+    try:
+        schedule = db.get_backup_schedule()
+        if not schedule:
+            # Return defaults
+            schedule = {
+                'schedule_id': 'default',
+                'enabled': False,
+                'interval_hours': 24,
+                'retention_days': 30,
+                'juniper_set_format': True,
+                'include_filters': [],
+                'exclude_patterns': []
+            }
+        return jsonify({'success': True, 'schedule': schedule})
+    except Exception as e:
+        log.error(f"Error getting backup schedule: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/backup-schedule', methods=['PUT'])
+@login_required
+def update_backup_schedule_api():
+    """Update the backup schedule configuration"""
+    try:
+        data = request.json
+
+        schedule_data = {
+            'schedule_id': 'default',
+            'enabled': data.get('enabled', False),
+            'interval_hours': data.get('interval_hours', 24),
+            'retention_days': data.get('retention_days', 30),
+            'juniper_set_format': data.get('juniper_set_format', True),
+            'include_filters': data.get('include_filters', []),
+            'exclude_patterns': data.get('exclude_patterns', [])
+        }
+
+        db.save_backup_schedule(schedule_data)
+        log.info(f"Backup schedule updated: enabled={schedule_data['enabled']}, interval={schedule_data['interval_hours']}h")
+
+        return jsonify({'success': True, 'message': 'Backup schedule updated', 'schedule': schedule_data})
+    except Exception as e:
+        log.error(f"Error updating backup schedule: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/cleanup', methods=['POST'])
+@login_required
+def cleanup_old_backups():
+    """Delete backups older than retention period"""
+    try:
+        data = request.json or {}
+        retention_days = data.get('retention_days')
+
+        if not retention_days:
+            # Get from schedule
+            schedule = db.get_backup_schedule()
+            retention_days = schedule.get('retention_days', 30) if schedule else 30
+
+        deleted_count = db.delete_old_backups(retention_days)
+        log.info(f"Cleaned up {deleted_count} old backups (older than {retention_days} days)")
+
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'retention_days': retention_days
+        })
+    except Exception as e:
+        log.error(f"Error cleaning up old backups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Config Snapshot API Endpoints
+# =============================================================================
+
+@app.route('/api/config-snapshots', methods=['GET'])
+@login_required
+def get_config_snapshots_api():
+    """Get all config snapshots"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        snapshots = db.get_config_snapshots(limit=limit, offset=offset)
+        return jsonify({'success': True, 'snapshots': snapshots})
+    except Exception as e:
+        log.error(f"Error getting config snapshots: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>', methods=['GET'])
+@login_required
+def get_config_snapshot_api(snapshot_id):
+    """Get a specific config snapshot with its backups"""
+    try:
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        # Get all backups for this snapshot
+        backups = db.get_snapshot_backups(snapshot_id)
+        snapshot['backups'] = backups
+
+        return jsonify({'success': True, 'snapshot': snapshot})
+    except Exception as e:
+        log.error(f"Error getting config snapshot: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>', methods=['PUT'])
+@login_required
+def update_config_snapshot_api(snapshot_id):
+    """Update a config snapshot (name, description)"""
+    try:
+        data = request.json or {}
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        db.update_config_snapshot(snapshot_id, data)
+        return jsonify({'success': True, 'message': 'Snapshot updated'})
+    except Exception as e:
+        log.error(f"Error updating config snapshot: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>', methods=['DELETE'])
+@login_required
+def delete_config_snapshot_api(snapshot_id):
+    """Delete a config snapshot and all its backups"""
+    try:
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        db.delete_config_snapshot(snapshot_id)
+        log.info(f"Deleted snapshot {snapshot_id} and all its backups")
+        return jsonify({'success': True, 'message': 'Snapshot deleted'})
+    except Exception as e:
+        log.error(f"Error deleting config snapshot: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>/compare/<other_snapshot_id>', methods=['GET'])
+@login_required
+def compare_config_snapshots_api(snapshot_id, other_snapshot_id):
+    """Compare two snapshots across all devices"""
+    try:
+        snapshot1 = db.get_config_snapshot(snapshot_id)
+        snapshot2 = db.get_config_snapshot(other_snapshot_id)
+
+        if not snapshot1:
+            return jsonify({'success': False, 'error': f'Snapshot {snapshot_id} not found'}), 404
+        if not snapshot2:
+            return jsonify({'success': False, 'error': f'Snapshot {other_snapshot_id} not found'}), 404
+
+        # Get backups for both snapshots
+        backups1 = db.get_snapshot_backups(snapshot_id)
+        backups2 = db.get_snapshot_backups(other_snapshot_id)
+
+        # Create lookup by device name
+        backup_map1 = {b['device_name']: b for b in backups1}
+        backup_map2 = {b['device_name']: b for b in backups2}
+
+        # Find all devices
+        all_devices = set(backup_map1.keys()) | set(backup_map2.keys())
+
+        comparison = []
+        for device in sorted(all_devices):
+            b1 = backup_map1.get(device)
+            b2 = backup_map2.get(device)
+
+            comp_item = {
+                'device_name': device,
+                'in_snapshot1': b1 is not None,
+                'in_snapshot2': b2 is not None,
+                'changed': False
+            }
+
+            if b1 and b2:
+                comp_item['changed'] = b1.get('config_hash') != b2.get('config_hash')
+                comp_item['backup1_id'] = b1['backup_id']
+                comp_item['backup2_id'] = b2['backup_id']
+            elif b1:
+                comp_item['backup1_id'] = b1['backup_id']
+            elif b2:
+                comp_item['backup2_id'] = b2['backup_id']
+
+            comparison.append(comp_item)
+
+        return jsonify({
+            'success': True,
+            'snapshot1': snapshot1,
+            'snapshot2': snapshot2,
+            'comparison': comparison,
+            'summary': {
+                'total_devices': len(all_devices),
+                'changed': sum(1 for c in comparison if c['changed']),
+                'only_in_snapshot1': sum(1 for c in comparison if c['in_snapshot1'] and not c['in_snapshot2']),
+                'only_in_snapshot2': sum(1 for c in comparison if c['in_snapshot2'] and not c['in_snapshot1'])
+            }
+        })
+    except Exception as e:
+        log.error(f"Error comparing snapshots: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/config-backups')
+@login_required
+def config_backups_page():
+    """Config Backups - redirects to Devices page which now includes backup functionality"""
+    from flask import redirect
+    return redirect('/devices')
 
 
 @app.route('/api/network-topology', methods=['GET'])
@@ -2749,7 +3431,12 @@ def check_service_status(service_id):
 @app.route('/api/services/instances/<service_id>/validate', methods=['POST'])
 @login_required
 def validate_service_instance(service_id):
-    """Validate that the service configuration exists on the device"""
+    """Validate that the service configuration exists on the device.
+
+    Supports two modes:
+    - use_backup=true (default): Validate against latest config backup (fast, no device connection)
+    - use_backup=false: Validate live against device (slower, requires connection)
+    """
     try:
         from services.device_service import get_device_connection_info as get_conn_info
 
@@ -2764,13 +3451,9 @@ def validate_service_instance(service_id):
             return jsonify({'success': False, 'error': 'Service has no template defined'}), 400
 
         data = request.json or {}
+        use_backup = data.get('use_backup', True)  # Default to using backup
         username = data.get('username')
         password = data.get('password')
-
-        credential_override = {'username': username, 'password': password} if username and password else None
-        device_info = get_conn_info(service['device'], credential_override)
-        if not device_info:
-            return jsonify({'success': False, 'error': f'Could not get connection info for device: {service["device"]}'}), 400
 
         # Get validation template
         validation_template = service.get('validation_template') or service.get('template')
@@ -2782,6 +3465,47 @@ def validate_service_instance(service_id):
 
         # Extract patterns to validate
         patterns = [line.strip() for line in validation_config.split('\n') if line.strip()]
+
+        device_name = service['device']
+
+        if use_backup:
+            # Try to get latest backup for the device
+            backup = db.get_latest_backup_for_device(device_name)
+
+            if backup and backup.get('config_content'):
+                # Validate against backup (synchronous, no device connection needed)
+                import re
+                validations = []
+                all_passed = True
+
+                for pattern in patterns:
+                    found = bool(re.search(pattern, backup['config_content'], re.MULTILINE))
+                    validations.append({'pattern': pattern, 'found': found})
+                    if not found:
+                        all_passed = False
+
+                # Return immediate result
+                return jsonify({
+                    'success': True,
+                    'validation_source': 'backup',
+                    'backup_id': backup.get('backup_id'),
+                    'backup_time': backup.get('created_at'),
+                    'status': 'success',
+                    'validation_status': 'passed' if all_passed else 'failed',
+                    'all_passed': all_passed,
+                    'validations': validations,
+                    'message': f'Validated against backup from {backup.get("created_at", "unknown")}'
+                })
+            else:
+                # No backup available, fall back to live validation
+                log.warning(f"No backup found for {device_name}, falling back to live validation")
+                use_backup = False
+
+        # Live validation (use_backup=False or no backup available)
+        credential_override = {'username': username, 'password': password} if username and password else None
+        device_info = get_conn_info(device_name, credential_override)
+        if not device_info:
+            return jsonify({'success': False, 'error': f'Could not get connection info for device: {device_name}'}), 400
 
         # Submit validation task via Celery
         task_id = celery_device_service.execute_validate(
@@ -2801,15 +3525,15 @@ def validate_service_instance(service_id):
             if ' (' in service_name:
                 service_name = service_name.split(' (')[0]
 
-            job_name = f"stack:VALIDATION:{stack_name}:{service_name}:{service['device']}:{task_id}"
+            job_name = f"stack:VALIDATION:{stack_name}:{service_name}:{device_name}:{task_id}"
             save_task_id(task_id, device_name=job_name)
 
-        # For now, return the task_id and let frontend poll for result
-        # This is non-blocking - validation happens asynchronously
+        # Return task_id for async polling
         return jsonify({
             'success': True,
+            'validation_source': 'live',
             'task_id': task_id,
-            'message': 'Validation task submitted'
+            'message': 'Live validation task submitted'
         })
 
     except Exception as e:
@@ -2838,7 +3562,9 @@ def sync_service_instance_states():
             try:
                 # Query Celery for task status
                 task_result = celery_device_service.get_task_result(task_id)
-                task_status = task_result.get('status', 'PENDING')
+                task_status = task_result.get('status', 'PENDING').upper()
+
+                log.info(f"Service {service.get('service_id')} task {task_id} status: {task_status}")
 
                 if task_status == 'SUCCESS':
                     service['state'] = 'deployed'
@@ -2846,7 +3572,7 @@ def sync_service_instance_states():
                     save_service_instance(service)
                     updated_count += 1
 
-                elif task_status == 'FAILURE':
+                elif task_status in ['FAILURE', 'FAILED']:
                     service['state'] = 'failed'
                     service['error'] = str(task_result.get('error', 'Deployment failed'))
                     save_service_instance(service)
@@ -3868,13 +4594,39 @@ def create_scheduled_config_operation():
 @app.route('/api/step-types-introspect', methods=['GET'])
 @login_required
 def get_step_types_introspect_api():
-    """Get step types by introspecting mop_engine.py"""
+    """Get step types from database for visual builder"""
     try:
-        from step_types_introspect import get_step_types
-        step_types = get_step_types()
-        return jsonify({'success': True, 'step_types': step_types})
+        # Get all enabled step types from database
+        step_types = db.get_all_step_types()
+
+        # Transform to format expected by visual builder
+        result = []
+        for st in step_types:
+            params = []
+            # Convert parameters_schema to visual builder format
+            schema = st.get('parameters_schema', {})
+            for param_name, param_def in schema.items():
+                params.append({
+                    'name': param_name,
+                    'type': param_def.get('type', 'string'),
+                    'required': param_def.get('required', False),
+                    'description': param_def.get('description', ''),
+                    'default': param_def.get('default')
+                })
+
+            result.append({
+                'id': st['step_type_id'],
+                'name': st['name'],
+                'description': st.get('description', ''),
+                'icon': st.get('icon', 'cog'),
+                'category': st.get('category', 'General'),
+                'action_type': st.get('action_type', 'get_config'),
+                'parameters': params
+            })
+
+        return jsonify({'success': True, 'step_types': result})
     except Exception as e:
-        log.error(f"Error introspecting step types: {e}", exc_info=True)
+        log.error(f"Error getting step types: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -3884,8 +4636,8 @@ def get_custom_step_types_api():
     """Get all custom step types"""
     try:
         step_types = db.get_all_step_types()
-        # Filter only custom types
-        custom_types = [st for st in step_types if st.get('is_custom')]
+        # Filter only custom types (non-builtin)
+        custom_types = [st for st in step_types if not st.get('is_builtin')]
         return jsonify({'success': True, 'step_types': custom_types})
     except Exception as e:
         log.error(f"Error getting custom step types: {e}", exc_info=True)
@@ -4172,8 +4924,13 @@ def execute_mop_api(mop_id):
                 context = {'devices': {}}
 
                 # Get device info from Netbox if devices specified
-                # First try to get from database field
-                devices = json.loads(MOP.get('devices', '[]'))
+                # First try to get from database field (JSONB returns as list directly)
+                devices_data = MOP.get('devices', [])
+                # Handle both string (legacy) and list (JSONB) formats
+                if isinstance(devices_data, str):
+                    devices = json.loads(devices_data) if devices_data else []
+                else:
+                    devices = devices_data if devices_data else []
 
                 # If no devices in database, parse from YAML
                 if not devices:
@@ -4515,10 +5272,11 @@ def execute_getconfig_step(step, context=None, step_index=0):
                 try:
                     # Poll Celery for task status
                     task_result = celery_device_service.get_task_result(task_id)
-                    task_status = task_result.get('status', 'PENDING')
+                    task_status = task_result.get('status', 'PENDING').upper()
                     task_output = task_result.get('result')
 
-                    if task_status in ['SUCCESS', 'FAILURE']:
+                    # Check for completion states (handle both Celery states and result statuses)
+                    if task_status in ['SUCCESS', 'FAILURE', 'FAILED']:
                         log.info(f"Task {task_id} for {state['device']} completed with status: {task_status}")
                         state['status'] = task_status
                         state['output'] = task_output
@@ -5225,6 +5983,10 @@ def create_stack_template():
                 except Exception as e:
                     log.warning(f"Could not extract variables from template {template_name}: {e}")
 
+        # Check if this is an update (template_id provided) or create (new)
+        existing_template_id = data.get('template_id')
+        is_update = bool(existing_template_id)
+
         template_data = {
             'name': data['name'],
             'description': data.get('description', ''),
@@ -5236,12 +5998,17 @@ def create_stack_template():
             'created_by': session.get('username', 'unknown')
         }
 
+        # Include template_id if updating existing template
+        if existing_template_id:
+            template_data['template_id'] = existing_template_id
+
         template_id = db.save_stack_template(template_data)
 
+        action = 'updated' if is_update else 'created'
         return jsonify({
             'success': True,
             'template_id': template_id,
-            'message': f'Stack template "{data["name"]}" created successfully'
+            'message': f'Stack template "{data["name"]}" {action} successfully'
         })
 
     except Exception as e:

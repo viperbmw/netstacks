@@ -1511,11 +1511,14 @@ function renderServiceInstanceDetails(service) {
 
 /**
  * Validate a service instance
+ * @param {string} serviceId - Service instance ID
+ * @param {boolean} useLive - If true, validate against live device instead of backup
  */
-function validateService(serviceId) {
-    showStatus('info', { message: 'Validating service...' });
+function validateService(serviceId, useLive = false) {
+    const validationSource = useLive ? 'live device' : 'config backup';
+    showStatus('info', { message: `Validating service against ${validationSource}...` });
 
-    // Get credentials from settings
+    // Get credentials from settings (needed for live validation)
     let username, password;
     try {
         const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
@@ -1529,21 +1532,51 @@ function validateService(serviceId) {
         url: '/api/services/instances/' + encodeURIComponent(serviceId) + '/validate',
         method: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify({ username, password }),
+        data: JSON.stringify({
+            username,
+            password,
+            use_backup: !useLive  // Default true, false only when explicitly requesting live
+        }),
         timeout: 60000
     })
     .done(function(data) {
         if (data.success) {
-            if (data.valid) {
-                showStatus('success', {
-                    message: '✓ Service validation passed',
-                    details: data.message
-                });
-            } else {
-                showStatus('warning', {
-                    message: '⚠ Service validation failed - configuration drift detected',
-                    details: data.message + (data.missing_lines ? '<br>Missing: ' + data.missing_lines.join(', ') : '')
-                });
+            // Handle backup validation (immediate result)
+            if (data.validation_source === 'backup') {
+                if (data.all_passed) {
+                    showStatus('success', {
+                        message: '✓ Service validation passed (from backup)',
+                        details: `Validated against backup from ${data.backup_time || 'unknown'}`
+                    });
+                } else {
+                    const failedPatterns = data.validations
+                        .filter(v => !v.found)
+                        .map(v => v.pattern)
+                        .slice(0, 5);
+                    showStatus('warning', {
+                        message: '⚠ Service validation failed - configuration drift detected',
+                        details: `Checked against backup. Missing patterns: ${failedPatterns.join(', ')}${failedPatterns.length > 5 ? '...' : ''}`
+                    });
+                }
+            }
+            // Handle live validation (async task)
+            else if (data.task_id) {
+                showStatus('info', { message: 'Live validation in progress...' });
+                pollValidationTask(data.task_id);
+            }
+            // Legacy format handling
+            else if (data.valid !== undefined) {
+                if (data.valid) {
+                    showStatus('success', {
+                        message: '✓ Service validation passed',
+                        details: data.message
+                    });
+                } else {
+                    showStatus('warning', {
+                        message: '⚠ Service validation failed - configuration drift detected',
+                        details: data.message + (data.missing_lines ? '<br>Missing: ' + data.missing_lines.join(', ') : '')
+                    });
+                }
             }
         } else {
             showStatus('error', {
@@ -1556,6 +1589,51 @@ function validateService(serviceId) {
             message: 'Validation failed: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error')
         });
     });
+}
+
+/**
+ * Poll for validation task completion
+ */
+function pollValidationTask(taskId) {
+    const pollInterval = setInterval(function() {
+        $.get('/api/task/' + taskId + '/status')
+            .done(function(data) {
+                if (data.status === 'SUCCESS' || data.status === 'success') {
+                    clearInterval(pollInterval);
+                    const result = data.result || {};
+                    if (result.all_passed) {
+                        showStatus('success', {
+                            message: '✓ Live service validation passed',
+                            details: 'All configuration patterns found on device'
+                        });
+                    } else {
+                        const failedPatterns = (result.validations || [])
+                            .filter(v => !v.found)
+                            .map(v => v.pattern)
+                            .slice(0, 5);
+                        showStatus('warning', {
+                            message: '⚠ Live validation failed - configuration drift detected',
+                            details: `Missing patterns: ${failedPatterns.join(', ')}`
+                        });
+                    }
+                } else if (data.status === 'FAILURE' || data.status === 'failed') {
+                    clearInterval(pollInterval);
+                    showStatus('error', {
+                        message: 'Live validation failed: ' + (data.error || 'Task failed')
+                    });
+                }
+                // Continue polling for PENDING/STARTED
+            })
+            .fail(function() {
+                clearInterval(pollInterval);
+                showStatus('error', { message: 'Error polling validation status' });
+            });
+    }, 2000);
+
+    // Stop polling after 2 minutes
+    setTimeout(function() {
+        clearInterval(pollInterval);
+    }, 120000);
 }
 
 /**

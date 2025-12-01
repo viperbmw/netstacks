@@ -1,0 +1,871 @@
+{% extends "base.html" %}
+
+{% block title %}MOP Step Types - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1><i class="fas fa-puzzle-piece"></i> MOP Step Types</h1>
+                <p class="text-muted">Configure step types available for Method of Procedures (MOPs)</p>
+            </div>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#stepTypeModal" onclick="openCreateModal()">
+                <i class="fas fa-plus"></i> New Step Type
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Action Type Legend -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-info-circle"></i> Action Types</h6>
+            </div>
+            <div class="card-body py-2">
+                <div class="d-flex flex-wrap gap-3">
+                    <span><span class="badge bg-primary">get_config</span> Run show commands on devices</span>
+                    <span><span class="badge bg-success">set_config</span> Push configuration to devices</span>
+                    <span><span class="badge bg-info">api_call</span> Make HTTP API requests</span>
+                    <span><span class="badge bg-warning text-dark">validate</span> Validate output patterns</span>
+                    <span><span class="badge bg-secondary">wait</span> Pause execution</span>
+                    <span><span class="badge" style="background-color: #6f42c1;">manual</span> Human approval</span>
+                    <span><span class="badge bg-danger">deploy_stack</span> Deploy service stack</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Built-in Step Types -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-cube"></i> Built-in Step Types</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Action Type</th>
+                                <th>Category</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="builtin-step-types-body">
+                            <tr><td colspan="7" class="text-center">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Step Types -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-cogs"></i> Custom Step Types</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="custom-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Action Type</th>
+                                <th>Category</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="custom-step-types-body">
+                            <tr><td colspan="7" class="text-center">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="no-custom-types" class="alert alert-info" style="display: none;">
+                    <i class="fas fa-info-circle"></i> No custom step types defined. Click "New Step Type" to create one.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step Type Modal -->
+<div class="modal fade" id="stepTypeModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="stepTypeModalTitle">New Step Type</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="step-type-form">
+                    <input type="hidden" id="edit-step-type-id">
+                    <input type="hidden" id="is-builtin">
+
+                    <!-- Basic Info -->
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Step Type ID *</label>
+                            <input type="text" class="form-control" id="step-type-id" placeholder="my_custom_step" required>
+                            <small class="text-muted">Unique identifier (lowercase, underscores)</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Name *</label>
+                            <input type="text" class="form-control" id="step-type-name" placeholder="My Custom Step" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" id="step-type-category">
+                                <option value="Custom">Custom</option>
+                                <option value="Network Checks">Network Checks</option>
+                                <option value="Configuration">Configuration</option>
+                                <option value="Commands">Commands</option>
+                                <option value="Validation">Validation</option>
+                                <option value="Integration">Integration</option>
+                                <option value="Notifications">Notifications</option>
+                                <option value="Utility">Utility</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-control" id="step-type-description" placeholder="What this step type does">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Icon</label>
+                            <input type="text" class="form-control" id="step-type-icon" placeholder="cog" value="cog">
+                            <small class="text-muted">FontAwesome icon (without fa-)</small>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <!-- Action Type Selection -->
+                    <div class="mb-3">
+                        <label class="form-label">Action Type *</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="action-type" id="action-get_config" value="get_config" checked>
+                            <label class="btn btn-outline-primary" for="action-get_config">
+                                <i class="fas fa-terminal"></i> Get Config
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-set_config" value="set_config">
+                            <label class="btn btn-outline-success" for="action-set_config">
+                                <i class="fas fa-upload"></i> Set Config
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-api_call" value="api_call">
+                            <label class="btn btn-outline-info" for="action-api_call">
+                                <i class="fas fa-globe"></i> API Call
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-validate" value="validate">
+                            <label class="btn btn-outline-warning" for="action-validate">
+                                <i class="fas fa-check-circle"></i> Validate
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-wait" value="wait">
+                            <label class="btn btn-outline-secondary" for="action-wait">
+                                <i class="fas fa-clock"></i> Wait
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-manual" value="manual">
+                            <label class="btn btn-outline-secondary" for="action-manual" style="border-color: #6f42c1; color: #6f42c1;">
+                                <i class="fas fa-hand-paper"></i> Manual
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-deploy_stack" value="deploy_stack">
+                            <label class="btn btn-outline-danger" for="action-deploy_stack">
+                                <i class="fas fa-layer-group"></i> Deploy Stack
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Sections (shown based on action type) -->
+
+                    <!-- Get Config Section -->
+                    <div id="config-get_config" class="config-section">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                <i class="fas fa-terminal"></i> Get Config Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Default Command</label>
+                                    <input type="text" class="form-control" id="get-config-command" placeholder="show ip interface brief">
+                                    <small class="text-muted">Default CLI command (can be overridden in MOP YAML)</small>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="get-config-textfsm">
+                                            <label class="form-check-label" for="get-config-textfsm">Parse with TextFSM</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="get-config-genie">
+                                            <label class="form-check-label" for="get-config-genie">Parse with Genie</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="get-config-ttp">
+                                            <label class="form-check-label" for="get-config-ttp">Parse with TTP</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3" id="ttp-template-section" style="display: none;">
+                                    <label class="form-label">TTP Template</label>
+                                    <textarea class="form-control font-monospace" id="get-config-ttp-template" rows="4" placeholder="TTP template..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Set Config Section -->
+                    <div id="config-set_config" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <i class="fas fa-upload"></i> Set Config Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Default Configuration Lines</label>
+                                    <textarea class="form-control font-monospace" id="set-config-lines" rows="4" placeholder="interface GigabitEthernet0/1
+ description Configured by MOP
+ no shutdown"></textarea>
+                                    <small class="text-muted">One command per line (can be overridden in MOP YAML)</small>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="set-config-save" checked>
+                                    <label class="form-check-label" for="set-config-save">Save configuration after push</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- API Call Section -->
+                    <div id="config-api_call" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <i class="fas fa-globe"></i> API Call Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-3">
+                                    <div class="col-md-2">
+                                        <label class="form-label">Method</label>
+                                        <select class="form-select" id="api-method">
+                                            <option value="GET">GET</option>
+                                            <option value="POST" selected>POST</option>
+                                            <option value="PUT">PUT</option>
+                                            <option value="PATCH">PATCH</option>
+                                            <option value="DELETE">DELETE</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-10">
+                                        <label class="form-label">URL *</label>
+                                        <input type="text" class="form-control" id="api-url" placeholder="https://api.example.com/endpoint">
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Headers (JSON)</label>
+                                    <textarea class="form-control font-monospace" id="api-headers" rows="3" placeholder='{"Authorization": "Bearer token", "Content-Type": "application/json"}'></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Body Template (Jinja2 supported)</label>
+                                    <textarea class="form-control font-monospace" id="api-body" rows="4" placeholder='{"device": "{{ device_name }}", "action": "completed"}'></textarea>
+                                    <small class="text-muted">Available variables: device_name, device_ip, step_name, mop_name, etc.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Expected Status Codes</label>
+                                    <input type="text" class="form-control" id="api-expected-status" value="200,201,204">
+                                    <small class="text-muted">Comma-separated list of acceptable HTTP status codes</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Validate Section -->
+                    <div id="config-validate" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-warning text-dark">
+                                <i class="fas fa-check-circle"></i> Validation Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Command to Run</label>
+                                    <input type="text" class="form-control" id="validate-command" placeholder="show running-config" value="show running-config">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Validation Patterns</label>
+                                    <div id="validation-patterns">
+                                        <!-- Patterns will be added here -->
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addValidationPattern()">
+                                        <i class="fas fa-plus"></i> Add Pattern
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Wait Section -->
+                    <div id="config-wait" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-secondary text-white">
+                                <i class="fas fa-clock"></i> Wait Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Default Wait Duration (seconds)</label>
+                                        <input type="number" class="form-control" id="wait-seconds" value="30" min="1">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Manual Section -->
+                    <div id="config-manual" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-purple text-white" style="background-color: #6f42c1 !important;">
+                                <i class="fas fa-hand-paper"></i> Manual Approval Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Approval Prompt</label>
+                                    <input type="text" class="form-control" id="manual-prompt" value="Please review and approve to continue">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Instructions for Reviewer</label>
+                                    <textarea class="form-control" id="manual-instructions" rows="3" placeholder="Detailed instructions for the person reviewing this step..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Deploy Stack Section -->
+                    <div id="config-deploy_stack" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-danger text-white">
+                                <i class="fas fa-layer-group"></i> Deploy Stack Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Service Stack Name</label>
+                                    <input type="text" class="form-control" id="deploy-stack-name" placeholder="Enter service stack name">
+                                    <small class="text-muted">The name of the service stack to deploy (can be overridden in MOP YAML)</small>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="deploy-stack-validate-only">
+                                    <label class="form-check-label" for="deploy-stack-validate-only">Validate only (do not deploy)</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="step-type-enabled" checked>
+                        <label class="form-check-label" for="step-type-enabled">Enabled</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveStepType()">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Details Modal -->
+<div class="modal fade" id="viewDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Step Type Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="view-details-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let stepTypes = [];
+
+$(document).ready(function() {
+    loadStepTypes();
+
+    // Action type change handler
+    $('input[name="action-type"]').change(function() {
+        showConfigSection($(this).val());
+    });
+
+    // TTP checkbox handler
+    $('#get-config-ttp').change(function() {
+        $('#ttp-template-section').toggle(this.checked);
+    });
+});
+
+function loadStepTypes() {
+    $.get('/api/step-types')
+        .done(function(data) {
+            if (data.success) {
+                stepTypes = data.step_types;
+                renderStepTypes();
+            }
+        })
+        .fail(function() {
+            $('#builtin-step-types-body').html('<tr><td colspan="7" class="text-danger">Error loading step types</td></tr>');
+        });
+}
+
+function renderStepTypes() {
+    const builtinBody = $('#builtin-step-types-body');
+    const customBody = $('#custom-step-types-body');
+
+    builtinBody.empty();
+    customBody.empty();
+
+    const builtinTypes = stepTypes.filter(st => st.is_builtin);
+    const customTypes = stepTypes.filter(st => !st.is_builtin);
+
+    if (builtinTypes.length === 0) {
+        builtinBody.html('<tr><td colspan="7" class="text-center text-muted">No built-in step types</td></tr>');
+    } else {
+        builtinTypes.forEach(st => renderStepTypeRow(st, builtinBody, true));
+    }
+
+    if (customTypes.length === 0) {
+        customBody.html('<tr><td colspan="7" class="text-center text-muted">No custom step types</td></tr>');
+        $('#no-custom-types').show();
+        $('#custom-table').hide();
+    } else {
+        $('#no-custom-types').hide();
+        $('#custom-table').show();
+        customTypes.forEach(st => renderStepTypeRow(st, customBody, false));
+    }
+}
+
+function renderStepTypeRow(st, tbody, isBuiltin) {
+    const statusBadge = st.enabled ?
+        '<span class="badge bg-success">Enabled</span>' :
+        '<span class="badge bg-secondary">Disabled</span>';
+
+    const actionBadge = getActionTypeBadge(st.action_type);
+
+    let actions = `
+        <button class="btn btn-sm btn-outline-primary" onclick="viewStepType('${st.step_type_id}')">
+            <i class="fas fa-eye"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="editStepType('${st.step_type_id}')">
+            <i class="fas fa-edit"></i>
+        </button>
+        <button class="btn btn-sm ${st.enabled ? 'btn-outline-warning' : 'btn-outline-success'}"
+                onclick="toggleStepType('${st.step_type_id}', ${!st.enabled})">
+            <i class="fas fa-${st.enabled ? 'pause' : 'play'}"></i>
+        </button>
+    `;
+
+    if (!isBuiltin) {
+        actions += `
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteStepType('${st.step_type_id}')">
+                <i class="fas fa-trash"></i>
+            </button>
+        `;
+    }
+
+    tbody.append(`
+        <tr>
+            <td><code>${escapeHtml(st.step_type_id)}</code></td>
+            <td><i class="fas fa-${escapeHtml(st.icon || 'cog')} text-primary me-2"></i>${escapeHtml(st.name)}</td>
+            <td>${actionBadge}</td>
+            <td><span class="badge bg-light text-dark">${escapeHtml(st.category || 'General')}</span></td>
+            <td><small>${escapeHtml(st.description || '-')}</small></td>
+            <td>${statusBadge}</td>
+            <td>${actions}</td>
+        </tr>
+    `);
+}
+
+function getActionTypeBadge(actionType) {
+    const badges = {
+        'get_config': '<span class="badge bg-primary">get_config</span>',
+        'set_config': '<span class="badge bg-success">set_config</span>',
+        'api_call': '<span class="badge bg-info">api_call</span>',
+        'validate': '<span class="badge bg-warning text-dark">validate</span>',
+        'wait': '<span class="badge bg-secondary">wait</span>',
+        'manual': '<span class="badge" style="background-color: #6f42c1;">manual</span>',
+        'deploy_stack': '<span class="badge bg-danger">deploy_stack</span>'
+    };
+    return badges[actionType] || '<span class="badge bg-secondary">' + escapeHtml(actionType) + '</span>';
+}
+
+function showConfigSection(actionType) {
+    $('.config-section').hide();
+    $(`#config-${actionType}`).show();
+}
+
+function openCreateModal() {
+    $('#stepTypeModalTitle').text('New Step Type');
+    $('#edit-step-type-id').val('');
+    $('#is-builtin').val('false');
+    $('#step-type-form')[0].reset();
+    $('#step-type-id').prop('readonly', false);
+    $('#step-type-enabled').prop('checked', true);
+    $('#action-get_config').prop('checked', true);
+    showConfigSection('get_config');
+    $('#validation-patterns').empty();
+    addValidationPattern();
+}
+
+function editStepType(stepTypeId) {
+    const st = stepTypes.find(s => s.step_type_id === stepTypeId);
+    if (!st) return;
+
+    $('#stepTypeModalTitle').text('Edit Step Type');
+    $('#edit-step-type-id').val(st.step_type_id);
+    $('#is-builtin').val(st.is_builtin ? 'true' : 'false');
+    $('#step-type-id').val(st.step_type_id).prop('readonly', true);
+    $('#step-type-name').val(st.name);
+    $('#step-type-category').val(st.category || 'Custom');
+    $('#step-type-icon').val(st.icon || 'cog');
+    $('#step-type-description').val(st.description || '');
+    $('#step-type-enabled').prop('checked', st.enabled);
+
+    // Set action type
+    $(`#action-${st.action_type}`).prop('checked', true);
+    showConfigSection(st.action_type);
+
+    // Load config based on action type
+    const config = st.config || {};
+
+    if (st.action_type === 'get_config') {
+        $('#get-config-command').val(config.command || '');
+        $('#get-config-textfsm').prop('checked', config.use_textfsm || false);
+        $('#get-config-genie').prop('checked', config.use_genie || false);
+        $('#get-config-ttp').prop('checked', config.use_ttp || false);
+        $('#get-config-ttp-template').val(config.ttp_template || '');
+        $('#ttp-template-section').toggle(config.use_ttp || false);
+    } else if (st.action_type === 'set_config') {
+        const lines = config.config_lines || [];
+        $('#set-config-lines').val(Array.isArray(lines) ? lines.join('\n') : lines);
+        $('#set-config-save').prop('checked', config.save_config !== false);
+    } else if (st.action_type === 'api_call') {
+        $('#api-method').val(config.method || 'POST');
+        $('#api-url').val(config.url || '');
+        $('#api-headers').val(config.headers ? JSON.stringify(config.headers, null, 2) : '');
+        $('#api-body').val(config.body_template || '');
+        const statusCodes = config.expected_status || [200, 201, 204];
+        $('#api-expected-status').val(statusCodes.join(','));
+    } else if (st.action_type === 'validate') {
+        $('#validate-command').val(config.command || 'show running-config');
+        $('#validation-patterns').empty();
+        const patterns = config.patterns || [];
+        if (patterns.length === 0) {
+            addValidationPattern();
+        } else {
+            patterns.forEach(p => addValidationPattern(p));
+        }
+    } else if (st.action_type === 'wait') {
+        $('#wait-seconds').val(config.seconds || 30);
+    } else if (st.action_type === 'manual') {
+        $('#manual-prompt').val(config.prompt || 'Please review and approve to continue');
+        $('#manual-instructions').val(config.instructions || '');
+    } else if (st.action_type === 'deploy_stack') {
+        $('#deploy-stack-name').val(config.stack_name || '');
+        $('#deploy-stack-validate-only').prop('checked', config.validate_only || false);
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('stepTypeModal'));
+    modal.show();
+}
+
+function addValidationPattern(data = {}) {
+    const index = $('#validation-patterns .pattern-row').length;
+    const html = `
+        <div class="pattern-row card mb-2">
+            <div class="card-body py-2">
+                <div class="row align-items-center">
+                    <div class="col-md-5">
+                        <input type="text" class="form-control form-control-sm" placeholder="Regex pattern" value="${escapeHtml(data.pattern || '')}">
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select form-select-sm">
+                            <option value="true" ${data.must_match !== false ? 'selected' : ''}>Must Match</option>
+                            <option value="false" ${data.must_match === false ? 'selected' : ''}>Must NOT Match</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="text" class="form-control form-control-sm" placeholder="Description" value="${escapeHtml(data.description || '')}">
+                    </div>
+                    <div class="col-md-1">
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest('.pattern-row').remove()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    $('#validation-patterns').append(html);
+}
+
+function getValidationPatterns() {
+    const patterns = [];
+    $('#validation-patterns .pattern-row').each(function() {
+        const row = $(this);
+        const pattern = row.find('input:eq(0)').val().trim();
+        if (pattern) {
+            patterns.push({
+                pattern: pattern,
+                must_match: row.find('select').val() === 'true',
+                description: row.find('input:eq(1)').val().trim()
+            });
+        }
+    });
+    return patterns;
+}
+
+function viewStepType(stepTypeId) {
+    const st = stepTypes.find(s => s.step_type_id === stepTypeId);
+    if (!st) return;
+
+    let html = `
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <strong>ID:</strong> <code>${escapeHtml(st.step_type_id)}</code>
+            </div>
+            <div class="col-md-6">
+                <strong>Name:</strong> ${escapeHtml(st.name)}
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <strong>Action Type:</strong> ${getActionTypeBadge(st.action_type)}
+            </div>
+            <div class="col-md-4">
+                <strong>Category:</strong> ${escapeHtml(st.category || 'General')}
+            </div>
+            <div class="col-md-4">
+                <strong>Status:</strong> ${st.enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}
+            </div>
+        </div>
+        <div class="mb-3">
+            <strong>Description:</strong> ${escapeHtml(st.description || 'No description')}
+        </div>
+    `;
+
+    // Show configuration
+    const config = st.config || {};
+    html += `<div class="mb-3"><strong>Configuration:</strong><pre class="bg-light p-2 rounded mt-2">${escapeHtml(JSON.stringify(config, null, 2))}</pre></div>`;
+
+    // Show parameters schema
+    if (st.parameters_schema && Object.keys(st.parameters_schema).length > 0) {
+        html += `<div class="mb-3"><strong>Parameters Schema:</strong><pre class="bg-light p-2 rounded mt-2">${escapeHtml(JSON.stringify(st.parameters_schema, null, 2))}</pre></div>`;
+    }
+
+    // YAML usage example
+    let yamlExample = `- name: "Example Step"\n  type: ${st.step_type_id}`;
+    if (st.action_type === 'get_config') {
+        yamlExample += `\n  command: "show ip route"`;
+    } else if (st.action_type === 'set_config') {
+        yamlExample += `\n  config_lines:\n    - "interface Gi0/1"\n    - "description Test"`;
+    } else if (st.action_type === 'wait') {
+        yamlExample += `\n  seconds: 60`;
+    }
+
+    html += `<div class="mt-4"><strong>YAML Usage Example:</strong><pre class="bg-dark text-light p-2 rounded mt-2">${escapeHtml(yamlExample)}</pre></div>`;
+
+    $('#view-details-content').html(html);
+    const modal = new bootstrap.Modal(document.getElementById('viewDetailsModal'));
+    modal.show();
+}
+
+function saveStepType() {
+    const editId = $('#edit-step-type-id').val();
+    const stepTypeId = $('#step-type-id').val().trim();
+    const name = $('#step-type-name').val().trim();
+    const actionType = $('input[name="action-type"]:checked').val();
+
+    if (!stepTypeId || !name) {
+        alert('Step Type ID and Name are required');
+        return;
+    }
+
+    // Build config based on action type
+    let config = {};
+
+    if (actionType === 'get_config') {
+        config = {
+            command: $('#get-config-command').val().trim(),
+            use_textfsm: $('#get-config-textfsm').is(':checked'),
+            use_genie: $('#get-config-genie').is(':checked'),
+            use_ttp: $('#get-config-ttp').is(':checked'),
+            ttp_template: $('#get-config-ttp-template').val().trim()
+        };
+    } else if (actionType === 'set_config') {
+        const lines = $('#set-config-lines').val().trim();
+        config = {
+            config_lines: lines ? lines.split('\n').filter(l => l.trim()) : [],
+            save_config: $('#set-config-save').is(':checked')
+        };
+    } else if (actionType === 'api_call') {
+        let headers = {};
+        const headersText = $('#api-headers').val().trim();
+        if (headersText) {
+            try {
+                headers = JSON.parse(headersText);
+            } catch (e) {
+                alert('Invalid JSON in Headers');
+                return;
+            }
+        }
+        const statusText = $('#api-expected-status').val().trim();
+        const expectedStatus = statusText ? statusText.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [200, 201, 204];
+
+        config = {
+            method: $('#api-method').val(),
+            url: $('#api-url').val().trim(),
+            headers: headers,
+            body_template: $('#api-body').val().trim(),
+            expected_status: expectedStatus
+        };
+
+        if (!config.url) {
+            alert('URL is required for API Call step types');
+            return;
+        }
+    } else if (actionType === 'validate') {
+        config = {
+            command: $('#validate-command').val().trim(),
+            patterns: getValidationPatterns()
+        };
+    } else if (actionType === 'wait') {
+        config = {
+            seconds: parseInt($('#wait-seconds').val()) || 30
+        };
+    } else if (actionType === 'manual') {
+        config = {
+            prompt: $('#manual-prompt').val().trim(),
+            instructions: $('#manual-instructions').val().trim()
+        };
+    } else if (actionType === 'deploy_stack') {
+        config = {
+            stack_name: $('#deploy-stack-name').val().trim(),
+            validate_only: $('#deploy-stack-validate-only').is(':checked')
+        };
+    }
+
+    const data = {
+        step_type_id: stepTypeId,
+        name: name,
+        category: $('#step-type-category').val(),
+        icon: $('#step-type-icon').val().trim() || 'cog',
+        description: $('#step-type-description').val().trim(),
+        action_type: actionType,
+        config: config,
+        enabled: $('#step-type-enabled').is(':checked'),
+        is_builtin: $('#is-builtin').val() === 'true'
+    };
+
+    const method = editId ? 'PUT' : 'POST';
+    const url = editId ? `/api/step-types/${editId}` : '/api/step-types';
+
+    $.ajax({
+        url: url,
+        method: method,
+        contentType: 'application/json',
+        data: JSON.stringify(data)
+    })
+    .done(function(response) {
+        if (response.success) {
+            bootstrap.Modal.getInstance(document.getElementById('stepTypeModal')).hide();
+            loadStepTypes();
+        } else {
+            alert('Error: ' + (response.error || 'Failed to save step type'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to save step type'));
+    });
+}
+
+function toggleStepType(stepTypeId, enabled) {
+    $.ajax({
+        url: `/api/step-types/${stepTypeId}/toggle`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ enabled: enabled })
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadStepTypes();
+        } else {
+            alert('Error: ' + (response.error || 'Failed to toggle step type'));
+        }
+    });
+}
+
+function deleteStepType(stepTypeId) {
+    if (!confirm('Are you sure you want to delete this step type?')) {
+        return;
+    }
+
+    $.ajax({
+        url: `/api/step-types/${stepTypeId}`,
+        method: 'DELETE'
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadStepTypes();
+        } else {
+            alert('Error: ' + (response.error || 'Failed to delete step type'));
+        }
+    });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+</script>
+{% endblock %}

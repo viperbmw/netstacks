@@ -114,10 +114,11 @@ function loadTasks() {
                                 const created = task.created_on || task.enqueued_at || 'N/A';
 
                                 let statusBadge = 'secondary';
-                                if (status === 'queued') statusBadge = 'badge-queued';
-                                else if (status === 'started' || status === 'running') statusBadge = 'badge-running';
-                                else if (status === 'finished' || status === 'completed') statusBadge = 'badge-completed';
-                                else if (status === 'failed') statusBadge = 'badge-failed';
+                                const statusLower = status.toLowerCase();
+                                if (statusLower === 'queued' || statusLower === 'pending') statusBadge = 'badge-queued';
+                                else if (statusLower === 'started' || statusLower === 'running') statusBadge = 'badge-running';
+                                else if (statusLower === 'finished' || statusLower === 'completed' || statusLower === 'success') statusBadge = 'badge-completed';
+                                else if (statusLower === 'failed' || statusLower === 'failure' || statusLower === 'error') statusBadge = 'badge-failed';
 
                                 const createdDate = created !== 'N/A' ? formatDate(created) : 'N/A';
 

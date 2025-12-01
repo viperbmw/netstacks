@@ -118,6 +118,19 @@
                         <small class="form-text text-muted">How long to cache device list (60-3600 seconds)</small>
                     </div>
 
+                    <!-- Performance Settings -->
+                    <h6 class="border-bottom pb-2 mb-3 mt-4">Performance Settings</h6>
+
+                    <div class="mb-3">
+                        <label for="celery-workers" class="form-label">Celery Worker Concurrency</label>
+                        <input type="number" class="form-control" id="celery-workers" min="1" max="50" value="20">
+                        <small class="form-text text-muted">Number of concurrent workers for device tasks (1-50). Requires container restart to apply.</small>
+                        <div class="alert alert-info mt-2 small">
+                            <i class="fas fa-info-circle"></i> <strong>Note:</strong> After changing this value, restart the celery-worker container:
+                            <code>docker compose restart celery-worker</code>
+                        </div>
+                    </div>
+
                     <!-- Save Button -->
                     <div class="d-grid gap-2 mt-4">
                         <button type="submit" class="btn btn-primary">

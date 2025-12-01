@@ -1706,3 +1706,139 @@ def delete_custom_step_type(step_type_id):
         return cursor.rowcount > 0
 
 
+# =============================================================================
+# Device Override Functions
+# =============================================================================
+
+def _ensure_device_overrides_table():
+    """Ensure device_overrides table exists"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS device_overrides (
+                device_name TEXT PRIMARY KEY,
+                device_type TEXT,
+                host TEXT,
+                port INTEGER,
+                username TEXT,
+                password TEXT,
+                secret TEXT,
+                timeout INTEGER,
+                conn_timeout INTEGER,
+                auth_timeout INTEGER,
+                banner_timeout INTEGER,
+                notes TEXT,
+                disabled INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+
+
+def get_device_override(device_name):
+    """Get device-specific overrides for a device"""
+    _ensure_device_overrides_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM device_overrides WHERE device_name = ?', (device_name,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+
+def save_device_override(data):
+    """Save or update device-specific overrides"""
+    _ensure_device_overrides_table()
+    device_name = data.get('device_name')
+    if not device_name:
+        return False
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Check if override exists
+        cursor.execute('SELECT device_name FROM device_overrides WHERE device_name = ?', (device_name,))
+        exists = cursor.fetchone()
+
+        if exists:
+            # Update existing
+            cursor.execute('''
+                UPDATE device_overrides SET
+                    device_type = ?,
+                    host = ?,
+                    port = ?,
+                    username = ?,
+                    password = ?,
+                    secret = ?,
+                    timeout = ?,
+                    conn_timeout = ?,
+                    auth_timeout = ?,
+                    banner_timeout = ?,
+                    notes = ?,
+                    disabled = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE device_name = ?
+            ''', (
+                data.get('device_type'),
+                data.get('host'),
+                data.get('port'),
+                data.get('username'),
+                data.get('password'),
+                data.get('secret'),
+                data.get('timeout'),
+                data.get('conn_timeout'),
+                data.get('auth_timeout'),
+                data.get('banner_timeout'),
+                data.get('notes'),
+                1 if data.get('disabled') else 0,
+                device_name
+            ))
+        else:
+            # Insert new
+            cursor.execute('''
+                INSERT INTO device_overrides (
+                    device_name, device_type, host, port, username, password, secret,
+                    timeout, conn_timeout, auth_timeout, banner_timeout, notes, disabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                device_name,
+                data.get('device_type'),
+                data.get('host'),
+                data.get('port'),
+                data.get('username'),
+                data.get('password'),
+                data.get('secret'),
+                data.get('timeout'),
+                data.get('conn_timeout'),
+                data.get('auth_timeout'),
+                data.get('banner_timeout'),
+                data.get('notes'),
+                1 if data.get('disabled') else 0
+            ))
+
+        conn.commit()
+        return True
+
+
+def delete_device_override(device_name):
+    """Delete device-specific overrides"""
+    _ensure_device_overrides_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM device_overrides WHERE device_name = ?', (device_name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_all_device_overrides():
+    """Get all device overrides"""
+    _ensure_device_overrides_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM device_overrides ORDER BY device_name')
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+

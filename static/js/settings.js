@@ -29,7 +29,8 @@ const DEFAULT_SETTINGS = {
     default_username: '',
     default_password: '',
     cache_ttl: 300,
-    timezone: 'auto'
+    timezone: 'auto',
+    celery_workers: 20
 };
 
 $(document).ready(function() {
@@ -94,7 +95,8 @@ function loadSettings() {
             const settings = {
                 ...localSettings,
                 netbox_url: data.settings.netbox_url || localSettings.netbox_url,
-                netbox_verify_ssl: data.settings.verify_ssl !== undefined ? data.settings.verify_ssl : localSettings.netbox_verify_ssl
+                netbox_verify_ssl: data.settings.verify_ssl !== undefined ? data.settings.verify_ssl : localSettings.netbox_verify_ssl,
+                celery_workers: data.settings.celery_workers || localSettings.celery_workers || 20
             };
 
             // Note: tokens are masked in API response, so we keep them from localStorage
@@ -124,6 +126,7 @@ function populateForm(settings) {
     $('#cache-ttl').val(settings.cache_ttl);
     $('#timezone-select').val(settings.timezone || 'auto');
     $('#system-timezone').val(settings.system_timezone || 'UTC');
+    $('#celery-workers').val(settings.celery_workers || 20);
 
     // Load filters
     loadFilters(settings.netbox_filters || []);
@@ -152,12 +155,18 @@ function saveSettings() {
         default_password: $('#default-password').val().trim(),
         cache_ttl: parseInt($('#cache-ttl').val()),
         timezone: $('#timezone-select').val(),
-        system_timezone: $('#system-timezone').val()
+        system_timezone: $('#system-timezone').val(),
+        celery_workers: parseInt($('#celery-workers').val()) || 20
     };
 
     // Validate
     if (settings.cache_ttl < 60 || settings.cache_ttl > 3600) {
         alert('Cache TTL must be between 60 and 3600 seconds');
+        return;
+    }
+
+    if (settings.celery_workers < 1 || settings.celery_workers > 50) {
+        alert('Celery workers must be between 1 and 50');
         return;
     }
 
@@ -171,7 +180,8 @@ function saveSettings() {
         verify_ssl: settings.netbox_verify_ssl,
         default_username: settings.default_username,
         default_password: settings.default_password,
-        system_timezone: settings.system_timezone
+        system_timezone: settings.system_timezone,
+        celery_workers: settings.celery_workers
     };
 
     $.ajax({
@@ -215,6 +225,7 @@ function resetToDefaults() {
     $('#default-username').val(DEFAULT_SETTINGS.default_username);
     $('#default-password').val(DEFAULT_SETTINGS.default_password);
     $('#cache-ttl').val(DEFAULT_SETTINGS.cache_ttl);
+    $('#celery-workers').val(DEFAULT_SETTINGS.celery_workers);
 
     // Clear filters
     loadFilters([]);

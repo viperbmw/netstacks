@@ -36,7 +36,9 @@ function loadTaskHistory() {
                         fetchedCount++;
 
                         // Only include finished or failed tasks
-                        if (status === 'finished' || status === 'completed' || status === 'failed') {
+                        const statusLower = status.toLowerCase();
+                        if (statusLower === 'finished' || statusLower === 'completed' || statusLower === 'success' ||
+                            statusLower === 'failed' || statusLower === 'failure' || statusLower === 'error') {
                             completedTasks.push({
                                 taskId: taskId,
                                 status: status,
@@ -89,8 +91,9 @@ function displayTaskHistory(tasks) {
             const endedDate = item.ended ? formatDate(item.ended) : 'N/A';
 
             let statusBadge = 'secondary';
-            if (status === 'finished' || status === 'completed') statusBadge = 'badge-completed';
-            else if (status === 'failed') statusBadge = 'badge-failed';
+            const statusLower = status.toLowerCase();
+            if (statusLower === 'finished' || statusLower === 'completed' || statusLower === 'success') statusBadge = 'badge-completed';
+            else if (statusLower === 'failed' || statusLower === 'failure' || statusLower === 'error') statusBadge = 'badge-failed';
 
             const shortId = taskId.length > 16 ? taskId.substring(0, 16) + '...' : taskId;
 

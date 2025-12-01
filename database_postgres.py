@@ -17,7 +17,8 @@ from models import (
     Base, Setting, User, Template, ServiceStack, ServiceInstance,
     Device, DefaultCredential, StackTemplate, APIResource,
     ScheduledStackOperation, AuthConfig, MenuItem, MOP, MOPExecution,
-    StepType, TaskHistory, DEFAULT_STEP_TYPES, DEFAULT_MENU_ITEMS
+    StepType, TaskHistory, ConfigSnapshot, ConfigBackup, BackupSchedule, DeviceOverride,
+    DEFAULT_STEP_TYPES, DEFAULT_MENU_ITEMS
 )
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def _seed_defaults(session: Session):
     if session.query(StepType).count() == 0:
         log.info("Seeding default step types")
         for st in DEFAULT_STEP_TYPES:
-            session.add(StepType(**st, enabled=True, is_custom=False))
+            session.add(StepType(**st, enabled=True))
         session.commit()
 
     # Seed menu items
@@ -773,7 +774,7 @@ def get_all_step_types() -> List[Dict]:
     """Get all enabled step types"""
     with get_db() as session:
         types = session.query(StepType).filter(StepType.enabled == True).order_by(
-            StepType.is_custom, StepType.name
+            StepType.is_builtin.desc(), StepType.category, StepType.name
         ).all()
         return [
             {
@@ -781,11 +782,12 @@ def get_all_step_types() -> List[Dict]:
                 'name': t.name,
                 'description': t.description,
                 'category': t.category,
-                'parameters_schema': t.parameters_schema or {},
-                'handler_function': t.handler_function,
                 'icon': t.icon,
                 'enabled': t.enabled,
-                'is_custom': t.is_custom
+                'is_builtin': t.is_builtin,
+                'action_type': t.action_type,
+                'config': t.config or {},
+                'parameters_schema': t.parameters_schema or {}
             }
             for t in types
         ]
@@ -801,13 +803,101 @@ def get_step_type(step_type_id: str) -> Optional[Dict]:
                 'name': t.name,
                 'description': t.description,
                 'category': t.category,
-                'parameters_schema': t.parameters_schema or {},
-                'handler_function': t.handler_function,
                 'icon': t.icon,
                 'enabled': t.enabled,
-                'is_custom': t.is_custom
+                'is_builtin': t.is_builtin,
+                'action_type': t.action_type,
+                'config': t.config or {},
+                'parameters_schema': t.parameters_schema or {}
             }
         return None
+
+
+def get_all_step_types_full() -> List[Dict]:
+    """Get all step types (including disabled) with full details"""
+    with get_db() as session:
+        types = session.query(StepType).order_by(
+            StepType.is_builtin.desc(), StepType.category, StepType.name
+        ).all()
+        return [
+            {
+                'step_type_id': t.step_type_id,
+                'name': t.name,
+                'description': t.description,
+                'category': t.category,
+                'icon': t.icon,
+                'enabled': t.enabled,
+                'is_builtin': t.is_builtin,
+                'action_type': t.action_type,
+                'config': t.config or {},
+                'parameters_schema': t.parameters_schema or {}
+            }
+            for t in types
+        ]
+
+
+def save_step_type(data: Dict) -> str:
+    """Save or update a step type"""
+    with get_db() as session:
+        step_type_id = data.get('step_type_id')
+
+        if step_type_id:
+            # Update existing
+            t = session.query(StepType).filter(StepType.step_type_id == step_type_id).first()
+            if t:
+                t.name = data.get('name', t.name)
+                t.description = data.get('description', t.description)
+                t.category = data.get('category', t.category)
+                t.icon = data.get('icon', t.icon)
+                t.enabled = data.get('enabled', t.enabled)
+                t.action_type = data.get('action_type', t.action_type)
+                t.config = data.get('config', t.config)
+                t.parameters_schema = data.get('parameters_schema', t.parameters_schema)
+                session.commit()
+                return step_type_id
+
+        # Create new
+        import uuid
+        new_id = data.get('step_type_id') or str(uuid.uuid4())[:8]
+        t = StepType(
+            step_type_id=new_id,
+            name=data['name'],
+            description=data.get('description', ''),
+            category=data.get('category', 'Custom'),
+            icon=data.get('icon', 'cog'),
+            enabled=data.get('enabled', True),
+            is_builtin=data.get('is_builtin', False),
+            action_type=data.get('action_type', 'get_config'),
+            config=data.get('config', {}),
+            parameters_schema=data.get('parameters_schema', {})
+        )
+        session.add(t)
+        session.commit()
+        return new_id
+
+
+def delete_step_type(step_type_id: str) -> bool:
+    """Delete a step type (only custom types can be deleted)"""
+    with get_db() as session:
+        t = session.query(StepType).filter(StepType.step_type_id == step_type_id).first()
+        if t:
+            if t.is_builtin:
+                raise ValueError("Cannot delete built-in step types")
+            session.delete(t)
+            session.commit()
+            return True
+        return False
+
+
+def toggle_step_type(step_type_id: str, enabled: bool) -> bool:
+    """Enable or disable a step type"""
+    with get_db() as session:
+        t = session.query(StepType).filter(StepType.step_type_id == step_type_id).first()
+        if t:
+            t.enabled = enabled
+            session.commit()
+            return True
+        return False
 
 
 # =============================================================================
@@ -1196,3 +1286,599 @@ def create_stack_template(*args, **kwargs):
 def update_stack_template(*args, **kwargs):
     """Stub - use save_stack_template"""
     pass
+
+
+# ============================================================
+# CONFIG BACKUP FUNCTIONS
+# ============================================================
+
+def save_config_backup(data: Dict) -> str:
+    """Save a config backup to the database"""
+    import uuid
+    import hashlib
+
+    with get_db() as session:
+        backup_id = data.get('backup_id') or str(uuid.uuid4())[:12]
+        config_content = data.get('config_content', '')
+
+        # Calculate hash for change detection
+        config_hash = hashlib.sha256(config_content.encode()).hexdigest()
+
+        backup = ConfigBackup(
+            backup_id=backup_id,
+            device_name=data['device_name'],
+            device_ip=data.get('device_ip'),
+            platform=data.get('platform'),
+            config_content=config_content,
+            config_format=data.get('config_format', 'native'),
+            config_hash=config_hash,
+            backup_type=data.get('backup_type', 'scheduled'),
+            status=data.get('status', 'success'),
+            error_message=data.get('error_message'),
+            file_size=len(config_content),
+            snapshot_id=data.get('snapshot_id'),
+            created_by=data.get('created_by', 'scheduler')
+        )
+        session.add(backup)
+        session.commit()
+        return backup_id
+
+
+def get_config_backup(backup_id: str) -> Optional[Dict]:
+    """Get a specific config backup"""
+    with get_db() as session:
+        backup = session.query(ConfigBackup).filter(
+            ConfigBackup.backup_id == backup_id
+        ).first()
+
+        if backup:
+            return {
+                'backup_id': backup.backup_id,
+                'device_name': backup.device_name,
+                'device_ip': backup.device_ip,
+                'platform': backup.platform,
+                'config_content': backup.config_content,
+                'config_format': backup.config_format,
+                'config_hash': backup.config_hash,
+                'backup_type': backup.backup_type,
+                'status': backup.status,
+                'error_message': backup.error_message,
+                'file_size': backup.file_size,
+                'snapshot_id': backup.snapshot_id,
+                'created_at': backup.created_at.isoformat() if backup.created_at else None,
+                'created_by': backup.created_by
+            }
+        return None
+
+
+def get_latest_backup_for_device(device_name: str) -> Optional[Dict]:
+    """Get the most recent successful backup for a device"""
+    with get_db() as session:
+        backup = session.query(ConfigBackup).filter(
+            ConfigBackup.device_name == device_name,
+            ConfigBackup.status == 'success'
+        ).order_by(ConfigBackup.created_at.desc()).first()
+
+        if backup:
+            return {
+                'backup_id': backup.backup_id,
+                'device_name': backup.device_name,
+                'device_ip': backup.device_ip,
+                'platform': backup.platform,
+                'config_content': backup.config_content,
+                'config_format': backup.config_format,
+                'config_hash': backup.config_hash,
+                'backup_type': backup.backup_type,
+                'status': backup.status,
+                'file_size': backup.file_size,
+                'created_at': backup.created_at.isoformat() if backup.created_at else None,
+                'created_by': backup.created_by
+            }
+        return None
+
+
+def get_config_backups(device_name: str = None, limit: int = 100, offset: int = 0, snapshot_id: str = None) -> List[Dict]:
+    """Get config backups, optionally filtered by device or snapshot"""
+    with get_db() as session:
+        query = session.query(ConfigBackup)
+
+        if device_name:
+            query = query.filter(ConfigBackup.device_name == device_name)
+
+        if snapshot_id:
+            query = query.filter(ConfigBackup.snapshot_id == snapshot_id)
+
+        query = query.order_by(ConfigBackup.created_at.desc())
+        query = query.offset(offset).limit(limit)
+
+        backups = query.all()
+        return [
+            {
+                'backup_id': b.backup_id,
+                'device_name': b.device_name,
+                'device_ip': b.device_ip,
+                'platform': b.platform,
+                'config_format': b.config_format,
+                'config_hash': b.config_hash,
+                'backup_type': b.backup_type,
+                'status': b.status,
+                'error_message': b.error_message,
+                'file_size': b.file_size,
+                'snapshot_id': b.snapshot_id,
+                'created_at': b.created_at.isoformat() if b.created_at else None,
+                'created_by': b.created_by
+            }
+            for b in backups
+        ]
+
+
+def get_backup_summary() -> Dict:
+    """Get summary statistics for backups"""
+    with get_db() as session:
+        from sqlalchemy import func
+
+        total_backups = session.query(func.count(ConfigBackup.backup_id)).scalar() or 0
+        unique_devices = session.query(func.count(func.distinct(ConfigBackup.device_name))).scalar() or 0
+        successful = session.query(func.count(ConfigBackup.backup_id)).filter(
+            ConfigBackup.status == 'success'
+        ).scalar() or 0
+        failed = session.query(func.count(ConfigBackup.backup_id)).filter(
+            ConfigBackup.status == 'failed'
+        ).scalar() or 0
+
+        # Get last backup time
+        last_backup = session.query(func.max(ConfigBackup.created_at)).scalar()
+
+        return {
+            'total_backups': total_backups,
+            'unique_devices': unique_devices,
+            'successful': successful,
+            'failed': failed,
+            'last_backup': last_backup.isoformat() if last_backup else None
+        }
+
+
+def delete_config_backup(backup_id: str) -> bool:
+    """Delete a specific backup"""
+    with get_db() as session:
+        backup = session.query(ConfigBackup).filter(
+            ConfigBackup.backup_id == backup_id
+        ).first()
+        if backup:
+            session.delete(backup)
+            session.commit()
+            return True
+        return False
+
+
+def delete_old_backups(retention_days: int) -> int:
+    """Delete backups older than retention_days, keeping at least one per device"""
+    from datetime import timedelta
+
+    with get_db() as session:
+        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+
+        # Get all devices
+        devices = session.query(ConfigBackup.device_name).distinct().all()
+        deleted_count = 0
+
+        for (device_name,) in devices:
+            # Get all backups for this device older than cutoff
+            old_backups = session.query(ConfigBackup).filter(
+                ConfigBackup.device_name == device_name,
+                ConfigBackup.created_at < cutoff_date
+            ).order_by(ConfigBackup.created_at.desc()).all()
+
+            # Keep at least one backup per device
+            # Delete all but skip if it's the only backup for this device
+            total_backups = session.query(ConfigBackup).filter(
+                ConfigBackup.device_name == device_name
+            ).count()
+
+            for backup in old_backups:
+                if total_backups > 1:
+                    session.delete(backup)
+                    deleted_count += 1
+                    total_backups -= 1
+
+        session.commit()
+        return deleted_count
+
+
+# ============================================================
+# BACKUP SCHEDULE FUNCTIONS
+# ============================================================
+
+def get_backup_schedule() -> Dict:
+    """Get the backup schedule configuration"""
+    with get_db() as session:
+        schedule = session.query(BackupSchedule).filter(
+            BackupSchedule.schedule_id == 'default'
+        ).first()
+
+        if schedule:
+            return {
+                'schedule_id': schedule.schedule_id,
+                'enabled': schedule.enabled,
+                'interval_hours': schedule.interval_hours,
+                'last_run': schedule.last_run.isoformat() if schedule.last_run else None,
+                'next_run': schedule.next_run.isoformat() if schedule.next_run else None,
+                'retention_days': schedule.retention_days,
+                'include_filters': schedule.include_filters or [],
+                'exclude_patterns': schedule.exclude_patterns or [],
+                'juniper_set_format': schedule.juniper_set_format,
+                'created_at': schedule.created_at.isoformat() if schedule.created_at else None,
+                'updated_at': schedule.updated_at.isoformat() if schedule.updated_at else None
+            }
+
+        # Return defaults if no schedule exists
+        return {
+            'schedule_id': 'default',
+            'enabled': False,
+            'interval_hours': 24,
+            'last_run': None,
+            'next_run': None,
+            'retention_days': 30,
+            'include_filters': [],
+            'exclude_patterns': [],
+            'juniper_set_format': True
+        }
+
+
+def save_backup_schedule(data: Dict) -> bool:
+    """Save or update the backup schedule configuration"""
+    with get_db() as session:
+        schedule = session.query(BackupSchedule).filter(
+            BackupSchedule.schedule_id == 'default'
+        ).first()
+
+        if schedule:
+            # Update existing
+            schedule.enabled = data.get('enabled', schedule.enabled)
+            schedule.interval_hours = data.get('interval_hours', schedule.interval_hours)
+            schedule.retention_days = data.get('retention_days', schedule.retention_days)
+            schedule.include_filters = data.get('include_filters', schedule.include_filters)
+            schedule.exclude_patterns = data.get('exclude_patterns', schedule.exclude_patterns)
+            schedule.juniper_set_format = data.get('juniper_set_format', schedule.juniper_set_format)
+            if 'last_run' in data:
+                schedule.last_run = data['last_run']
+            if 'next_run' in data:
+                schedule.next_run = data['next_run']
+        else:
+            # Create new
+            schedule = BackupSchedule(
+                schedule_id='default',
+                enabled=data.get('enabled', False),
+                interval_hours=data.get('interval_hours', 24),
+                retention_days=data.get('retention_days', 30),
+                include_filters=data.get('include_filters', []),
+                exclude_patterns=data.get('exclude_patterns', []),
+                juniper_set_format=data.get('juniper_set_format', True)
+            )
+            session.add(schedule)
+
+        session.commit()
+        return True
+
+
+def update_backup_schedule_run_times(last_run: datetime, next_run: datetime) -> bool:
+    """Update the last_run and next_run times for the backup schedule"""
+    with get_db() as session:
+        schedule = session.query(BackupSchedule).filter(
+            BackupSchedule.schedule_id == 'default'
+        ).first()
+
+        if schedule:
+            schedule.last_run = last_run
+            schedule.next_run = next_run
+            session.commit()
+            return True
+        return False
+
+
+def get_devices_needing_backup() -> List[str]:
+    """Get list of device names that have no backup or backup older than interval"""
+    schedule = get_backup_schedule()
+    if not schedule or not schedule.get('enabled'):
+        return []
+
+    from datetime import timedelta
+
+    with get_db() as session:
+        # Get devices from cache
+        devices = session.query(Device).all()
+        device_names = [d.name for d in devices]
+
+        # For each device, check if backup is needed
+        interval_hours = schedule.get('interval_hours', 24)
+        cutoff = datetime.utcnow() - timedelta(hours=interval_hours)
+
+        devices_needing_backup = []
+        for name in device_names:
+            # Check exclude patterns
+            excluded = False
+            for pattern in schedule.get('exclude_patterns', []):
+                import fnmatch
+                if fnmatch.fnmatch(name.lower(), pattern.lower()):
+                    excluded = True
+                    break
+
+            if excluded:
+                continue
+
+            # Check if has recent backup
+            recent = session.query(ConfigBackup).filter(
+                ConfigBackup.device_name == name,
+                ConfigBackup.status == 'success',
+                ConfigBackup.created_at > cutoff
+            ).first()
+
+            if not recent:
+                devices_needing_backup.append(name)
+
+        return devices_needing_backup
+
+
+# ============================================================================
+# Device Override Functions
+# ============================================================================
+
+def get_device_override(device_name: str) -> Optional[Dict]:
+    """Get device-specific overrides for a device"""
+    with get_db() as session:
+        override = session.query(DeviceOverride).filter(
+            DeviceOverride.device_name == device_name
+        ).first()
+
+        if not override:
+            return None
+
+        return {
+            'device_name': override.device_name,
+            'device_type': override.device_type,
+            'host': override.host,
+            'port': override.port,
+            'username': override.username,
+            'password': override.password,
+            'secret': override.secret,
+            'timeout': override.timeout,
+            'conn_timeout': override.conn_timeout,
+            'auth_timeout': override.auth_timeout,
+            'banner_timeout': override.banner_timeout,
+            'notes': override.notes,
+            'disabled': override.disabled,
+            'created_at': override.created_at.isoformat() if override.created_at else None,
+            'updated_at': override.updated_at.isoformat() if override.updated_at else None
+        }
+
+
+def save_device_override(data: Dict) -> bool:
+    """Save or update device-specific overrides"""
+    device_name = data.get('device_name')
+    if not device_name:
+        return False
+
+    with get_db() as session:
+        override = session.query(DeviceOverride).filter(
+            DeviceOverride.device_name == device_name
+        ).first()
+
+        if not override:
+            override = DeviceOverride(device_name=device_name)
+            session.add(override)
+
+        # Update fields (only if provided, None means use default)
+        if 'device_type' in data:
+            override.device_type = data['device_type'] or None
+        if 'host' in data:
+            override.host = data['host'] or None
+        if 'port' in data:
+            override.port = int(data['port']) if data['port'] else None
+        if 'username' in data:
+            override.username = data['username'] or None
+        if 'password' in data:
+            override.password = data['password'] or None
+        if 'secret' in data:
+            override.secret = data['secret'] or None
+        if 'timeout' in data:
+            override.timeout = int(data['timeout']) if data['timeout'] else None
+        if 'conn_timeout' in data:
+            override.conn_timeout = int(data['conn_timeout']) if data['conn_timeout'] else None
+        if 'auth_timeout' in data:
+            override.auth_timeout = int(data['auth_timeout']) if data['auth_timeout'] else None
+        if 'banner_timeout' in data:
+            override.banner_timeout = int(data['banner_timeout']) if data['banner_timeout'] else None
+        if 'notes' in data:
+            override.notes = data['notes'] or None
+        if 'disabled' in data:
+            override.disabled = bool(data['disabled'])
+
+        override.updated_at = datetime.utcnow()
+        session.commit()
+        return True
+
+
+def delete_device_override(device_name: str) -> bool:
+    """Delete device-specific overrides"""
+    with get_db() as session:
+        result = session.query(DeviceOverride).filter(
+            DeviceOverride.device_name == device_name
+        ).delete()
+        session.commit()
+        return result > 0
+
+
+def get_all_device_overrides() -> List[Dict]:
+    """Get all device overrides"""
+    with get_db() as session:
+        overrides = session.query(DeviceOverride).all()
+        return [
+            {
+                'device_name': o.device_name,
+                'device_type': o.device_type,
+                'host': o.host,
+                'port': o.port,
+                'username': o.username,
+                'has_password': bool(o.password),
+                'has_secret': bool(o.secret),
+                'timeout': o.timeout,
+                'notes': o.notes,
+                'disabled': o.disabled,
+                'updated_at': o.updated_at.isoformat() if o.updated_at else None
+            }
+            for o in overrides
+        ]
+
+
+# ============================================================
+# CONFIG SNAPSHOT FUNCTIONS
+# ============================================================
+
+def create_config_snapshot(data: Dict) -> str:
+    """Create a new config snapshot"""
+    import uuid
+
+    with get_db() as session:
+        snapshot_id = data.get('snapshot_id') or str(uuid.uuid4())
+
+        snapshot = ConfigSnapshot(
+            snapshot_id=snapshot_id,
+            name=data.get('name'),
+            description=data.get('description'),
+            snapshot_type=data.get('snapshot_type', 'manual'),
+            status='in_progress',
+            total_devices=data.get('total_devices', 0),
+            success_count=0,
+            failed_count=0,
+            created_by=data.get('created_by')
+        )
+        session.add(snapshot)
+        session.commit()
+        return snapshot_id
+
+
+def get_config_snapshot(snapshot_id: str) -> Optional[Dict]:
+    """Get a specific config snapshot with its backups"""
+    with get_db() as session:
+        snapshot = session.query(ConfigSnapshot).filter(
+            ConfigSnapshot.snapshot_id == snapshot_id
+        ).first()
+
+        if not snapshot:
+            return None
+
+        return {
+            'snapshot_id': snapshot.snapshot_id,
+            'name': snapshot.name,
+            'description': snapshot.description,
+            'snapshot_type': snapshot.snapshot_type,
+            'status': snapshot.status,
+            'total_devices': snapshot.total_devices,
+            'success_count': snapshot.success_count,
+            'failed_count': snapshot.failed_count,
+            'created_at': snapshot.created_at.isoformat() if snapshot.created_at else None,
+            'completed_at': snapshot.completed_at.isoformat() if snapshot.completed_at else None,
+            'created_by': snapshot.created_by
+        }
+
+
+def get_config_snapshots(limit: int = 50, offset: int = 0) -> List[Dict]:
+    """Get all config snapshots"""
+    with get_db() as session:
+        snapshots = session.query(ConfigSnapshot).order_by(
+            ConfigSnapshot.created_at.desc()
+        ).offset(offset).limit(limit).all()
+
+        return [
+            {
+                'snapshot_id': s.snapshot_id,
+                'name': s.name,
+                'description': s.description,
+                'snapshot_type': s.snapshot_type,
+                'status': s.status,
+                'total_devices': s.total_devices,
+                'success_count': s.success_count,
+                'failed_count': s.failed_count,
+                'created_at': s.created_at.isoformat() if s.created_at else None,
+                'completed_at': s.completed_at.isoformat() if s.completed_at else None,
+                'created_by': s.created_by
+            }
+            for s in snapshots
+        ]
+
+
+def update_config_snapshot(snapshot_id: str, data: Dict) -> bool:
+    """Update a config snapshot"""
+    with get_db() as session:
+        snapshot = session.query(ConfigSnapshot).filter(
+            ConfigSnapshot.snapshot_id == snapshot_id
+        ).first()
+
+        if not snapshot:
+            return False
+
+        if 'name' in data:
+            snapshot.name = data['name']
+        if 'description' in data:
+            snapshot.description = data['description']
+        if 'status' in data:
+            snapshot.status = data['status']
+        if 'success_count' in data:
+            snapshot.success_count = data['success_count']
+        if 'failed_count' in data:
+            snapshot.failed_count = data['failed_count']
+        if 'completed_at' in data:
+            snapshot.completed_at = _parse_datetime(data['completed_at'])
+
+        session.commit()
+        return True
+
+
+def increment_snapshot_counts(snapshot_id: str, success: bool = True) -> bool:
+    """Increment success or failed count for a snapshot"""
+    with get_db() as session:
+        snapshot = session.query(ConfigSnapshot).filter(
+            ConfigSnapshot.snapshot_id == snapshot_id
+        ).first()
+
+        if not snapshot:
+            return False
+
+        if success:
+            snapshot.success_count = (snapshot.success_count or 0) + 1
+        else:
+            snapshot.failed_count = (snapshot.failed_count or 0) + 1
+
+        # Check if snapshot is complete
+        total_done = (snapshot.success_count or 0) + (snapshot.failed_count or 0)
+        if total_done >= snapshot.total_devices:
+            snapshot.completed_at = datetime.utcnow()
+            if snapshot.failed_count == 0:
+                snapshot.status = 'complete'
+            elif snapshot.success_count == 0:
+                snapshot.status = 'failed'
+            else:
+                snapshot.status = 'partial'
+
+        session.commit()
+        return True
+
+
+def delete_config_snapshot(snapshot_id: str) -> bool:
+    """Delete a config snapshot and all its backups"""
+    with get_db() as session:
+        snapshot = session.query(ConfigSnapshot).filter(
+            ConfigSnapshot.snapshot_id == snapshot_id
+        ).first()
+
+        if not snapshot:
+            return False
+
+        session.delete(snapshot)
+        session.commit()
+        return True
+
+
+def get_snapshot_backups(snapshot_id: str) -> List[Dict]:
+    """Get all backups for a specific snapshot"""
+    return get_config_backups(snapshot_id=snapshot_id, limit=1000)

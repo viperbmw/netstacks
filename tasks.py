@@ -50,6 +50,8 @@ celery_app.conf.task_routes = {
     'tasks.set_config': {'queue': 'device_tasks'},
     'tasks.run_commands': {'queue': 'device_tasks'},
     'tasks.validate_config': {'queue': 'device_tasks'},
+    'tasks.backup_device_config': {'queue': 'device_tasks'},
+    'tasks.validate_config_from_backup': {'queue': 'default'},
 }
 
 
@@ -516,6 +518,120 @@ def sync_netbox_devices(self, netbox_url: str, netbox_token: str,
         log.error(f"Error syncing Netbox devices: {e}", exc_info=True)
         result['status'] = 'failed'
         result['error'] = str(e)
+
+    return result
+
+
+@celery_app.task(bind=True, name='tasks.backup_device_config')
+def backup_device_config(self, connection_args: Dict, device_name: str,
+                         device_platform: str = None, juniper_set_format: bool = True) -> Dict:
+    """
+    Backup device running configuration
+
+    For Juniper devices, can optionally convert to set format for template matching.
+
+    Args:
+        connection_args: Dict with device_type, host, username, password, etc.
+        device_name: Name of the device (for metadata)
+        device_platform: Platform name (for identifying Juniper)
+        juniper_set_format: If True, get Juniper config in set format
+
+    Returns:
+        Dict with config content and metadata
+    """
+    result = {
+        'status': 'started',
+        'host': connection_args.get('host'),
+        'device_name': device_name,
+        'config_format': 'native',
+    }
+
+    try:
+        log.info(f"Starting config backup for {device_name} ({connection_args.get('host')})")
+
+        device_type = connection_args.get('device_type', '').lower()
+        is_juniper = 'juniper' in device_type or (device_platform and 'junos' in device_platform.lower())
+
+        with ConnectHandler(**connection_args) as conn:
+            if is_juniper and juniper_set_format:
+                # Get Juniper config in set format for template matching
+                config_output = conn.send_command('show configuration | display set')
+                result['config_format'] = 'set'
+            elif is_juniper:
+                # Get standard Juniper hierarchical config
+                config_output = conn.send_command('show configuration')
+            elif 'cisco' in device_type or 'ios' in device_type:
+                config_output = conn.send_command('show running-config')
+            elif 'arista' in device_type or 'eos' in device_type:
+                config_output = conn.send_command('show running-config')
+            elif 'nokia' in device_type or 'sros' in device_type:
+                config_output = conn.send_command('admin display-config')
+            else:
+                # Default to Cisco-style command
+                config_output = conn.send_command('show running-config')
+
+            result['config_content'] = config_output
+            result['config_size'] = len(config_output)
+            result['status'] = 'success'
+
+    except NetmikoTimeoutException as e:
+        log.error(f"Timeout backing up {device_name}: {e}")
+        result['status'] = 'failed'
+        result['error'] = f"Connection timeout: {str(e)}"
+
+    except NetmikoAuthenticationException as e:
+        log.error(f"Authentication failed backing up {device_name}: {e}")
+        result['status'] = 'failed'
+        result['error'] = f"Authentication failed: {str(e)}"
+
+    except Exception as e:
+        log.error(f"Error backing up {device_name}: {e}", exc_info=True)
+        result['status'] = 'failed'
+        result['error'] = str(e)
+
+    return result
+
+
+@celery_app.task(bind=True, name='tasks.validate_config_from_backup')
+def validate_config_from_backup(self, config_content: str, expected_patterns: List[str]) -> Dict:
+    """
+    Validate configuration patterns against a backed-up config (no device connection)
+
+    Args:
+        config_content: The backed-up configuration text
+        expected_patterns: List of regex patterns to search for
+
+    Returns:
+        Dict with validation results
+    """
+    import re
+
+    result = {
+        'status': 'started',
+        'validations': [],
+        'all_passed': True,
+        'source': 'backup',
+    }
+
+    try:
+        for pattern in expected_patterns:
+            validation = {
+                'pattern': pattern,
+                'found': bool(re.search(pattern, config_content, re.MULTILINE)),
+            }
+            result['validations'].append(validation)
+
+            if not validation['found']:
+                result['all_passed'] = False
+
+        result['status'] = 'success'
+        result['validation_status'] = 'passed' if result['all_passed'] else 'failed'
+
+    except Exception as e:
+        log.error(f"Error validating backup config: {e}", exc_info=True)
+        result['status'] = 'failed'
+        result['error'] = str(e)
+        result['all_passed'] = False
 
     return result
 
