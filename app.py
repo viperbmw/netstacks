@@ -1876,6 +1876,55 @@ def cleanup_old_backups():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/config-backups/cleanup-orphans', methods=['POST'])
+@login_required
+def cleanup_orphaned_backups():
+    """Delete backups for devices not in current cache"""
+    try:
+        # Get cached device names
+        cached_devices = device_service_get_cached()
+        if not cached_devices:
+            return jsonify({
+                'success': False,
+                'error': 'Device cache is empty. Load devices on the Devices page first.'
+            }), 400
+
+        cached_device_names = set(d.get('name') for d in cached_devices if d.get('name'))
+        log.info(f"Found {len(cached_device_names)} devices in cache")
+
+        # Get all unique device names from backups
+        summary = db.get_backup_summary()
+        backup_device_names = set(summary.get('devices_with_backups', []))
+        log.info(f"Found {len(backup_device_names)} unique devices with backups")
+
+        # Find orphaned devices (in backups but not in cache)
+        orphaned_devices = backup_device_names - cached_device_names
+        log.info(f"Found {len(orphaned_devices)} orphaned devices")
+
+        if not orphaned_devices:
+            return jsonify({
+                'success': True,
+                'deleted_count': 0,
+                'orphaned_devices': 0,
+                'cached_device_count': len(cached_device_names),
+                'message': 'No orphaned backups found'
+            })
+
+        # Delete backups for orphaned devices
+        deleted_count = db.delete_backups_for_devices(list(orphaned_devices))
+        log.info(f"Deleted {deleted_count} backups from {len(orphaned_devices)} orphaned devices")
+
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'orphaned_devices': len(orphaned_devices),
+            'cached_device_count': len(cached_device_names)
+        })
+    except Exception as e:
+        log.error(f"Error cleaning up orphaned backups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # =============================================================================
 # Config Snapshot API Endpoints
 # =============================================================================
@@ -1947,6 +1996,47 @@ def delete_config_snapshot_api(snapshot_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/config-snapshots/<snapshot_id>/recalculate', methods=['POST'])
+@login_required
+def recalculate_snapshot_counts_api(snapshot_id):
+    """Recalculate snapshot counts from actual backups in database"""
+    try:
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        result = db.recalculate_snapshot_counts(snapshot_id)
+        if result:
+            # Get updated snapshot
+            updated = db.get_config_snapshot(snapshot_id)
+            return jsonify({
+                'success': True,
+                'message': 'Counts recalculated',
+                'snapshot': updated
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to recalculate counts'}), 500
+    except Exception as e:
+        log.error(f"Error recalculating snapshot counts: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/fix-stale', methods=['POST'])
+@login_required
+def fix_stale_snapshots_api():
+    """Fix snapshots stuck in in_progress state for over 30 minutes"""
+    try:
+        fixed_count = db.check_and_fix_stale_snapshots()
+        return jsonify({
+            'success': True,
+            'fixed_count': fixed_count,
+            'message': f'Fixed {fixed_count} stale snapshots'
+        })
+    except Exception as e:
+        log.error(f"Error fixing stale snapshots: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/config-snapshots/<snapshot_id>/compare/<other_snapshot_id>', methods=['GET'])
 @login_required
 def compare_config_snapshots_api(snapshot_id, other_snapshot_id):
@@ -2011,11 +2101,18 @@ def compare_config_snapshots_api(snapshot_id, other_snapshot_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/snapshots')
+@login_required
+def snapshots_page():
+    """Snapshots page - manage network configuration snapshots and device backups"""
+    return render_template('config_backups.html')
+
+
 @app.route('/config-backups')
 @login_required
-def config_backups_page():
-    """Config Backups page - manage device configuration backups and network snapshots"""
-    return render_template('config_backups.html')
+def config_backups_redirect():
+    """Redirect old config-backups URL to snapshots"""
+    return redirect(url_for('snapshots_page'))
 
 
 @app.route('/api/network-topology', methods=['GET'])

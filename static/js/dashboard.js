@@ -177,7 +177,9 @@ function loadTasks() {
                     taskIds.forEach(function(taskId) {
                         $.get('/api/task/' + taskId)
                             .done(function(taskResponse) {
+                                if (!taskResponse) return;
                                 const task = taskResponse.data || taskResponse;
+                                if (!task) return;
                                 const status = task.task_status || task.status || 'unknown';
 
                                 const statusLower2 = status.toLowerCase();

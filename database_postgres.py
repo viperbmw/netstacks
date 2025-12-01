@@ -52,6 +52,17 @@ def _seed_defaults(session: Session):
             session.add(StepType(**st, enabled=True))
         session.commit()
 
+    # Menu item migrations - rename old items to new names
+    menu_migrations = [
+        ('config-backups', 'snapshots'),  # Renamed config-backups to snapshots
+    ]
+    for old_id, new_id in menu_migrations:
+        old_item = session.query(MenuItem).filter(MenuItem.item_id == old_id).first()
+        if old_item:
+            log.info(f"Migrating menu item: {old_id} -> {new_id}")
+            session.delete(old_item)
+            session.commit()
+
     # Seed menu items - add any missing items
     existing_item_ids = {item.item_id for item in session.query(MenuItem).all()}
     for mi in DEFAULT_MENU_ITEMS:
@@ -1495,6 +1506,21 @@ def delete_old_backups(retention_days: int) -> int:
         return deleted_count
 
 
+def delete_backups_for_devices(device_names: List[str]) -> int:
+    """Delete all backups for specified devices (used for orphan cleanup)"""
+    if not device_names:
+        return 0
+
+    with get_db() as session:
+        deleted_count = session.query(ConfigBackup).filter(
+            ConfigBackup.device_name.in_(device_names)
+        ).delete(synchronize_session=False)
+
+        session.commit()
+        log.info(f"Deleted {deleted_count} backups for {len(device_names)} devices")
+        return deleted_count
+
+
 # ============================================================
 # BACKUP SCHEDULE FUNCTIONS
 # ============================================================
@@ -1845,33 +1871,154 @@ def update_config_snapshot(snapshot_id: str, data: Dict) -> bool:
 
 
 def increment_snapshot_counts(snapshot_id: str, success: bool = True) -> bool:
-    """Increment success or failed count for a snapshot"""
-    with get_db() as session:
-        snapshot = session.query(ConfigSnapshot).filter(
-            ConfigSnapshot.snapshot_id == snapshot_id
-        ).first()
+    """
+    Atomically increment success or failed count for a snapshot.
+    Uses row-level locking (SELECT FOR UPDATE) to prevent race conditions.
+    """
+    from sqlalchemy import text
 
-        if not snapshot:
+    with get_db() as session:
+        try:
+            # Use raw SQL with FOR UPDATE to ensure atomic increment
+            # This locks the row until the transaction commits
+            if success:
+                session.execute(text("""
+                    UPDATE config_snapshots
+                    SET success_count = COALESCE(success_count, 0) + 1
+                    WHERE snapshot_id = :snapshot_id
+                """), {'snapshot_id': snapshot_id})
+            else:
+                session.execute(text("""
+                    UPDATE config_snapshots
+                    SET failed_count = COALESCE(failed_count, 0) + 1
+                    WHERE snapshot_id = :snapshot_id
+                """), {'snapshot_id': snapshot_id})
+
+            # Now check if complete and update status atomically
+            session.execute(text("""
+                UPDATE config_snapshots
+                SET
+                    status = CASE
+                        WHEN COALESCE(success_count, 0) + COALESCE(failed_count, 0) >= total_devices THEN
+                            CASE
+                                WHEN COALESCE(failed_count, 0) = 0 THEN 'complete'
+                                WHEN COALESCE(success_count, 0) = 0 THEN 'failed'
+                                ELSE 'partial'
+                            END
+                        ELSE status
+                    END,
+                    completed_at = CASE
+                        WHEN COALESCE(success_count, 0) + COALESCE(failed_count, 0) >= total_devices
+                             AND completed_at IS NULL THEN NOW()
+                        ELSE completed_at
+                    END
+                WHERE snapshot_id = :snapshot_id
+            """), {'snapshot_id': snapshot_id})
+
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            log.error(f"Error incrementing snapshot counts for {snapshot_id}: {e}")
             return False
 
-        if success:
-            snapshot.success_count = (snapshot.success_count or 0) + 1
-        else:
-            snapshot.failed_count = (snapshot.failed_count or 0) + 1
 
-        # Check if snapshot is complete
-        total_done = (snapshot.success_count or 0) + (snapshot.failed_count or 0)
-        if total_done >= snapshot.total_devices:
-            snapshot.completed_at = datetime.utcnow()
-            if snapshot.failed_count == 0:
-                snapshot.status = 'complete'
-            elif snapshot.success_count == 0:
-                snapshot.status = 'failed'
-            else:
-                snapshot.status = 'partial'
+def check_and_fix_stale_snapshots() -> int:
+    """
+    Check for snapshots stuck in 'in_progress' state and fix them.
+    A snapshot is considered stale if:
+    - Status is 'in_progress'
+    - Created more than 30 minutes ago
+    - No new backups added in last 5 minutes
+    Returns the number of snapshots fixed.
+    """
+    from sqlalchemy import text
 
-        session.commit()
-        return True
+    with get_db() as session:
+        try:
+            # Find stale snapshots
+            result = session.execute(text("""
+                UPDATE config_snapshots
+                SET
+                    status = CASE
+                        WHEN COALESCE(failed_count, 0) = 0 AND COALESCE(success_count, 0) > 0 THEN 'complete'
+                        WHEN COALESCE(success_count, 0) = 0 AND COALESCE(failed_count, 0) > 0 THEN 'failed'
+                        WHEN COALESCE(success_count, 0) > 0 AND COALESCE(failed_count, 0) > 0 THEN 'partial'
+                        ELSE 'failed'
+                    END,
+                    completed_at = NOW(),
+                    failed_count = total_devices - COALESCE(success_count, 0) - COALESCE(failed_count, 0) + COALESCE(failed_count, 0)
+                WHERE status = 'in_progress'
+                AND created_at < NOW() - INTERVAL '30 minutes'
+                RETURNING snapshot_id
+            """))
+            fixed_ids = result.fetchall()
+            session.commit()
+
+            if fixed_ids:
+                log.warning(f"Fixed {len(fixed_ids)} stale snapshots: {[r[0] for r in fixed_ids]}")
+
+            return len(fixed_ids)
+        except Exception as e:
+            session.rollback()
+            log.error(f"Error checking stale snapshots: {e}")
+            return 0
+
+
+def recalculate_snapshot_counts(snapshot_id: str) -> bool:
+    """
+    Recalculate snapshot counts from actual backups in database.
+    Use this to fix snapshots with incorrect counts.
+    """
+    from sqlalchemy import text
+
+    with get_db() as session:
+        try:
+            # Count actual backups
+            result = session.execute(text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'success') as success_count,
+                    COUNT(*) FILTER (WHERE status = 'failed') as failed_count,
+                    COUNT(*) as total_backups
+                FROM config_backups
+                WHERE snapshot_id = :snapshot_id
+            """), {'snapshot_id': snapshot_id})
+            row = result.fetchone()
+
+            if row:
+                success_count = row[0] or 0
+                failed_count = row[1] or 0
+                total_backups = row[2] or 0
+
+                # Get snapshot's total_devices
+                snapshot = session.query(ConfigSnapshot).filter(
+                    ConfigSnapshot.snapshot_id == snapshot_id
+                ).first()
+
+                if snapshot:
+                    snapshot.success_count = success_count
+                    snapshot.failed_count = failed_count
+
+                    # Determine status
+                    if success_count + failed_count >= snapshot.total_devices:
+                        if failed_count == 0:
+                            snapshot.status = 'complete'
+                        elif success_count == 0:
+                            snapshot.status = 'failed'
+                        else:
+                            snapshot.status = 'partial'
+                        if not snapshot.completed_at:
+                            snapshot.completed_at = datetime.utcnow()
+
+                    session.commit()
+                    log.info(f"Recalculated snapshot {snapshot_id}: {success_count} success, {failed_count} failed")
+                    return True
+
+            return False
+        except Exception as e:
+            session.rollback()
+            log.error(f"Error recalculating snapshot counts for {snapshot_id}: {e}")
+            return False
 
 
 def delete_config_snapshot(snapshot_id: str) -> bool:

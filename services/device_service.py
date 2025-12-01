@@ -124,14 +124,11 @@ def get_device_connection_info(device_name: str, credential_override: Dict = Non
     device = None
 
     # Try cache first (Netbox devices)
-    if device_cache:
-        for cache_key, cache_entry in device_cache.items():
-            if cache_entry and isinstance(cache_entry, dict) and 'devices' in cache_entry:
-                cached_devices = cache_entry.get('devices', [])
-                device = next((d for d in cached_devices if d.get('name') == device_name), None)
-                if device:
-                    log.info(f"Found device {device_name} in cache (key: {cache_key})")
-                    break
+    if device_cache.get('devices'):
+        cached_devices = device_cache['devices']
+        device = next((d for d in cached_devices if d.get('name') == device_name), None)
+        if device:
+            log.debug(f"Found device {device_name} in cache")
 
     # Try manual devices
     if not device:

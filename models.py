@@ -709,7 +709,7 @@ DEFAULT_MENU_ITEMS = [
     {'item_id': 'templates', 'label': 'Config Templates', 'icon': 'file-code', 'url': '/templates', 'order_index': 3, 'visible': True},
     {'item_id': 'service-stacks', 'label': 'Service Stacks', 'icon': 'layer-group', 'url': '/service-stacks', 'order_index': 4, 'visible': True},
     {'item_id': 'devices', 'label': 'Devices', 'icon': 'server', 'url': '/devices', 'order_index': 5, 'visible': True},
-    {'item_id': 'config-backups', 'label': 'Config Backups', 'icon': 'database', 'url': '/config-backups', 'order_index': 6, 'visible': True},
+    {'item_id': 'snapshots', 'label': 'Snapshots', 'icon': 'camera', 'url': '/snapshots', 'order_index': 6, 'visible': True},
     {'item_id': 'mop', 'label': 'Procedures (MOP)', 'icon': 'list-check', 'url': '/mop', 'order_index': 7, 'visible': True},
 ]
 

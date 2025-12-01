@@ -977,31 +977,9 @@ function renderBackupsTable(backups) {
 }
 
 function viewBackup(backupId) {
-    $.get(`/api/config-backups/${backupId}`)
-        .done(function(response) {
-            if (response.success && response.backup) {
-                const b = response.backup;
-                $('#view-backup-title').text(`Config Backup: ${b.device_name}`);
-                $('#view-device').text(b.device_name);
-                $('#view-format').text(b.config_format || 'native');
-                $('#view-size').text(formatFileSize(b.file_size || 0));
-                $('#view-time').text(formatDate(b.created_at));
-                $('#view-config-content').val(b.config_content || '');
-                $('#viewBackupModal').data('backup', b);
-
-                // Reset to config tab
-                $('#config-tab').tab('show');
-
-                // Reset diff view
-                resetDiffView();
-
-                // Load other backups for comparison
-                loadBackupsForComparison(b.device_name, b.backup_id);
-
-                const modal = new bootstrap.Modal(document.getElementById('viewBackupModal'));
-                modal.show();
-            }
-        });
+    // Redirect to snapshots page with the backup ID as a parameter
+    // The snapshots page will open the config view modal for this backup
+    window.location.href = `/snapshots?backup=${backupId}`;
 }
 
 // Reset diff view to initial state

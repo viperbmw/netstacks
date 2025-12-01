@@ -654,21 +654,25 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
                        snapshot_id: str = None, created_by: str = None,
                        status: str = 'success', error_message: str = None):
     """
-    Save backup to database. Called from within Celery task.
-    """
-    try:
-        # Ensure /app is in path for forked workers
-        import sys
-        if '/app' not in sys.path:
-            sys.path.insert(0, '/app')
-        # Import here to avoid circular imports
-        import database_postgres as db
+    Save backup to database and update snapshot counts.
+    Called from within Celery task.
 
+    IMPORTANT: This function MUST update snapshot counts even if backup save fails.
+    Otherwise snapshots will get stuck in 'in_progress' state forever.
+    """
+    # Ensure /app is in path for forked workers
+    import sys
+    if '/app' not in sys.path:
+        sys.path.insert(0, '/app')
+    # Import here to avoid circular imports
+    import database_postgres as db
+
+    backup_saved = False
+    backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S%f')}_{device_name}"
+
+    try:
         # Calculate config hash for change detection
         config_hash = hashlib.sha256(config_content.encode()).hexdigest() if config_content else None
-
-        # Generate backup ID
-        backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S%f')}_{device_name}"
 
         backup_data = {
             'backup_id': backup_id,
@@ -687,16 +691,32 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
         }
 
         db.save_config_backup(backup_data)
+        backup_saved = True
         log.info(f"Saved backup {backup_id} for device {device_name}" +
                  (f" (snapshot: {snapshot_id})" if snapshot_id else ""))
 
-        # Update snapshot counts if this is part of a snapshot
-        if snapshot_id:
-            db.increment_snapshot_counts(snapshot_id, success=(status == 'success'))
-            log.info(f"Updated snapshot {snapshot_id} counts for {device_name}")
-
     except Exception as e:
         log.error(f"Failed to save backup for {device_name}: {e}", exc_info=True)
+        # Mark as failed if we couldn't save the backup
+        status = 'failed'
+
+    # ALWAYS update snapshot counts if this is part of a snapshot
+    # This must happen even if backup save failed to prevent stuck snapshots
+    if snapshot_id:
+        try:
+            # If backup save failed but we were trying to save success, mark as failed
+            final_status = status if backup_saved else 'failed'
+            db.increment_snapshot_counts(snapshot_id, success=(final_status == 'success'))
+            log.info(f"Updated snapshot {snapshot_id} counts for {device_name} (status: {final_status})")
+        except Exception as e:
+            log.error(f"CRITICAL: Failed to update snapshot counts for {snapshot_id}/{device_name}: {e}")
+            # Last resort: try again with a fresh connection
+            try:
+                import database_postgres as db2
+                db2.increment_snapshot_counts(snapshot_id, success=False)
+                log.info(f"Retry: Updated snapshot {snapshot_id} counts for {device_name}")
+            except Exception as e2:
+                log.error(f"CRITICAL: Retry also failed for {snapshot_id}/{device_name}: {e2}")
 
 
 @celery_app.task(bind=True, name='tasks.validate_config_from_backup')
