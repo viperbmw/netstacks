@@ -1432,28 +1432,57 @@ function openEditDeviceModal(deviceName) {
     $('#edit-device-name').val(deviceName);
     $('#edit-device-display-name').text(deviceName);
 
-    // Load existing override if any
-    $.get(`/api/device-overrides/${encodeURIComponent(deviceName)}`)
+    // For manual devices, load full device details first, then apply overrides
+    $.get(`/api/manual-devices/${encodeURIComponent(deviceName)}`)
         .done(function(response) {
-            if (response.success && response.override) {
-                const o = response.override;
-                $('#edit-device-type').val(o.device_type || '');
-                $('#edit-device-host').val(o.host || '');
-                $('#edit-device-port').val(o.port || '');
-                $('#edit-device-username').val(o.username || '');
-                $('#edit-device-password').val(o.password || '');
-                $('#edit-device-secret').val(o.secret || '');
-                $('#edit-device-timeout').val(o.timeout || '');
-                $('#edit-device-conn-timeout').val(o.conn_timeout || '');
-                $('#edit-device-auth-timeout').val(o.auth_timeout || '');
-                $('#edit-device-banner-timeout').val(o.banner_timeout || '');
-                $('#edit-device-notes').val(o.notes || '');
-                $('#edit-device-disabled').prop('checked', o.disabled || false);
+            if (response.success && response.device) {
+                const d = response.device;
+                // Fill in device base settings
+                if (d.device_type) $('#edit-device-type').val(d.device_type);
+                if (d.host) $('#edit-device-host').val(d.host);
+                if (d.port) $('#edit-device-port').val(d.port);
+                if (d.username) $('#edit-device-username').val(d.username);
+                if (d.password) $('#edit-device-password').val(d.password);
+                if (d.enable_password) $('#edit-device-secret').val(d.enable_password);
             }
+            // After loading manual device, load overrides to apply on top
+            loadDeviceOverridesForModal(deviceName);
+        })
+        .fail(function() {
+            // Not a manual device, try cache then load overrides
+            const device = allDevices.find(d => d.name === deviceName);
+            if (device) {
+                $('#edit-device-type').val(device.device_type || '');
+                $('#edit-device-host').val(device.primary_ip || device.host || '');
+                if (device.port) $('#edit-device-port').val(device.port);
+            }
+            loadDeviceOverridesForModal(deviceName);
         });
 
     const modal = new bootstrap.Modal(document.getElementById('editDeviceModal'));
     modal.show();
+}
+
+function loadDeviceOverridesForModal(deviceName) {
+    $.get(`/api/device-overrides/${encodeURIComponent(deviceName)}`)
+        .done(function(response) {
+            if (response.success && response.override) {
+                const o = response.override;
+                // Apply override values on top of device settings
+                if (o.device_type) $('#edit-device-type').val(o.device_type);
+                if (o.host) $('#edit-device-host').val(o.host);
+                if (o.port) $('#edit-device-port').val(o.port);
+                if (o.username) $('#edit-device-username').val(o.username);
+                if (o.password) $('#edit-device-password').val(o.password);
+                if (o.secret) $('#edit-device-secret').val(o.secret);
+                if (o.timeout) $('#edit-device-timeout').val(o.timeout);
+                if (o.conn_timeout) $('#edit-device-conn-timeout').val(o.conn_timeout);
+                if (o.auth_timeout) $('#edit-device-auth-timeout').val(o.auth_timeout);
+                if (o.banner_timeout) $('#edit-device-banner-timeout').val(o.banner_timeout);
+                if (o.notes) $('#edit-device-notes').val(o.notes);
+                $('#edit-device-disabled').prop('checked', o.disabled || false);
+            }
+        });
 }
 
 // Save device override button handler

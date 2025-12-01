@@ -173,10 +173,14 @@ def get_device_connection_info(device_name: str, credential_override: Dict = Non
     # Get IP/hostname
     host = device.get('host')
     if not host:
-        primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
+        primary_ip = device.get('primary_ip') or device.get('primary_ip4')
         if primary_ip:
-            ip_addr_full = primary_ip.get('address', '')
-            host = ip_addr_full.split('/')[0] if ip_addr_full else None
+            # Handle both string (manual devices) and dict (NetBox) formats
+            if isinstance(primary_ip, str):
+                host = primary_ip.split('/')[0] if primary_ip else None
+            elif isinstance(primary_ip, dict):
+                ip_addr_full = primary_ip.get('address', '')
+                host = ip_addr_full.split('/')[0] if ip_addr_full else None
         if not host:
             host = device_name
 

@@ -1419,6 +1419,20 @@ def add_manual_device():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/manual-devices/<device_name>', methods=['GET'])
+@login_required
+def get_manual_device_api(device_name):
+    """Get a single manual device by name"""
+    try:
+        device = db.get_manual_device(device_name)
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        return jsonify({'success': True, 'device': device})
+    except Exception as e:
+        log.error(f"Error getting manual device {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/manual-devices/<device_name>', methods=['PUT'])
 @login_required
 def update_manual_device(device_name):
@@ -1674,19 +1688,25 @@ def run_single_device_backup():
 @app.route('/api/config-backups/run-all', methods=['POST'])
 @login_required
 def run_all_device_backups():
-    """Run backups for all devices in cache, creating a snapshot (does NOT call NetBox)"""
+    """Run backups for all devices, creating a snapshot"""
     try:
         data = request.json or {}
 
-        # Get all devices from centralized device cache
+        # Get all devices - try cache first, then fetch fresh if empty
         devices = device_service_get_cached()
 
         if not devices:
-            # Cache is empty - user needs to load devices first on another page
-            log.warning("Device cache is empty. Backups can only run for cached devices.")
+            # Cache is empty - fetch fresh devices (includes manual + Netbox)
+            log.info("Device cache empty, fetching fresh device list for backup")
+            from services.device_service import get_devices
+            result = get_devices(force_refresh=True)
+            devices = result.get('devices', [])
+
+        if not devices:
+            log.warning("No devices found for backup.")
             return jsonify({
                 'success': False,
-                'error': 'No devices in cache. Load devices on the Devices page first.'
+                'error': 'No devices found. Add manual devices or configure NetBox.'
             }), 400
 
         log.info(f"Found {len(devices)} devices for backup")

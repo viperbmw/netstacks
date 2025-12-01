@@ -558,6 +558,13 @@ def backup_device_config(self, connection_args: Dict, device_name: str,
         is_juniper = 'juniper' in device_type or (device_platform and 'junos' in device_platform.lower())
 
         with ConnectHandler(**connection_args) as conn:
+            # Enter enable mode if needed (for Cisco/Arista devices)
+            if not is_juniper and hasattr(conn, 'enable'):
+                try:
+                    conn.enable()
+                except Exception as e:
+                    log.debug(f"Enable mode not required or failed for {device_name}: {e}")
+
             if is_juniper and juniper_set_format:
                 # Get Juniper config in set format for template matching
                 config_output = conn.send_command('show configuration | display set')

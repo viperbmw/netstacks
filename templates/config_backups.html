@@ -554,7 +554,7 @@
                 </div>
                 <div class="mb-3">
                     <strong>Error Message:</strong>
-                    <pre id="error-message-content" class="mt-2 p-3 bg-light border rounded" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;"></pre>
+                    <pre id="error-message-content" class="mt-2 p-3 bg-dark text-light border rounded" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;"></pre>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1091,10 +1091,14 @@ function viewSnapshot(snapshotId) {
         });
 }
 
+// Store backup errors for lookup
+let backupErrors = {};
+
 // Render modal backups
 function renderModalBackups(backups) {
     const $tbody = $('#modal-backups-tbody');
     $tbody.empty();
+    backupErrors = {};  // Reset error storage
 
     if (!backups || backups.length === 0) {
         $tbody.html('<tr><td colspan="6" class="text-center text-muted">No backups in this snapshot</td></tr>');
@@ -1108,15 +1112,19 @@ function renderModalBackups(backups) {
         if (b.status === 'success') {
             statusBadge = '<span class="badge bg-success">OK</span>';
             actionButtons = `
-                <button class="btn btn-sm btn-outline-primary" onclick="viewConfig('${b.backup_id}')" title="View Config">
+                <button class="btn btn-sm btn-outline-primary view-config-btn" data-backup-id="${b.backup_id}" title="View Config">
                     <i class="fas fa-eye"></i>
                 </button>
             `;
         } else {
             statusBadge = '<span class="badge bg-danger">Failed</span>';
-            // Add view error button for failed backups
+            // Store error message for later lookup
+            backupErrors[b.backup_id] = {
+                device_name: b.device_name,
+                error_message: b.error_message || 'No error details available'
+            };
             actionButtons = `
-                <button class="btn btn-sm btn-outline-danger" onclick="viewError('${escapeHtml(b.device_name)}', '${escapeHtml(b.error_message || 'No error details available')}')" title="View Error">
+                <button class="btn btn-sm btn-outline-danger view-error-btn" data-backup-id="${b.backup_id}" title="View Error">
                     <i class="fas fa-exclamation-circle"></i>
                 </button>
             `;
@@ -1132,6 +1140,20 @@ function renderModalBackups(backups) {
                 <td>${actionButtons}</td>
             </tr>
         `);
+    });
+
+    // Bind click handlers using event delegation
+    $tbody.off('click', '.view-config-btn').on('click', '.view-config-btn', function() {
+        const backupId = $(this).data('backup-id');
+        viewConfig(backupId);
+    });
+
+    $tbody.off('click', '.view-error-btn').on('click', '.view-error-btn', function() {
+        const backupId = $(this).data('backup-id');
+        const errorInfo = backupErrors[backupId];
+        if (errorInfo) {
+            viewError(errorInfo.device_name, errorInfo.error_message);
+        }
     });
 }
 
