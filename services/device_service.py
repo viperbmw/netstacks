@@ -191,6 +191,7 @@ def get_device_connection_info(device_name: str, credential_override: Dict = Non
         'timeout': 30,
         'port': device.get('port', 22),
     }
+    log.info(f"Built connection_args for {device_name}: device_type={connection_args['device_type']}, host={connection_args['host']}, port={connection_args['port']}")
 
     # Apply device overrides from database (edited via UI)
     device_override = db.get_device_override(device_name)
@@ -276,7 +277,9 @@ def get_devices(filters: List[Dict] = None, force_refresh: bool = False) -> Dict
             'id': None,
             'display': manual['device_name'],
             'device_type': manual['device_type'],
+            'host': manual.get('host'),
             'primary_ip': manual.get('host'),
+            'port': manual.get('port', 22),
             'platform': manual.get('device_type'),
             'site': 'Manual',
             'status': 'Active',

@@ -430,25 +430,12 @@ function validateStack(stackId) {
         details: 'Checking all deployed services against device configurations.'
     });
 
-    // Get credentials from settings
-    let username, password;
-    try {
-        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
-        username = settings.default_username;
-        password = settings.default_password;
-        console.log('Validate stack - Credentials from settings:', { username, hasPassword: !!password });
-    } catch (e) {
-        console.error('Error reading credentials from settings:', e);
-    }
-
+    // Don't send default credentials - let device service handle credential resolution
     $.ajax({
         url: '/api/service-stacks/' + encodeURIComponent(stackId) + '/validate',
         method: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify({
-            username: username,
-            password: password
-        }),
+        data: JSON.stringify({}),
         timeout: 300000 // 5 minute timeout
     })
     .done(function(data) {
@@ -1741,17 +1728,8 @@ function deleteService(serviceId) {
  * Deploy a service stack
  */
 function deployStack(stackId) {
-    // Get credentials from settings
-    let username, password;
-    try {
-        const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
-        username = settings.default_username;
-        password = settings.default_password;
-        console.log('Credentials from settings:', { username, hasPassword: !!password });
-    } catch (e) {
-        console.error('Error reading credentials from settings:', e);
-    }
-
+    // Don't send default credentials - let device service handle credential resolution
+    // This allows device-specific credentials to be used when configured
     showStatus('info', {
         message: 'Deploying service stack...',
         details: 'This may take several minutes depending on the number of services.'
@@ -1761,10 +1739,7 @@ function deployStack(stackId) {
         url: '/api/service-stacks/' + encodeURIComponent(stackId) + '/deploy',
         method: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify({
-            username: username,
-            password: password
-        }),
+        data: JSON.stringify({}),
         timeout: 300000 // 5 minute timeout
     })
     .done(function(data) {

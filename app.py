@@ -590,107 +590,8 @@ def render_j2_template(template_name, variables):
 
 
 
-def get_device_connection_info(device_name, credential_override=None):
-    """Get device connection info from Netbox or cache"""
-    try:
-        device = None
-
-        # Try to get device from cache first (faster and more reliable)
-        # device_cache is a dict, iterate through all cache entries
-        if device_cache:
-            for cache_key, cache_entry in device_cache.items():
-                if cache_entry and isinstance(cache_entry, dict) and 'devices' in cache_entry:
-                    cached_devices = cache_entry.get('devices', [])
-                    if cached_devices:
-                        device = next((d for d in cached_devices if d.get('name') == device_name), None)
-                        if device:
-                            log.info(f"Found device {device_name} in cache (key: {cache_key})")
-                            break
-
-        # Fallback to Netbox if not in cache
-        if not device:
-            log.info(f"Device {device_name} not in cache, fetching from Netbox")
-            netbox = get_netbox_client()
-            device = netbox.get_device_by_name(device_name)
-
-        if not device or not device.get('name'):
-            log.error(f"Device {device_name} not found in Netbox or cache")
-            return None
-
-        # Get platform from config_context.nornir.platform (preferred)
-        nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
-
-        # Fallback to netbox platform if nornir platform not set
-        if not nornir_platform:
-            # Check if device_type is already a netmiko device type string (from cache)
-            device_type = device.get('device_type')
-            if isinstance(device_type, str) and device_type:
-                # device_type is already the netmiko platform string from cache
-                nornir_platform = device_type
-                log.info(f"Using cached device_type as platform: {nornir_platform}")
-            else:
-                # device_type is a dict (from Netbox API), need to extract platform
-                platform = device.get('platform', {})
-
-                # Handle device_type being either dict or string
-                if isinstance(device_type, dict):
-                    manufacturer = device_type.get('manufacturer', {})
-                else:
-                    manufacturer = {}
-
-                # Handle platform being either string or dict
-                if isinstance(platform, str):
-                    platform_name = platform
-                elif isinstance(platform, dict):
-                    platform_name = platform.get('name')
-                else:
-                    platform_name = None
-
-                manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
-
-                from netbox_client import get_netmiko_device_type
-                nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
-
-        # Get IP address
-        primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
-        host = None
-        if primary_ip:
-            ip_addr_full = primary_ip.get('address', '')
-            # Remove CIDR notation if present
-            host = ip_addr_full.split('/')[0] if ip_addr_full else None
-
-        # Fallback to device name if no IP
-        if not host:
-            host = device_name
-
-        # Build connection args
-        connection_args = {
-            'device_type': nornir_platform or 'cisco_ios',  # Default to cisco_ios
-            'host': host,
-            'timeout': 30
-        }
-
-        # Add credentials from override if provided
-        if credential_override:
-            connection_args['username'] = credential_override.get('username')
-            connection_args['password'] = credential_override.get('password')
-            log.info(f"Applied credential override for device {device_name} (username: {credential_override.get('username')})")
-
-        platform_info = device.get('platform', {})
-        platform_name = platform_info.get('name') if isinstance(platform_info, dict) else ''
-
-        return {
-            'connection_args': connection_args,
-            'device_info': {
-                'name': device.get('name'),
-                'platform': platform_name,
-                'site': device.get('site', {}).get('name') if device.get('site') else None
-            }
-        }
-
-    except Exception as e:
-        log.error(f"Error getting device connection info for {device_name}: {e}", exc_info=True)
-        return None
+# Import the proper get_device_connection_info from device_service
+from services.device_service import get_device_connection_info
 
 
 def authenticate_user(username, password):
@@ -3928,7 +3829,7 @@ def deploy_service_stack(stack_id):
             credential_override = {'username': username, 'password': password}
             log.info(f"Using provided credentials for stack deployment (user: {username})")
         else:
-            log.warning(f"No credentials provided in deployment request!")
+            log.info(f"No credential override - using device-specific credentials")
 
         stack = get_service_stack(stack_id)
 

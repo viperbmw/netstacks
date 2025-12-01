@@ -77,7 +77,7 @@ class CeleryDeviceService:
             save_config=save_config
         )
 
-        log.info(f"Dispatched set_config task {task.id} to {clean_args.get('host')}")
+        log.info(f"Dispatched set_config task {task.id} to {clean_args.get('host')} (device_type={clean_args.get('device_type')}, port={clean_args.get('port')})")
         return task.id
 
     def execute_commands(self, connection_args: Dict, commands: List[str],
