@@ -812,7 +812,12 @@ $('#create-snapshot-btn').click(function() {
             alert('Error: ' + response.error);
         }
     })
-    .fail(function(xhr) {
+    .fail(function(xhr, textStatus, errorThrown) {
+        // Don't show error if user navigated away (request aborted)
+        if (textStatus === 'abort' || xhr.status === 0) {
+            console.log('Snapshot request aborted (user navigated away) - snapshot continues on server');
+            return;
+        }
         const error = xhr.responseJSON?.error || 'Failed to create snapshot';
         alert('Error: ' + error);
     })

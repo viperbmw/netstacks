@@ -6,6 +6,8 @@ Each task handles network device operations directly via Celery workers.
 """
 import os
 import logging
+import hashlib
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 from celery import Celery
 
@@ -524,9 +526,10 @@ def sync_netbox_devices(self, netbox_url: str, netbox_token: str,
 
 @celery_app.task(bind=True, name='tasks.backup_device_config')
 def backup_device_config(self, connection_args: Dict, device_name: str,
-                         device_platform: str = None, juniper_set_format: bool = True) -> Dict:
+                         device_platform: str = None, juniper_set_format: bool = True,
+                         snapshot_id: str = None, created_by: str = None) -> Dict:
     """
-    Backup device running configuration
+    Backup device running configuration and save to database.
 
     For Juniper devices, can optionally convert to set format for template matching.
 
@@ -535,6 +538,8 @@ def backup_device_config(self, connection_args: Dict, device_name: str,
         device_name: Name of the device (for metadata)
         device_platform: Platform name (for identifying Juniper)
         juniper_set_format: If True, get Juniper config in set format
+        snapshot_id: Optional snapshot ID to link backup to a snapshot
+        created_by: Username who initiated the backup
 
     Returns:
         Dict with config content and metadata
@@ -574,22 +579,124 @@ def backup_device_config(self, connection_args: Dict, device_name: str,
             result['config_size'] = len(config_output)
             result['status'] = 'success'
 
+            # Save backup directly to database
+            _save_backup_to_db(
+                device_name=device_name,
+                device_ip=connection_args.get('host'),
+                platform=device_platform,
+                config_content=config_output,
+                config_format=result['config_format'],
+                snapshot_id=snapshot_id,
+                created_by=created_by,
+                status='success'
+            )
+            result['saved'] = True
+
     except NetmikoTimeoutException as e:
         log.error(f"Timeout backing up {device_name}: {e}")
         result['status'] = 'failed'
         result['error'] = f"Connection timeout: {str(e)}"
+        # Save failed backup record if part of snapshot
+        if snapshot_id:
+            _save_backup_to_db(
+                device_name=device_name,
+                device_ip=connection_args.get('host'),
+                platform=device_platform,
+                config_content='',
+                config_format='native',
+                snapshot_id=snapshot_id,
+                created_by=created_by,
+                status='failed',
+                error_message=result['error']
+            )
 
     except NetmikoAuthenticationException as e:
         log.error(f"Authentication failed backing up {device_name}: {e}")
         result['status'] = 'failed'
         result['error'] = f"Authentication failed: {str(e)}"
+        # Save failed backup record if part of snapshot
+        if snapshot_id:
+            _save_backup_to_db(
+                device_name=device_name,
+                device_ip=connection_args.get('host'),
+                platform=device_platform,
+                config_content='',
+                config_format='native',
+                snapshot_id=snapshot_id,
+                created_by=created_by,
+                status='failed',
+                error_message=result['error']
+            )
 
     except Exception as e:
         log.error(f"Error backing up {device_name}: {e}", exc_info=True)
         result['status'] = 'failed'
         result['error'] = str(e)
+        # Save failed backup record if part of snapshot
+        if snapshot_id:
+            _save_backup_to_db(
+                device_name=device_name,
+                device_ip=connection_args.get('host'),
+                platform=device_platform,
+                config_content='',
+                config_format='native',
+                snapshot_id=snapshot_id,
+                created_by=created_by,
+                status='failed',
+                error_message=result['error']
+            )
 
     return result
+
+
+def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
+                       config_content: str, config_format: str,
+                       snapshot_id: str = None, created_by: str = None,
+                       status: str = 'success', error_message: str = None):
+    """
+    Save backup to database. Called from within Celery task.
+    """
+    try:
+        # Ensure /app is in path for forked workers
+        import sys
+        if '/app' not in sys.path:
+            sys.path.insert(0, '/app')
+        # Import here to avoid circular imports
+        import database_postgres as db
+
+        # Calculate config hash for change detection
+        config_hash = hashlib.sha256(config_content.encode()).hexdigest() if config_content else None
+
+        # Generate backup ID
+        backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S%f')}_{device_name}"
+
+        backup_data = {
+            'backup_id': backup_id,
+            'device_name': device_name,
+            'device_ip': device_ip,
+            'platform': platform,
+            'config_content': config_content,
+            'config_format': config_format,
+            'config_hash': config_hash,
+            'backup_type': 'snapshot' if snapshot_id else 'manual',
+            'status': status,
+            'error_message': error_message,
+            'file_size': len(config_content) if config_content else 0,
+            'snapshot_id': snapshot_id,
+            'created_by': created_by
+        }
+
+        db.save_config_backup(backup_data)
+        log.info(f"Saved backup {backup_id} for device {device_name}" +
+                 (f" (snapshot: {snapshot_id})" if snapshot_id else ""))
+
+        # Update snapshot counts if this is part of a snapshot
+        if snapshot_id:
+            db.increment_snapshot_counts(snapshot_id, success=(status == 'success'))
+            log.info(f"Updated snapshot {snapshot_id} counts for {device_name}")
+
+    except Exception as e:
+        log.error(f"Failed to save backup for {device_name}: {e}", exc_info=True)
 
 
 @celery_app.task(bind=True, name='tasks.validate_config_from_backup')

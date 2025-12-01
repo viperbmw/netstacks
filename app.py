@@ -1652,7 +1652,9 @@ def run_single_device_backup():
             connection_args=device_info['connection_args'],
             device_name=device_name,
             device_platform=device_info['device_info'].get('platform'),
-            juniper_set_format=juniper_set_format
+            juniper_set_format=juniper_set_format,
+            snapshot_id=None,  # Single backup, not part of snapshot
+            created_by=session.get('username', 'system')
         )
 
         if task_id:
@@ -1725,6 +1727,7 @@ def run_all_device_backups():
         submitted = []
         failed = []
 
+        created_by = session.get('username', 'system')
         for device in devices:
             device_name = device.get('name')
             try:
@@ -1734,7 +1737,9 @@ def run_all_device_backups():
                         connection_args=device_info['connection_args'],
                         device_name=device_name,
                         device_platform=device_info['device_info'].get('platform'),
-                        juniper_set_format=juniper_set_format
+                        juniper_set_format=juniper_set_format,
+                        snapshot_id=snapshot_id,
+                        created_by=created_by
                     )
                     submitted.append({'device': device_name, 'task_id': task_id, 'snapshot_id': snapshot_id})
                     save_task_id(task_id, device_name=f"snapshot:{snapshot_id}:backup:{device_name}:{task_id}")
@@ -1769,71 +1774,26 @@ def run_all_device_backups():
 @app.route('/api/config-backups/task/<task_id>', methods=['GET'])
 @login_required
 def get_backup_task_status(task_id):
-    """Get status of a backup task and save result if complete"""
+    """Get status of a backup task.
+
+    Note: Backups are now saved directly by the Celery task when it completes,
+    so this endpoint is only for status polling by the frontend.
+    """
     try:
-        # Get optional snapshot_id from query params (passed by frontend for snapshot tasks)
-        snapshot_id = request.args.get('snapshot_id')
-
         result = celery_device_service.get_task_result(task_id)
-        log.info(f"Task {task_id} status: {result.get('status')}, has_result: {bool(result.get('result'))}")
+        log.debug(f"Task {task_id} status: {result.get('status')}")
 
-        # If task is complete and successful, save the backup
-        # celery_device_service normalizes status to lowercase 'success' when task completes
+        # Check if task result indicates it was saved
         if result.get('status') == 'success' and result.get('result'):
             task_result = result['result']
-            log.info(f"Task {task_id} result status: {task_result.get('status')}, has_config: {bool(task_result.get('config_content'))}")
-            if task_result.get('status') == 'success' and task_result.get('config_content'):
-                # Calculate config hash
-                config_hash = hashlib.sha256(task_result['config_content'].encode()).hexdigest()
-
-                # Check if we already saved this backup (prevent duplicates from polling)
-                device_name = task_result.get('device_name', 'unknown')
-                existing = db.get_latest_backup_for_device(device_name)
-
-                if existing and existing.get('config_hash') == config_hash:
-                    # Already saved, return existing backup info
-                    result['backup_id'] = existing['backup_id']
-                    result['saved'] = True
-                    result['status'] = 'success'  # Normalize status for frontend
-                else:
-                    # Generate backup ID and save
-                    backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{device_name}"
-
-                    backup_data = {
-                        'backup_id': backup_id,
-                        'device_name': device_name,
-                        'device_ip': task_result.get('host'),
-                        'platform': task_result.get('device_platform'),
-                        'config_content': task_result['config_content'],
-                        'config_format': task_result.get('config_format', 'native'),
-                        'config_hash': config_hash,
-                        'backup_type': 'snapshot' if snapshot_id else 'manual',
-                        'status': 'success',
-                        'file_size': len(task_result['config_content']),
-                        'snapshot_id': snapshot_id,
-                        'created_by': session.get('user', 'system')
-                    }
-
-                    db.save_config_backup(backup_data)
-                    log.info(f"Saved backup {backup_id} for device {device_name}" + (f" (snapshot: {snapshot_id})" if snapshot_id else ""))
-
-                    # Update snapshot counts if this is part of a snapshot
-                    if snapshot_id:
-                        db.increment_snapshot_counts(snapshot_id, success=True)
-
-                    result['backup_id'] = backup_id
-                    result['saved'] = True
-                    result['status'] = 'success'  # Normalize status for frontend
+            if task_result.get('saved'):
+                result['saved'] = True
+            # Propagate status from inner result
+            if task_result.get('status') == 'success':
+                result['status'] = 'success'
             elif task_result.get('status') == 'failed':
                 result['status'] = 'failed'
-                # Update snapshot counts if this is part of a snapshot
-                if snapshot_id:
-                    db.increment_snapshot_counts(snapshot_id, success=False)
-        elif result.get('status') == 'failed':
-            # Task failed - already normalized to lowercase by celery_device_service
-            # Update snapshot counts if this is part of a snapshot
-            if snapshot_id:
-                db.increment_snapshot_counts(snapshot_id, success=False)
+                result['error'] = task_result.get('error')
 
         return jsonify({'success': True, **result})
     except Exception as e:
@@ -2054,9 +2014,8 @@ def compare_config_snapshots_api(snapshot_id, other_snapshot_id):
 @app.route('/config-backups')
 @login_required
 def config_backups_page():
-    """Config Backups - redirects to Devices page which now includes backup functionality"""
-    from flask import redirect
-    return redirect('/devices')
+    """Config Backups page - manage device configuration backups and network snapshots"""
+    return render_template('config_backups.html')
 
 
 @app.route('/api/network-topology', methods=['GET'])

@@ -171,7 +171,8 @@ class CeleryDeviceService:
         return result.status
 
     def execute_backup(self, connection_args: Dict, device_name: str,
-                       device_platform: str = None, juniper_set_format: bool = True) -> str:
+                       device_platform: str = None, juniper_set_format: bool = True,
+                       snapshot_id: str = None, created_by: str = None) -> str:
         """
         Backup device configuration asynchronously.
 
@@ -180,6 +181,8 @@ class CeleryDeviceService:
             device_name: Name of the device
             device_platform: Platform name (to identify Juniper)
             juniper_set_format: Get Juniper configs in set format
+            snapshot_id: Optional snapshot ID to link backup to
+            created_by: Username who initiated the backup
 
         Returns:
             Task ID for polling results
@@ -190,7 +193,9 @@ class CeleryDeviceService:
             connection_args=clean_args,
             device_name=device_name,
             device_platform=device_platform,
-            juniper_set_format=juniper_set_format
+            juniper_set_format=juniper_set_format,
+            snapshot_id=snapshot_id,
+            created_by=created_by
         )
 
         log.info(f"Dispatched backup_device_config task {task.id} for {device_name}")

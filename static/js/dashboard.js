@@ -143,9 +143,10 @@ function loadTasks() {
 
                                 fetchedCount++;
 
-                                // Count by status
-                                if (status === 'queued') queuedCount++;
-                                else if (status === 'started' || status === 'running') runningCount++;
+                                // Count by status (handle both Celery and custom status names)
+                                const statusLower = status.toLowerCase();
+                                if (statusLower === 'queued' || statusLower === 'pending') queuedCount++;
+                                else if (statusLower === 'started' || statusLower === 'running') runningCount++;
 
                                 // Get device name from metadata
                                 const deviceName = metadata[taskId]?.device_name || 'Unknown Device';
@@ -179,10 +180,11 @@ function loadTasks() {
                                 const task = taskResponse.data || taskResponse;
                                 const status = task.task_status || task.status || 'unknown';
 
-                                if (status === 'queued') {
+                                const statusLower2 = status.toLowerCase();
+                                if (statusLower2 === 'queued' || statusLower2 === 'pending') {
                                     queuedCount++;
                                     $('#queued-count').text(queuedCount);
-                                } else if (status === 'started' || status === 'running') {
+                                } else if (statusLower2 === 'started' || statusLower2 === 'running') {
                                     runningCount++;
                                     $('#running-count').text(runningCount);
                                 }
@@ -216,11 +218,12 @@ function displayRecentTasks(tasks, queuedCount, runningCount) {
     } else {
         tasks.forEach(function(task) {
             const status = task.status;
+            const statusLower = (status || '').toLowerCase();
             let statusBadge = 'secondary';
-            if (status === 'queued') statusBadge = 'badge-queued';
-            else if (status === 'started' || status === 'running') statusBadge = 'badge-running';
-            else if (status === 'finished' || status === 'completed') statusBadge = 'badge-completed';
-            else if (status === 'failed') statusBadge = 'badge-failed';
+            if (statusLower === 'queued' || statusLower === 'pending') statusBadge = 'badge-queued';
+            else if (statusLower === 'started' || statusLower === 'running') statusBadge = 'badge-running';
+            else if (statusLower === 'finished' || statusLower === 'completed' || statusLower === 'success') statusBadge = 'badge-completed';
+            else if (statusLower === 'failed' || statusLower === 'failure') statusBadge = 'badge-failed';
 
             const deviceName = task.deviceName || 'Unknown Device';
             const createdDate = task.created ? formatDate(task.created) : 'N/A';

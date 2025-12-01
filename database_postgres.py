@@ -44,7 +44,7 @@ def init_db():
 
 
 def _seed_defaults(session: Session):
-    """Seed default step types and menu items if tables are empty"""
+    """Seed default step types and menu items if tables are empty or missing items"""
     # Seed step types
     if session.query(StepType).count() == 0:
         log.info("Seeding default step types")
@@ -52,12 +52,13 @@ def _seed_defaults(session: Session):
             session.add(StepType(**st, enabled=True))
         session.commit()
 
-    # Seed menu items
-    if session.query(MenuItem).count() == 0:
-        log.info("Seeding default menu items")
-        for mi in DEFAULT_MENU_ITEMS:
+    # Seed menu items - add any missing items
+    existing_item_ids = {item.item_id for item in session.query(MenuItem).all()}
+    for mi in DEFAULT_MENU_ITEMS:
+        if mi['item_id'] not in existing_item_ids:
+            log.info(f"Adding missing menu item: {mi['item_id']}")
             session.add(MenuItem(**mi))
-        session.commit()
+    session.commit()
 
 
 @contextmanager
@@ -1426,15 +1427,24 @@ def get_backup_summary() -> Dict:
             ConfigBackup.status == 'failed'
         ).scalar() or 0
 
-        # Get last backup time
-        last_backup = session.query(func.max(ConfigBackup.created_at)).scalar()
+        # Get latest and oldest backup times
+        latest_backup = session.query(func.max(ConfigBackup.created_at)).scalar()
+        oldest_backup = session.query(func.min(ConfigBackup.created_at)).scalar()
+
+        # Get list of devices with backups (for filter dropdown)
+        devices_with_backups = session.query(ConfigBackup.device_name).distinct().order_by(
+            ConfigBackup.device_name
+        ).all()
+        devices_list = [d[0] for d in devices_with_backups]
 
         return {
             'total_backups': total_backups,
             'unique_devices': unique_devices,
             'successful': successful,
             'failed': failed,
-            'last_backup': last_backup.isoformat() if last_backup else None
+            'latest_backup': latest_backup.isoformat() if latest_backup else None,
+            'oldest_backup': oldest_backup.isoformat() if oldest_backup else None,
+            'devices_with_backups': devices_list
         }
 
 
