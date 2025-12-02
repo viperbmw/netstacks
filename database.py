@@ -66,6 +66,14 @@ def init_db():
         cursor.execute("ALTER TABLE templates ADD COLUMN type TEXT DEFAULT 'deploy'")
         conn.commit()
 
+    # Migration: Add content column if it doesn't exist
+    try:
+        cursor.execute("SELECT content FROM templates LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE templates ADD COLUMN content TEXT")
+        conn.commit()
+        log.info("Migrated templates table: added content column")
+
     # Service stacks table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS service_stacks (
@@ -575,25 +583,71 @@ def get_user_theme(username):
         row = cursor.fetchone()
         return row['theme'] if row else 'dark'
 
-# Template metadata operations
+# Template operations
 def get_template_metadata(name):
-    """Get template metadata"""
+    """Get template metadata including content"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM templates WHERE name = ?', (name,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
-def save_template_metadata(name, metadata):
-    """Save template metadata"""
+def get_template_content(name):
+    """Get template content by name"""
     with get_db() as conn:
         cursor = conn.cursor()
+        cursor.execute('SELECT content FROM templates WHERE name = ?', (name,))
+        row = cursor.fetchone()
+        return row['content'] if row else None
+
+def save_template(name, content, metadata=None):
+    """Save template with content and optional metadata"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if metadata:
+            cursor.execute('''
+                INSERT OR REPLACE INTO templates
+                (name, content, type, validation_template, delete_template, description, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                name,
+                content,
+                metadata.get('type', 'deploy'),
+                metadata.get('validation_template'),
+                metadata.get('delete_template'),
+                metadata.get('description')
+            ))
+        else:
+            # Preserve existing metadata if any
+            cursor.execute('SELECT * FROM templates WHERE name = ?', (name,))
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute('''
+                    UPDATE templates SET content = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                ''', (content, name))
+            else:
+                cursor.execute('''
+                    INSERT INTO templates (name, content, type, updated_at)
+                    VALUES (?, ?, 'deploy', CURRENT_TIMESTAMP)
+                ''', (name, content))
+
+def save_template_metadata(name, metadata):
+    """Save template metadata (content unchanged)"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # First check if template exists
+        cursor.execute('SELECT content FROM templates WHERE name = ?', (name,))
+        existing = cursor.fetchone()
+        content = existing['content'] if existing else None
+
         cursor.execute('''
             INSERT OR REPLACE INTO templates
-            (name, type, validation_template, delete_template, description, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (name, content, type, validation_template, delete_template, description, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             name,
+            content,
             metadata.get('type', 'deploy'),
             metadata.get('validation_template'),
             metadata.get('delete_template'),
@@ -601,14 +655,14 @@ def save_template_metadata(name, metadata):
         ))
 
 def delete_template_metadata(name):
-    """Delete template metadata"""
+    """Delete template (including content)"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM templates WHERE name = ?', (name,))
         return cursor.rowcount > 0
 
 def get_all_templates():
-    """Get all template metadata"""
+    """Get all templates with metadata"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM templates ORDER BY name')
@@ -1650,5 +1704,141 @@ def delete_custom_step_type(step_type_id):
         cursor.execute('DELETE FROM step_types WHERE step_type_id = ?', (step_type_id,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+# =============================================================================
+# Device Override Functions
+# =============================================================================
+
+def _ensure_device_overrides_table():
+    """Ensure device_overrides table exists"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS device_overrides (
+                device_name TEXT PRIMARY KEY,
+                device_type TEXT,
+                host TEXT,
+                port INTEGER,
+                username TEXT,
+                password TEXT,
+                secret TEXT,
+                timeout INTEGER,
+                conn_timeout INTEGER,
+                auth_timeout INTEGER,
+                banner_timeout INTEGER,
+                notes TEXT,
+                disabled INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+
+
+def get_device_override(device_name):
+    """Get device-specific overrides for a device"""
+    _ensure_device_overrides_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM device_overrides WHERE device_name = ?', (device_name,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+
+def save_device_override(data):
+    """Save or update device-specific overrides"""
+    _ensure_device_overrides_table()
+    device_name = data.get('device_name')
+    if not device_name:
+        return False
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Check if override exists
+        cursor.execute('SELECT device_name FROM device_overrides WHERE device_name = ?', (device_name,))
+        exists = cursor.fetchone()
+
+        if exists:
+            # Update existing
+            cursor.execute('''
+                UPDATE device_overrides SET
+                    device_type = ?,
+                    host = ?,
+                    port = ?,
+                    username = ?,
+                    password = ?,
+                    secret = ?,
+                    timeout = ?,
+                    conn_timeout = ?,
+                    auth_timeout = ?,
+                    banner_timeout = ?,
+                    notes = ?,
+                    disabled = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE device_name = ?
+            ''', (
+                data.get('device_type'),
+                data.get('host'),
+                data.get('port'),
+                data.get('username'),
+                data.get('password'),
+                data.get('secret'),
+                data.get('timeout'),
+                data.get('conn_timeout'),
+                data.get('auth_timeout'),
+                data.get('banner_timeout'),
+                data.get('notes'),
+                1 if data.get('disabled') else 0,
+                device_name
+            ))
+        else:
+            # Insert new
+            cursor.execute('''
+                INSERT INTO device_overrides (
+                    device_name, device_type, host, port, username, password, secret,
+                    timeout, conn_timeout, auth_timeout, banner_timeout, notes, disabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                device_name,
+                data.get('device_type'),
+                data.get('host'),
+                data.get('port'),
+                data.get('username'),
+                data.get('password'),
+                data.get('secret'),
+                data.get('timeout'),
+                data.get('conn_timeout'),
+                data.get('auth_timeout'),
+                data.get('banner_timeout'),
+                data.get('notes'),
+                1 if data.get('disabled') else 0
+            ))
+
+        conn.commit()
+        return True
+
+
+def delete_device_override(device_name):
+    """Delete device-specific overrides"""
+    _ensure_device_overrides_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM device_overrides WHERE device_name = ?', (device_name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_all_device_overrides():
+    """Get all device overrides"""
+    _ensure_device_overrides_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM device_overrides ORDER BY device_name')
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
 
 

@@ -797,3 +797,167 @@ select.form-select {
 .font-monospace {
     font-family: 'Courier New', Courier, monospace;
 }
+
+/* Config Backups / Devices page dark theme support */
+[data-bs-theme="dark"] .card-footer {
+    background-color: #333333;
+    border-top: 1px solid #404040;
+}
+
+[data-bs-theme="dark"] .card-footer.bg-light {
+    background-color: #333333 !important;
+}
+
+[data-bs-theme="dark"] .collapse .card-body.border-top {
+    border-color: #404040 !important;
+}
+
+[data-bs-theme="dark"] #running-tasks-card {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+[data-bs-theme="dark"] #running-tasks-card .card-header {
+    background-color: #0d6efd !important;
+}
+
+[data-bs-theme="dark"] .pagination .page-link {
+    background-color: #333333;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] .pagination .page-item.disabled .page-link {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #6c757d;
+}
+
+[data-bs-theme="dark"] .btn-link {
+    color: #6ea8fe;
+}
+
+[data-bs-theme="dark"] .btn-link:hover {
+    color: #9ec5fe;
+}
+
+/* Textarea in modals dark theme */
+[data-bs-theme="dark"] textarea.form-control[readonly] {
+    background-color: #1a1a1a;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+/* ============================================================================
+   Config Diff View Styles
+   ============================================================================ */
+
+.diff-line {
+    display: flex;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    border-bottom: 1px solid #eee;
+}
+
+.diff-line-num {
+    min-width: 40px;
+    padding: 2px 8px;
+    text-align: right;
+    color: #999;
+    background-color: #f8f9fa;
+    border-right: 1px solid #ddd;
+    user-select: none;
+}
+
+.diff-line-content {
+    flex: 1;
+    padding: 2px 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Added lines */
+.diff-added {
+    background-color: #d4edda;
+}
+
+.diff-added .diff-line-num {
+    background-color: #c3e6cb;
+    color: #155724;
+}
+
+.diff-added .diff-line-content {
+    color: #155724;
+}
+
+/* Removed lines */
+.diff-removed {
+    background-color: #f8d7da;
+}
+
+.diff-removed .diff-line-num {
+    background-color: #f5c6cb;
+    color: #721c24;
+}
+
+.diff-removed .diff-line-content {
+    color: #721c24;
+    text-decoration: line-through;
+    opacity: 0.8;
+}
+
+/* Unchanged lines */
+.diff-unchanged {
+    background-color: #fff;
+}
+
+/* Dark theme support for diff view */
+[data-bs-theme="dark"] .diff-line {
+    border-bottom-color: #404040;
+}
+
+[data-bs-theme="dark"] .diff-line-num {
+    background-color: #2a2a2a;
+    border-right-color: #404040;
+    color: #888;
+}
+
+[data-bs-theme="dark"] .diff-unchanged {
+    background-color: #1e1e1e;
+}
+
+[data-bs-theme="dark"] .diff-unchanged .diff-line-content {
+    color: #d4d4d4;
+}
+
+[data-bs-theme="dark"] .diff-added {
+    background-color: #1e3a1e;
+}
+
+[data-bs-theme="dark"] .diff-added .diff-line-num {
+    background-color: #264f26;
+    color: #8bcd8b;
+}
+
+[data-bs-theme="dark"] .diff-added .diff-line-content {
+    color: #8bcd8b;
+}
+
+[data-bs-theme="dark"] .diff-removed {
+    background-color: #3a1e1e;
+}
+
+[data-bs-theme="dark"] .diff-removed .diff-line-num {
+    background-color: #4f2626;
+    color: #cd8b8b;
+}
+
+[data-bs-theme="dark"] .diff-removed .diff-line-content {
+    color: #cd8b8b;
+}
+
+[data-bs-theme="dark"] #diff-content-container {
+    background-color: #1e1e1e;
+    border-color: #404040 !important;
+}

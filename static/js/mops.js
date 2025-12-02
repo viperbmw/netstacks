@@ -15,119 +15,121 @@ devices:
   - router2.example.com
 
 steps:
-  - name: "Verify Devices Reachable"
-    type: check_ping
-    on_success: check_bgp
-    on_failure: send_failure_email
-
   - name: "Verify BGP Neighbors"
     id: check_bgp
     type: check_bgp
-    expect_neighbor_count: 4
-    compare_to_netbox: true
+    command: "show ip bgp summary"
     on_success: deploy_stack
-    on_failure: send_failure_email
+    on_failure: send_failure_webhook
 
   - name: "Deploy Customer VPN Stack"
     id: deploy_stack
     type: deploy_stack
-    stack_id: "customer-vpn-stack"
+    stack_name: "customer-vpn-stack"
     on_success: verify_deployment
     on_failure: rollback
 
   - name: "Verify Deployment"
     id: verify_deployment
     type: check_interfaces
-    expect_up_count: 3
-    on_success: send_success_email
-    on_failure: send_failure_email
+    command: "show ip interface brief"
+    on_success: send_success_webhook
+    on_failure: send_failure_webhook
 
   - name: "Rollback Stack"
     id: rollback
     type: deploy_stack
-    stack_id: "rollback-stack"
-    on_success: send_failure_email
-    on_failure: send_failure_email
+    stack_name: "rollback-stack"
+    on_success: send_failure_webhook
+    on_failure: send_failure_webhook
 
-  - name: "Send Success Email"
-    id: send_success_email
-    type: email
-    to: "ops@company.com"
-    subject: "Maintenance Complete - {mop_name}"
-    body: "Deployment successful at {timestamp}"
+  - name: "Send Success Webhook"
+    id: send_success_webhook
+    type: webhook
+    url: "https://hooks.slack.com/services/xxx"
+    message: "Maintenance Complete - {{ mop_name }}"
 
-  - name: "Send Failure Email"
-    id: send_failure_email
-    type: email
-    to: "oncall@company.com"
-    subject: "Maintenance Failed - {mop_name}"
-    body: "MOP failed. Check logs for details."`,
+  - name: "Send Failure Webhook"
+    id: send_failure_webhook
+    type: webhook
+    url: "https://hooks.slack.com/services/xxx"
+    message: "Maintenance Failed - {{ mop_name }}"`,
 
     simple: `name: "Simple BGP Check and Alert"
-description: "Check BGP neighbors and send email if there's an issue"
+description: "Check BGP neighbors and send webhook if there's an issue"
 devices:
   - router1.example.com
   - router2.example.com
 
 steps:
   - name: "Check BGP Status"
+    id: check_bgp
     type: check_bgp
-    expect_neighbor_count: 4
+    command: "show ip bgp summary"
     on_success: send_success
     on_failure: send_alert
 
   - name: "Send Success"
     id: send_success
-    type: email
-    to: "ops@company.com"
-    subject: "BGP Check Passed"
-    body: "All BGP neighbors are up"
+    type: webhook
+    url: "https://hooks.slack.com/services/xxx"
+    message: "BGP Check Passed - All neighbors up"
 
   - name: "Send Alert"
     id: send_alert
-    type: email
-    to: "oncall@company.com"
-    subject: "BGP Check FAILED"
-    body: "BGP neighbor count mismatch detected"`,
+    type: webhook
+    url: "https://hooks.slack.com/services/xxx"
+    message: "BGP Check FAILED - Neighbor count mismatch"`,
 
-    custom: `name: "Custom Python Validation"
-description: "Use custom Python code for complex validation logic"
+    custom: `name: "Interface Validation with Manual Approval"
+description: "Check interfaces, wait for approval, then push config"
 devices:
   - device1.example.com
 
 steps:
   - name: "Get Interface Status"
-    type: run_command
+    id: get_interfaces
+    type: get_config
     command: "show ip interface brief"
     use_textfsm: true
+    on_success: validate_interfaces
+    on_failure: send_alert
 
-  - name: "Custom Validation"
-    type: custom_python
-    script: |
-      # Access previous step results from context
-      interfaces = context['step_results'].get('Get Interface Status', {}).get('data', [])
+  - name: "Validate Interface Output"
+    id: validate_interfaces
+    type: validate_config
+    command: "show ip interface brief"
+    on_success: manual_review
+    on_failure: send_alert
 
-      # Custom validation logic
-      up_count = sum(1 for intf in interfaces if intf.get('status') == 'up')
+  - name: "Manual Review Required"
+    id: manual_review
+    type: manual_approval
+    prompt: "Please review interface status and approve to continue"
+    instructions: "Verify all expected interfaces are up before proceeding with configuration changes"
+    on_success: push_config
+    on_failure: send_alert
 
-      if up_count >= 3:
-          result = {'status': 'success', 'message': f'{up_count} interfaces up'}
-      else:
-          result = {'status': 'failed', 'error': f'Only {up_count} interfaces up'}
+  - name: "Push Configuration"
+    id: push_config
+    type: set_config
+    config_lines:
+      - "interface GigabitEthernet0/1"
+      - "description Updated by MOP"
     on_success: send_success
     on_failure: send_alert
 
   - name: "Send Success"
     id: send_success
-    type: email
-    to: "ops@company.com"
-    subject: "Validation Passed"
+    type: webhook
+    url: "https://hooks.slack.com/services/xxx"
+    message: "Validation and Config Push Complete"
 
   - name: "Send Alert"
     id: send_alert
-    type: email
-    to: "oncall@company.com"
-    subject: "Validation Failed"`
+    type: webhook
+    url: "https://hooks.slack.com/services/xxx"
+    message: "MOP Failed - Check logs"`
 };
 
 $(document).ready(function() {

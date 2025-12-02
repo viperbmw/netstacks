@@ -1,6 +1,6 @@
 """
 NetStacks - Web-based Service Stack Management for Network Automation
-Connects to Netstacker API for network device automation
+Uses Celery for device operations
 """
 from flask import Flask, render_template, request, jsonify, redirect, session, url_for
 from functools import wraps
@@ -8,7 +8,6 @@ import requests
 import os
 import logging
 import json
-import base64
 import uuid
 import time
 import hashlib
@@ -16,9 +15,11 @@ import secrets
 from datetime import datetime
 from netbox_client import NetboxClient
 from jinja2 import Template, TemplateSyntaxError
-import database as db
+from sqlalchemy import text
+import db
 import auth_ldap
 import auth_oidc
+from services.celery_device_service import celery_device_service
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'netstacks-secret-key')
@@ -32,46 +33,44 @@ except Exception as e:
     log = logging.getLogger(__name__)
     log.warning(f"Could not register API docs: {e}")
 
-# Step Types API removed - step types are now managed directly in mop_engine.py
+# Register Celery deploy routes
+try:
+    from routes.deploy import deploy_bp
+    app.register_blueprint(deploy_bp)
+    log.info("Registered Celery deploy routes at /api/celery/*")
+except Exception as e:
+    log.warning(f"Could not register Celery deploy routes: {e}")
+
+# Register v2 template routes (local database storage)
+try:
+    from routes.templates import templates_bp
+    app.register_blueprint(templates_bp)
+    log.info("Registered v2 template routes at /api/v2/templates/*")
+except Exception as e:
+    log.warning(f"Could not register v2 template routes: {e}")
 
 # Configuration
-NETSTACKER_API_URL = os.environ.get('NETSTACKER_API_URL', 'http://netstacker-controller:9000')
-NETSTACKER_API_KEY = os.environ.get('NETSTACKER_API_KEY', '2a84465a-cf38-46b2-9d86-b84Q7d57f288')
 NETBOX_URL = os.environ.get('NETBOX_URL', 'https://netbox.example.com')
 NETBOX_TOKEN = os.environ.get('NETBOX_TOKEN', '')
 VERIFY_SSL = os.environ.get('VERIFY_SSL', 'false').lower() == 'true'
 TASK_HISTORY_FILE = os.environ.get('TASK_HISTORY_FILE', '/tmp/netstacks_tasks.json')
-# Database initialized in database.py
-# Templates are stored in Netstacker - no local template directory needed
 
 # Setup logging first
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# Headers for netstacker API calls
-NETSTACKER_HEADERS = {
-    'x-api-key': NETSTACKER_API_KEY,
-    'Content-Type': 'application/json'
-}
-
 # Note: Netbox client is now initialized dynamically via get_netbox_client()
 # This allows settings to be changed via the GUI without restarting
 
-# Initialize SQLite database
+# Initialize database (SQLite or PostgreSQL based on USE_POSTGRES env var)
 db.init_db()
-log.info("SQLite database initialized")
+log.info("Database initialized")
 
-# Load settings from database and update globals on startup
+# Load settings from database on startup
 try:
     stored_settings = db.get_all_settings()
     if stored_settings:
-        NETSTACKER_API_URL = stored_settings.get('netstacker_url', NETSTACKER_API_URL).rstrip('/')
-        NETSTACKER_API_KEY = stored_settings.get('netstacker_api_key', NETSTACKER_API_KEY)
-        NETSTACKER_HEADERS = {
-            'x-api-key': NETSTACKER_API_KEY,
-            'Content-Type': 'application/json'
-        }
-        log.info("Loaded Netstacker settings from database")
+        log.info("Loaded settings from database")
     else:
         log.warning("No settings found in database. Please configure via /settings")
 except Exception as e:
@@ -118,7 +117,133 @@ def login_required(f):
 # Initialize default user on startup
 create_default_user()
 
-# Step Types routes removed - no longer needed
+
+# =============================================================================
+# Step Types Management Routes
+# =============================================================================
+
+@app.route('/step-types')
+@login_required
+def step_types_page():
+    """Step types management page"""
+    return render_template('step_types.html')
+
+
+@app.route('/api/step-types', methods=['GET'])
+@login_required
+def get_step_types_api():
+    """Get all step types"""
+    try:
+        step_types = db.get_all_step_types_full()
+        return jsonify({'success': True, 'step_types': step_types})
+    except Exception as e:
+        log.error(f"Error getting step types: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>', methods=['GET'])
+@login_required
+def get_step_type_api(step_type_id):
+    """Get a specific step type"""
+    try:
+        step_type = db.get_step_type(step_type_id)
+        if not step_type:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+        return jsonify({'success': True, 'step_type': step_type})
+    except Exception as e:
+        log.error(f"Error getting step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types', methods=['POST'])
+@login_required
+def create_step_type_api():
+    """Create a new step type"""
+    try:
+        data = request.json
+
+        if not data.get('name'):
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        if not data.get('action_type'):
+            return jsonify({'success': False, 'error': 'Action type is required'}), 400
+
+        # Validate action type
+        valid_action_types = ['get_config', 'set_config', 'api_call', 'validate', 'wait', 'manual', 'deploy_stack']
+        if data.get('action_type') not in valid_action_types:
+            return jsonify({'success': False, 'error': f'Invalid action type. Must be one of: {valid_action_types}'}), 400
+
+        # For api_call types, validate URL is provided in config
+        if data.get('action_type') == 'api_call':
+            config = data.get('config', {})
+            if not config.get('url'):
+                return jsonify({'success': False, 'error': 'URL is required for API Call step types'}), 400
+
+        step_type_id = db.save_step_type(data)
+        return jsonify({'success': True, 'step_type_id': step_type_id})
+    except Exception as e:
+        log.error(f"Error creating step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>', methods=['PUT'])
+@login_required
+def update_step_type_api(step_type_id):
+    """Update a step type"""
+    try:
+        data = request.json
+        data['step_type_id'] = step_type_id
+
+        existing = db.get_step_type(step_type_id)
+        if not existing:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+
+        db.save_step_type(data)
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error updating step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>', methods=['DELETE'])
+@login_required
+def delete_step_type_api(step_type_id):
+    """Delete a step type"""
+    try:
+        existing = db.get_step_type(step_type_id)
+        if not existing:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+
+        # Don't allow deleting built-in types
+        if existing.get('is_builtin'):
+            return jsonify({'success': False, 'error': 'Cannot delete built-in step types'}), 400
+
+        db.delete_step_type(step_type_id)
+        return jsonify({'success': True})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        log.error(f"Error deleting step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/step-types/<step_type_id>/toggle', methods=['POST'])
+@login_required
+def toggle_step_type_api(step_type_id):
+    """Enable or disable a step type"""
+    try:
+        data = request.json
+        enabled = data.get('enabled', True)
+
+        existing = db.get_step_type(step_type_id)
+        if not existing:
+            return jsonify({'success': False, 'error': 'Step type not found'}), 404
+
+        db.toggle_step_type(step_type_id, enabled)
+        return jsonify({'success': True})
+    except Exception as e:
+        log.error(f"Error toggling step type: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # Template context processor to inject menu items
@@ -136,12 +261,11 @@ def inject_menu_items():
     return {'menu_items': []}
 
 
-# Device list cache
-device_cache = {
-    'devices': None,
-    'timestamp': None,
-    'ttl': 300  # 5 minutes
-}
+# Device cache is now managed by services/device_service.py
+# Import the device service functions for cache operations
+from services.device_service import get_devices as device_service_get_devices
+from services.device_service import get_cached_devices as device_service_get_cached
+from services.device_service import clear_device_cache as device_service_clear_cache
 
 
 # Task history management
@@ -149,7 +273,7 @@ def save_task_id(task_id, device_name=None):
     """Save a task ID to the history file with device name
 
     Args:
-        task_id: The Netstacker task ID
+        task_id: The Celery task ID
         device_name: Descriptive name for the job. For standardized format use:
                     stack:{OPERATION}:{StackName}:{ServiceName}:{DeviceName}:{JobID}
     """
@@ -232,8 +356,6 @@ def get_settings():
     """Get application settings from database"""
     # Default empty settings (must be configured via GUI)
     settings = {
-        'netstacker_url': '',
-        'netstacker_api_key': '',
         'netbox_url': '',
         'netbox_token': '',
         'verify_ssl': False,
@@ -339,69 +461,51 @@ def delete_service_instance(service_id, run_delete_template=False, credential_ov
 
             try:
                 # Get device connection info
-                device_info = get_device_connection_info(device, credential_override)
+                from services.device_service import get_device_connection_info as get_conn_info
+                device_info = get_conn_info(device, credential_override)
                 if not device_info:
                     log.error(f"Could not get connection info for device {device}")
-                    # Still delete from database
-                    result = db.delete_service_instance(service_id)
+                    db.delete_service_instance(service_id)
                     return {'success': True, 'warning': 'Deleted from database but could not connect to device'}
 
-                # Strip .j2 extension if present - Netstacker stores templates without extension
+                # Strip .j2 extension if present
                 template_name_clean = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
-                log.info(f"Deploying delete template '{template_name_clean}' via Netstacker with variables: {variables}")
 
-                # Use Netstacker's setconfig with j2config at top level
-                # This tells Netstacker to render the J2 template and deploy it in one operation
-                payload = {
-                    'library': 'netmiko',
-                    'connection_args': device_info['connection_args'],
-                    'j2config': {
-                        'template': template_name_clean,
-                        'args': variables
-                    },
-                    'queue_strategy': 'fifo'
-                }
+                # Render template locally
+                rendered_config = render_j2_template(template_name_clean, variables)
+                if not rendered_config:
+                    log.error(f"Failed to render delete template: {template_name_clean}")
+                    db.delete_service_instance(service_id)
+                    return {'success': True, 'warning': 'Deleted from database but failed to render delete template'}
 
-                log.info(f"Payload: {payload}")
-                response = requests.post(
-                    f'{NETSTACKER_API_URL}/setconfig',
-                    json=payload,
-                    headers=NETSTACKER_HEADERS,
-                    timeout=30
+                # Deploy via Celery
+                task_id = celery_device_service.set_config(
+                    device_info['connection_args'],
+                    rendered_config
                 )
-                response.raise_for_status()
-                result = response.json()
 
-                task_id = result.get('data', {}).get('task_id')
                 log.info(f"Delete template deployed for service {service_id}, task_id: {task_id}")
 
-                # Save task ID to monitor with standardized format
+                # Save task ID to monitor
                 if task_id:
-                    # Get stack name for standardized format
                     stack_name = "N/A"
                     if service.get('stack_id'):
                         stack = get_service_stack(service['stack_id'])
                         if stack:
                             stack_name = stack.get('name', 'N/A')
 
-                    # Extract service name (remove device suffix if present)
                     service_name = service.get('name', 'N/A')
                     if ' (' in service_name:
                         service_name = service_name.split(' (')[0]
 
-                    # Format: stack:DELETE:{StackName}:{ServiceName}:{DeviceName}:{JobID}
                     job_name = f"stack:DELETE:{stack_name}:{service_name}:{device}:{task_id}"
                     save_task_id(task_id, device_name=job_name)
-                    log.info(f"Saved delete task {task_id} to task history")
 
-                # Delete from database after successful job submission to Netstacker
                 db.delete_service_instance(service_id)
-
                 return {'success': True, 'task_id': task_id, 'message': 'Delete template deployed successfully'}
 
             except Exception as e:
                 log.error(f"Error deploying delete template for service {service_id}: {e}")
-                # Still delete from database
                 db.delete_service_instance(service_id)
                 return {'success': True, 'warning': f'Deleted from database but failed to deploy delete template: {str(e)}'}
         else:
@@ -459,174 +563,35 @@ def delete_service_stack(stack_id):
 
 
 def render_j2_template(template_name, variables):
-    """Render a Jinja2 template using Netstacker's template system"""
-    try:
-        # Call Netstacker's j2template render endpoint
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/j2template/render/config/{template_name}',
-            json=variables,
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        # Extract rendered config from response
-        task_result = result.get('data', {}).get('task_result', {})
-        rendered = task_result.get('template_render_result', '') if isinstance(task_result, dict) else task_result
-
-        return rendered
-
-    except Exception as e:
-        log.error(f"Error rendering template {template_name}: {e}")
-        return None
-
-
-def render_local_j2_template(template_name, variables):
-    """Render a Jinja2 template locally using template content from Netstacker
-
-    This is used for validation templates. We fetch the template content from Netstacker
-    and render it locally in NetStacks so we can compare against device config.
-    """
+    """Render a Jinja2 template from local database"""
     try:
         from jinja2 import Environment, BaseLoader
 
-        # Fetch template content from Netstacker
-        # Template names in Netstacker are stored without .j2 extension
+        # Strip .j2 extension if present
         template_lookup = template_name[:-3] if template_name.endswith('.j2') else template_name
 
-        log.info(f"Fetching template content from Netstacker: {template_lookup}")
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/j2template/config/{template_lookup}',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        # Extract template content from response
-        # Netstacker returns templates as base64 encoded
-        template_data = result.get('data', {}).get('task_result', {})
-        base64_payload = template_data.get('base64_payload', '')
-
-        if not base64_payload:
-            log.error(f"No template content found for: {template_lookup}")
-            log.error(f"Response data: {template_data}")
+        # Get template content from local database
+        template_content = db.get_template_content(template_lookup)
+        if not template_content:
+            log.error(f"Template not found: {template_lookup}")
             return None
 
-        # Decode base64 template
-        import base64
-        template_content = base64.b64decode(base64_payload).decode('utf-8')
-        log.info(f"Retrieved and decoded template content: {len(template_content)} bytes")
-        log.info(f"Rendering locally with variables: {variables}")
-
-        # Render the template locally using Jinja2
-        env = Environment(
-            loader=BaseLoader(),
-            trim_blocks=True,
-            lstrip_blocks=True
-        )
-
+        # Render the template
+        env = Environment(loader=BaseLoader(), trim_blocks=True, lstrip_blocks=True)
         template = env.from_string(template_content)
         rendered = template.render(**variables)
 
-        log.info(f"Successfully rendered template locally")
         return rendered
 
     except Exception as e:
-        log.error(f"Error rendering local template {template_name}: {e}", exc_info=True)
+        log.error(f"Error rendering template {template_name}: {e}", exc_info=True)
         return None
 
 
 
 
-def get_device_connection_info(device_name, credential_override=None):
-    """Get device connection info from Netbox or cache"""
-    try:
-        device = None
-
-        # Try to get device from cache first (faster and more reliable)
-        # device_cache is a dict, iterate through all cache entries
-        if device_cache:
-            for cache_key, cache_entry in device_cache.items():
-                if cache_entry and isinstance(cache_entry, dict) and 'devices' in cache_entry:
-                    cached_devices = cache_entry.get('devices', [])
-                    if cached_devices:
-                        device = next((d for d in cached_devices if d.get('name') == device_name), None)
-                        if device:
-                            log.info(f"Found device {device_name} in cache (key: {cache_key})")
-                            break
-
-        # Fallback to Netbox if not in cache
-        if not device:
-            log.info(f"Device {device_name} not in cache, fetching from Netbox")
-            netbox = get_netbox_client()
-            device = netbox.get_device_by_name(device_name)
-
-        if not device or not device.get('name'):
-            log.error(f"Device {device_name} not found in Netbox or cache")
-            return None
-
-        # Get platform from config_context.nornir.platform (preferred)
-        nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
-
-        # Fallback to netbox platform if nornir platform not set
-        if not nornir_platform:
-            platform = device.get('platform', {})
-            device_type = device.get('device_type', {})
-
-            # Handle device_type being either dict or string
-            if isinstance(device_type, dict):
-                manufacturer = device_type.get('manufacturer', {})
-            else:
-                manufacturer = {}
-
-            platform_name = platform.get('name') if isinstance(platform, dict) else None
-            manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
-
-            from netbox_client import get_netmiko_device_type
-            nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
-
-        # Get IP address
-        primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
-        host = None
-        if primary_ip:
-            ip_addr_full = primary_ip.get('address', '')
-            # Remove CIDR notation if present
-            host = ip_addr_full.split('/')[0] if ip_addr_full else None
-
-        # Fallback to device name if no IP
-        if not host:
-            host = device_name
-
-        # Build connection args
-        connection_args = {
-            'device_type': nornir_platform or 'cisco_ios',  # Default to cisco_ios
-            'host': host,
-            'timeout': 30
-        }
-
-        # Add credentials from override if provided
-        if credential_override:
-            connection_args['username'] = credential_override.get('username')
-            connection_args['password'] = credential_override.get('password')
-            log.info(f"Applied credential override for device {device_name} (username: {credential_override.get('username')})")
-
-        platform_info = device.get('platform', {})
-        platform_name = platform_info.get('name') if isinstance(platform_info, dict) else ''
-
-        return {
-            'connection_args': connection_args,
-            'device_info': {
-                'name': device.get('name'),
-                'platform': platform_name,
-                'site': device.get('site', {}).get('name') if device.get('site') else None
-            }
-        }
-
-    except Exception as e:
-        log.error(f"Error getting device connection info for {device_name}: {e}", exc_info=True)
-        return None
+# Import the proper get_device_connection_info from device_service
+from services.device_service import get_device_connection_info
 
 
 def authenticate_user(username, password):
@@ -843,16 +808,6 @@ def inject_theme():
     return {'user_theme': 'dark'}
 
 
-@app.context_processor
-def inject_netstacker_url():
-    """Inject Netstacker URL from settings into all templates"""
-    try:
-        settings = db.get_all_settings()
-        netstacker_url = settings.get('netstacker_url', 'http://localhost:9000')
-        return {'netstacker_url': netstacker_url}
-    except Exception as e:
-        log.error(f"Error loading Netstacker URL: {e}")
-        return {'netstacker_url': 'http://localhost:9000'}
 
 
 @app.route('/')
@@ -930,8 +885,6 @@ def get_settings_api():
 
         # Don't expose sensitive data in full
         safe_settings = {
-            'netstacker_url': settings.get('netstacker_url'),
-            'netstacker_api_key': '****' if settings.get('netstacker_api_key') else '',  # Masked
             'netbox_url': settings.get('netbox_url'),
             'netbox_token': '****' if settings.get('netbox_token') else '',  # Masked
             'verify_ssl': settings.get('verify_ssl', False),
@@ -948,26 +901,18 @@ def get_settings_api():
 @app.route('/api/settings', methods=['POST'])
 @login_required
 def save_settings_api():
-    """Save settings to database and update global variables"""
+    """Save settings to database"""
     try:
-        global NETSTACKER_API_URL, NETSTACKER_API_KEY, NETSTACKER_HEADERS
-
         data = request.json
 
         log.info(f"[SETTINGS] Received settings save request")
-        log.info(f"[SETTINGS] default_username in request: {data.get('default_username', 'NOT PRESENT')}")
-        log.info(f"[SETTINGS] default_password in request: {'***' if data.get('default_password') else 'NOT PRESENT/EMPTY'}")
 
-        # Validate required fields
-        required_fields = ['netstacker_url', 'netbox_url']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+        # Validate required fields - only netbox is required now
+        if not data.get('netbox_url'):
+            return jsonify({'success': False, 'error': 'netbox_url is required'}), 400
 
         # Prepare settings to save
         settings_to_save = {
-            'netstacker_url': data.get('netstacker_url'),
-            'netstacker_api_key': data.get('netstacker_api_key'),
             'netbox_url': data.get('netbox_url'),
             'netbox_token': data.get('netbox_token'),
             'verify_ssl': data.get('verify_ssl', False),
@@ -978,21 +923,10 @@ def save_settings_api():
             'system_timezone': data.get('system_timezone', 'UTC')
         }
 
-        log.info(f"[SETTINGS] Saving default_username: {settings_to_save['default_username']}")
-        log.info(f"[SETTINGS] Saving netbox_filters: {settings_to_save['netbox_filters']}")
-
         # Save to database
         save_settings(settings_to_save)
 
-        # Update global variables so all endpoints use new settings immediately
-        NETSTACKER_API_URL = settings_to_save['netstacker_url'].rstrip('/')
-        NETSTACKER_API_KEY = settings_to_save['netstacker_api_key']
-        NETSTACKER_HEADERS = {
-            'x-api-key': NETSTACKER_API_KEY,
-            'Content-Type': 'application/json'
-        }
-
-        log.info(f"Settings saved successfully and globals updated")
+        log.info(f"Settings saved successfully")
         return jsonify({'success': True, 'message': 'Settings saved successfully'})
     except Exception as e:
         log.error(f"Error saving settings: {e}")
@@ -1002,12 +936,16 @@ def save_settings_api():
 @app.route('/api-docs')
 @login_required
 def api_docs():
-    """Redirect to Netstacker API documentation using configured Netstacker URL"""
-    # Use the Netstacker URL from settings (configured via GUI) exactly as entered
-    if NETSTACKER_API_URL:
-        return redirect(f'{NETSTACKER_API_URL}/', code=302)
-    else:
-        return jsonify({'error': 'Netstacker URL not configured. Please configure via /settings'}), 400
+    """API documentation - show local Celery-based API info"""
+    return jsonify({
+        'message': 'NetStacks API',
+        'endpoints': {
+            '/api/celery/getconfig': 'Execute show commands via Celery',
+            '/api/celery/setconfig': 'Push configuration via Celery',
+            '/api/celery/task/<task_id>': 'Get task status',
+            '/api/v2/templates': 'Template management'
+        }
+    })
 
 
 # ============================================================================
@@ -1271,82 +1209,21 @@ def proxy_api_call():
 @app.route('/api/devices', methods=['GET', 'POST'])
 @login_required
 def get_devices():
-    """Get device list from manual devices and Netbox (if configured)"""
+    """Get device list from manual devices and Netbox (if configured).
+    Uses centralized device cache from device_service.
+    """
     try:
         # Get filters from request if provided (POST body or query params)
         filters = []
         if request.method == 'POST' and request.json:
             filter_list = request.json.get('filters', [])
-            # Keep as list to support multiple values for same key
             for f in filter_list:
                 if 'key' in f and 'value' in f:
                     filters.append({'key': f['key'], 'value': f['value']})
 
-        # Create cache key based on filters
-        cache_key = json.dumps({'filters': filters}, sort_keys=True)
-
-        # Check cache (with filter-specific key)
-        now = datetime.now().timestamp()
-        cache_entry = device_cache.get(cache_key, {})
-        if (cache_entry.get('devices') is not None and
-            cache_entry.get('timestamp') is not None and
-            (now - cache_entry['timestamp']) < device_cache.get('ttl', 300)):
-            log.info(f"Returning cached device list ({len(cache_entry['devices'])} devices)")
-            return jsonify({'success': True, 'devices': cache_entry['devices'], 'cached': True})
-
-        # Fetch devices from all available sources
-        all_devices = []
-        sources_used = []
-
-        # Always fetch manual devices
-        log.info(f"Fetching manual devices...")
-        manual_devices = db.get_all_manual_devices()
-        # Format manual devices to match Netbox device structure
-        for device in manual_devices:
-            all_devices.append({
-                'name': device['device_name'],
-                'device_type': device['device_type'],
-                'primary_ip': device['host'],
-                'site': 'Manual',
-                'status': 'Active',
-                'source': 'manual'
-            })
-        log.info(f"Found {len(manual_devices)} manual devices")
-        if len(manual_devices) > 0:
-            sources_used.append('manual')
-
-        # Try to fetch Netbox devices if configured
-        settings = get_settings()
-        netbox_url = settings.get('netbox_url', '').strip()
-        netbox_token = settings.get('netbox_token', '').strip()
-
-        if netbox_url and netbox_token:
-            try:
-                log.info(f"Fetching device list from Netbox with filters: {filters}...")
-                netbox_client = get_netbox_client()
-                netbox_devices = netbox_client.get_devices_with_details(filters=filters)
-                # Mark Netbox devices with source
-                for device in netbox_devices:
-                    device['source'] = 'netbox'
-                all_devices.extend(netbox_devices)
-                log.info(f"Found {len(netbox_devices)} Netbox devices")
-                if len(netbox_devices) > 0:
-                    sources_used.append('netbox')
-            except Exception as netbox_error:
-                log.warning(f"Could not fetch devices from Netbox: {netbox_error}")
-                # Continue with manual devices only
-        else:
-            log.info("Netbox not configured, using manual devices only")
-
-        # Update cache with filter-specific key
-        device_cache[cache_key] = {
-            'devices': all_devices,
-            'timestamp': now
-        }
-
-        sources_str = ', '.join(sources_used) if sources_used else 'none'
-        log.info(f"Cached {len(all_devices)} total devices from sources: {sources_str}")
-        return jsonify({'success': True, 'devices': all_devices, 'cached': False, 'sources': sources_used})
+        # Use device service to get devices (handles caching internally)
+        result = device_service_get_devices(filters=filters)
+        return jsonify(result)
     except Exception as e:
         log.error(f"Error fetching devices: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1354,16 +1231,32 @@ def get_devices():
 
 @app.route('/api/devices/clear-cache', methods=['POST'])
 @login_required
-def clear_device_cache():
+def clear_device_cache_endpoint():
     """Clear the device cache"""
     try:
-        global device_cache
-        device_cache.clear()
-        device_cache['ttl'] = 300  # Restore TTL
-        log.info("Device cache cleared")
+        device_service_clear_cache()
         return jsonify({'success': True, 'message': 'Cache cleared successfully'})
     except Exception as e:
         log.error(f"Error clearing cache: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/cached', methods=['GET'])
+@login_required
+def get_cached_devices_endpoint():
+    """Get devices from cache only - does NOT call NetBox.
+    Uses centralized device cache from device_service.
+    """
+    try:
+        devices = device_service_get_cached()
+        return jsonify({
+            'success': True,
+            'devices': devices,
+            'from_cache': True,
+            'count': len(devices)
+        })
+    except Exception as e:
+        log.error(f"Error getting cached devices: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -1427,6 +1320,20 @@ def add_manual_device():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/manual-devices/<device_name>', methods=['GET'])
+@login_required
+def get_manual_device_api(device_name):
+    """Get a single manual device by name"""
+    try:
+        device = db.get_manual_device(device_name)
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        return jsonify({'success': True, 'device': device})
+    except Exception as e:
+        log.error(f"Error getting manual device {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/manual-devices/<device_name>', methods=['PUT'])
 @login_required
 def update_manual_device(device_name):
@@ -1477,6 +1384,656 @@ def delete_manual_device(device_name):
     except Exception as e:
         log.error(f"Error deleting manual device: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+### Device Override Endpoints ###
+
+@app.route('/api/device-overrides', methods=['GET'])
+@login_required
+def get_all_device_overrides():
+    """Get all device overrides"""
+    try:
+        overrides = db.get_all_device_overrides()
+        return jsonify({'success': True, 'overrides': overrides})
+    except Exception as e:
+        log.error(f"Error getting device overrides: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/device-overrides/<device_name>', methods=['GET'])
+@login_required
+def get_device_override(device_name):
+    """Get device-specific overrides for a device"""
+    try:
+        override = db.get_device_override(device_name)
+        if not override:
+            return jsonify({'success': True, 'override': None, 'message': 'No override found for this device'})
+        return jsonify({'success': True, 'override': override})
+    except Exception as e:
+        log.error(f"Error getting device override for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/device-overrides/<device_name>', methods=['PUT'])
+@login_required
+def save_device_override(device_name):
+    """Save or update device-specific overrides"""
+    try:
+        data = request.json
+        data['device_name'] = device_name
+
+        # Don't store empty strings - convert to None
+        for key in ['device_type', 'host', 'username', 'password', 'secret', 'notes']:
+            if key in data and data[key] == '':
+                data[key] = None
+
+        # Convert numeric fields
+        for key in ['port', 'timeout', 'conn_timeout', 'auth_timeout', 'banner_timeout']:
+            if key in data and data[key] is not None:
+                if data[key] == '' or data[key] == 0:
+                    data[key] = None
+                else:
+                    try:
+                        data[key] = int(data[key])
+                    except (ValueError, TypeError):
+                        data[key] = None
+
+        if db.save_device_override(data):
+            log.info(f"Device override saved for: {device_name}")
+            return jsonify({'success': True, 'message': f'Override saved for {device_name}'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save override'}), 500
+    except Exception as e:
+        log.error(f"Error saving device override for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/device-overrides/<device_name>', methods=['DELETE'])
+@login_required
+def delete_device_override(device_name):
+    """Delete device-specific overrides"""
+    try:
+        if db.delete_device_override(device_name):
+            log.info(f"Device override deleted: {device_name}")
+            return jsonify({'success': True, 'message': f'Override deleted for {device_name}'})
+        else:
+            return jsonify({'success': False, 'error': 'Override not found'}), 404
+    except Exception as e:
+        log.error(f"Error deleting device override for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+### Config Backup Endpoints ###
+
+@app.route('/api/config-backups', methods=['GET'])
+@login_required
+def list_config_backups():
+    """List config backups with optional filters"""
+    try:
+        device_name = request.args.get('device')
+        limit = request.args.get('limit', 100, type=int)
+        offset = request.args.get('offset', 0, type=int)
+
+        backups = db.get_config_backups(device_name=device_name, limit=limit, offset=offset)
+        summary = db.get_backup_summary()
+
+        return jsonify({
+            'success': True,
+            'backups': backups,
+            'summary': summary,
+            'limit': limit,
+            'offset': offset
+        })
+    except Exception as e:
+        log.error(f"Error listing config backups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/<backup_id>', methods=['GET'])
+@login_required
+def get_config_backup(backup_id):
+    """Get a specific backup by ID"""
+    try:
+        backup = db.get_config_backup(backup_id)
+        if not backup:
+            return jsonify({'success': False, 'error': 'Backup not found'}), 404
+
+        return jsonify({'success': True, 'backup': backup})
+    except Exception as e:
+        log.error(f"Error getting backup {backup_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/<backup_id>', methods=['DELETE'])
+@login_required
+def delete_config_backup(backup_id):
+    """Delete a specific backup"""
+    try:
+        if db.delete_config_backup(backup_id):
+            log.info(f"Config backup deleted: {backup_id}")
+            return jsonify({'success': True, 'message': 'Backup deleted'})
+        else:
+            return jsonify({'success': False, 'error': 'Backup not found'}), 404
+    except Exception as e:
+        log.error(f"Error deleting backup {backup_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/device/<device_name>/latest', methods=['GET'])
+@login_required
+def get_latest_device_backup(device_name):
+    """Get the latest backup for a specific device"""
+    try:
+        backup = db.get_latest_backup_for_device(device_name)
+        if not backup:
+            return jsonify({'success': False, 'error': f'No backup found for device {device_name}'}), 404
+
+        return jsonify({'success': True, 'backup': backup})
+    except Exception as e:
+        log.error(f"Error getting latest backup for {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/run-single', methods=['POST'])
+@login_required
+def run_single_device_backup():
+    """Run a backup for a single device"""
+    try:
+        data = request.json
+        device_name = data.get('device_name')
+
+        if not device_name:
+            return jsonify({'success': False, 'error': 'device_name is required'}), 400
+
+        # Get device connection info
+        from services.device_service import get_device_connection_info as get_conn_info
+        credential_override = None
+        if data.get('username') and data.get('password'):
+            credential_override = {'username': data['username'], 'password': data['password']}
+
+        device_info = get_conn_info(device_name, credential_override)
+        if not device_info:
+            return jsonify({'success': False, 'error': f'Device {device_name} not found'}), 404
+
+        # Get Juniper format preference - from request or fallback to schedule settings
+        if 'juniper_set_format' in data:
+            juniper_set_format = data.get('juniper_set_format', True)
+        else:
+            schedule = db.get_backup_schedule()
+            juniper_set_format = schedule.get('juniper_set_format', True) if schedule else True
+
+        # Submit backup task
+        task_id = celery_device_service.execute_backup(
+            connection_args=device_info['connection_args'],
+            device_name=device_name,
+            device_platform=device_info['device_info'].get('platform'),
+            juniper_set_format=juniper_set_format,
+            snapshot_id=None,  # Single backup, not part of snapshot
+            created_by=session.get('username', 'system')
+        )
+
+        if task_id:
+            # Save task ID for tracking
+            save_task_id(task_id, device_name=f"backup:{device_name}:{task_id}")
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': f'Backup task submitted for {device_name}'
+        })
+    except Exception as e:
+        log.error(f"Error running single device backup: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/run-all', methods=['POST'])
+@login_required
+def run_all_device_backups():
+    """Run backups for all devices, creating a snapshot"""
+    try:
+        data = request.json or {}
+
+        # Get all devices - try cache first, then fetch fresh if empty
+        devices = device_service_get_cached()
+
+        if not devices:
+            # Cache is empty - fetch fresh devices (includes manual + Netbox)
+            log.info("Device cache empty, fetching fresh device list for backup")
+            from services.device_service import get_devices
+            result = get_devices(force_refresh=True)
+            devices = result.get('devices', [])
+
+        if not devices:
+            log.warning("No devices found for backup.")
+            return jsonify({
+                'success': False,
+                'error': 'No devices found. Add manual devices or configure NetBox.'
+            }), 400
+
+        log.info(f"Found {len(devices)} devices for backup")
+
+        # Get backup schedule settings
+        schedule = db.get_backup_schedule()
+        juniper_set_format = schedule.get('juniper_set_format', True) if schedule else True
+        exclude_patterns = schedule.get('exclude_patterns', []) if schedule else []
+
+        # Filter out excluded devices
+        if exclude_patterns:
+            import re
+            filtered_devices = []
+            for device in devices:
+                device_name = device.get('name', '')
+                excluded = False
+                for pattern in exclude_patterns:
+                    if re.search(pattern, device_name, re.IGNORECASE):
+                        excluded = True
+                        break
+                if not excluded:
+                    filtered_devices.append(device)
+            devices = filtered_devices
+
+        # Create a snapshot to group all backups
+        snapshot_name = data.get('name') or f"Snapshot {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        snapshot_id = db.create_config_snapshot({
+            'name': snapshot_name,
+            'description': data.get('description'),
+            'snapshot_type': data.get('snapshot_type', 'manual'),
+            'total_devices': len(devices),
+            'created_by': session.get('username', 'system')
+        })
+        log.info(f"Created snapshot {snapshot_id} for {len(devices)} devices")
+
+        # Submit backup tasks
+        from services.device_service import get_device_connection_info as get_conn_info
+        submitted = []
+        failed = []
+
+        created_by = session.get('username', 'system')
+        for device in devices:
+            device_name = device.get('name')
+            try:
+                device_info = get_conn_info(device_name)
+                if device_info:
+                    task_id = celery_device_service.execute_backup(
+                        connection_args=device_info['connection_args'],
+                        device_name=device_name,
+                        device_platform=device_info['device_info'].get('platform'),
+                        juniper_set_format=juniper_set_format,
+                        snapshot_id=snapshot_id,
+                        created_by=created_by
+                    )
+                    submitted.append({'device': device_name, 'task_id': task_id, 'snapshot_id': snapshot_id})
+                    save_task_id(task_id, device_name=f"snapshot:{snapshot_id}:backup:{device_name}:{task_id}")
+                else:
+                    failed.append({'device': device_name, 'error': 'Could not get connection info'})
+                    db.increment_snapshot_counts(snapshot_id, success=False)
+            except Exception as e:
+                failed.append({'device': device_name, 'error': str(e)})
+                db.increment_snapshot_counts(snapshot_id, success=False)
+
+        # Update schedule last run time
+        if schedule:
+            from datetime import timedelta
+            last_run = datetime.utcnow()
+            interval_hours = schedule.get('interval_hours', 24)
+            next_run = last_run + timedelta(hours=interval_hours)
+            db.update_backup_schedule_run_times(last_run, next_run)
+
+        return jsonify({
+            'success': True,
+            'snapshot_id': snapshot_id,
+            'submitted': len(submitted),
+            'failed': len(failed),
+            'tasks': submitted,
+            'errors': failed
+        })
+    except Exception as e:
+        log.error(f"Error running all device backups: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/task/<task_id>', methods=['GET'])
+@login_required
+def get_backup_task_status(task_id):
+    """Get status of a backup task.
+
+    Note: Backups are now saved directly by the Celery task when it completes,
+    so this endpoint is only for status polling by the frontend.
+    """
+    try:
+        result = celery_device_service.get_task_result(task_id)
+        log.debug(f"Task {task_id} status: {result.get('status')}")
+
+        # Check if task result indicates it was saved
+        if result.get('status') == 'success' and result.get('result'):
+            task_result = result['result']
+            if task_result.get('saved'):
+                result['saved'] = True
+            # Propagate status from inner result
+            if task_result.get('status') == 'success':
+                result['status'] = 'success'
+            elif task_result.get('status') == 'failed':
+                result['status'] = 'failed'
+                result['error'] = task_result.get('error')
+
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        log.error(f"Error getting backup task status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/backup-schedule', methods=['GET'])
+@login_required
+def get_backup_schedule_api():
+    """Get the backup schedule configuration"""
+    try:
+        schedule = db.get_backup_schedule()
+        if not schedule:
+            # Return defaults
+            schedule = {
+                'schedule_id': 'default',
+                'enabled': False,
+                'interval_hours': 24,
+                'retention_days': 30,
+                'juniper_set_format': True,
+                'include_filters': [],
+                'exclude_patterns': []
+            }
+        return jsonify({'success': True, 'schedule': schedule})
+    except Exception as e:
+        log.error(f"Error getting backup schedule: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/backup-schedule', methods=['PUT'])
+@login_required
+def update_backup_schedule_api():
+    """Update the backup schedule configuration"""
+    try:
+        data = request.json
+
+        schedule_data = {
+            'schedule_id': 'default',
+            'enabled': data.get('enabled', False),
+            'interval_hours': data.get('interval_hours', 24),
+            'retention_days': data.get('retention_days', 30),
+            'juniper_set_format': data.get('juniper_set_format', True),
+            'include_filters': data.get('include_filters', []),
+            'exclude_patterns': data.get('exclude_patterns', [])
+        }
+
+        db.save_backup_schedule(schedule_data)
+        log.info(f"Backup schedule updated: enabled={schedule_data['enabled']}, interval={schedule_data['interval_hours']}h")
+
+        return jsonify({'success': True, 'message': 'Backup schedule updated', 'schedule': schedule_data})
+    except Exception as e:
+        log.error(f"Error updating backup schedule: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/cleanup', methods=['POST'])
+@login_required
+def cleanup_old_backups():
+    """Delete backups older than retention period"""
+    try:
+        data = request.json or {}
+        retention_days = data.get('retention_days')
+
+        if not retention_days:
+            # Get from schedule
+            schedule = db.get_backup_schedule()
+            retention_days = schedule.get('retention_days', 30) if schedule else 30
+
+        deleted_count = db.delete_old_backups(retention_days)
+        log.info(f"Cleaned up {deleted_count} old backups (older than {retention_days} days)")
+
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'retention_days': retention_days
+        })
+    except Exception as e:
+        log.error(f"Error cleaning up old backups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/cleanup-orphans', methods=['POST'])
+@login_required
+def cleanup_orphaned_backups():
+    """Delete backups for devices not in current cache"""
+    try:
+        # Get cached device names
+        cached_devices = device_service_get_cached()
+        if not cached_devices:
+            return jsonify({
+                'success': False,
+                'error': 'Device cache is empty. Load devices on the Devices page first.'
+            }), 400
+
+        cached_device_names = set(d.get('name') for d in cached_devices if d.get('name'))
+        log.info(f"Found {len(cached_device_names)} devices in cache")
+
+        # Get all unique device names from backups
+        summary = db.get_backup_summary()
+        backup_device_names = set(summary.get('devices_with_backups', []))
+        log.info(f"Found {len(backup_device_names)} unique devices with backups")
+
+        # Find orphaned devices (in backups but not in cache)
+        orphaned_devices = backup_device_names - cached_device_names
+        log.info(f"Found {len(orphaned_devices)} orphaned devices")
+
+        if not orphaned_devices:
+            return jsonify({
+                'success': True,
+                'deleted_count': 0,
+                'orphaned_devices': 0,
+                'cached_device_count': len(cached_device_names),
+                'message': 'No orphaned backups found'
+            })
+
+        # Delete backups for orphaned devices
+        deleted_count = db.delete_backups_for_devices(list(orphaned_devices))
+        log.info(f"Deleted {deleted_count} backups from {len(orphaned_devices)} orphaned devices")
+
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'orphaned_devices': len(orphaned_devices),
+            'cached_device_count': len(cached_device_names)
+        })
+    except Exception as e:
+        log.error(f"Error cleaning up orphaned backups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Config Snapshot API Endpoints
+# =============================================================================
+
+@app.route('/api/config-snapshots', methods=['GET'])
+@login_required
+def get_config_snapshots_api():
+    """Get all config snapshots"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        snapshots = db.get_config_snapshots(limit=limit, offset=offset)
+        return jsonify({'success': True, 'snapshots': snapshots})
+    except Exception as e:
+        log.error(f"Error getting config snapshots: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>', methods=['GET'])
+@login_required
+def get_config_snapshot_api(snapshot_id):
+    """Get a specific config snapshot with its backups"""
+    try:
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        # Get all backups for this snapshot
+        backups = db.get_snapshot_backups(snapshot_id)
+        snapshot['backups'] = backups
+
+        return jsonify({'success': True, 'snapshot': snapshot})
+    except Exception as e:
+        log.error(f"Error getting config snapshot: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>', methods=['PUT'])
+@login_required
+def update_config_snapshot_api(snapshot_id):
+    """Update a config snapshot (name, description)"""
+    try:
+        data = request.json or {}
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        db.update_config_snapshot(snapshot_id, data)
+        return jsonify({'success': True, 'message': 'Snapshot updated'})
+    except Exception as e:
+        log.error(f"Error updating config snapshot: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>', methods=['DELETE'])
+@login_required
+def delete_config_snapshot_api(snapshot_id):
+    """Delete a config snapshot and all its backups"""
+    try:
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        db.delete_config_snapshot(snapshot_id)
+        log.info(f"Deleted snapshot {snapshot_id} and all its backups")
+        return jsonify({'success': True, 'message': 'Snapshot deleted'})
+    except Exception as e:
+        log.error(f"Error deleting config snapshot: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>/recalculate', methods=['POST'])
+@login_required
+def recalculate_snapshot_counts_api(snapshot_id):
+    """Recalculate snapshot counts from actual backups in database"""
+    try:
+        snapshot = db.get_config_snapshot(snapshot_id)
+        if not snapshot:
+            return jsonify({'success': False, 'error': 'Snapshot not found'}), 404
+
+        result = db.recalculate_snapshot_counts(snapshot_id)
+        if result:
+            # Get updated snapshot
+            updated = db.get_config_snapshot(snapshot_id)
+            return jsonify({
+                'success': True,
+                'message': 'Counts recalculated',
+                'snapshot': updated
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to recalculate counts'}), 500
+    except Exception as e:
+        log.error(f"Error recalculating snapshot counts: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/fix-stale', methods=['POST'])
+@login_required
+def fix_stale_snapshots_api():
+    """Fix snapshots stuck in in_progress state for over 30 minutes"""
+    try:
+        fixed_count = db.check_and_fix_stale_snapshots()
+        return jsonify({
+            'success': True,
+            'fixed_count': fixed_count,
+            'message': f'Fixed {fixed_count} stale snapshots'
+        })
+    except Exception as e:
+        log.error(f"Error fixing stale snapshots: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-snapshots/<snapshot_id>/compare/<other_snapshot_id>', methods=['GET'])
+@login_required
+def compare_config_snapshots_api(snapshot_id, other_snapshot_id):
+    """Compare two snapshots across all devices"""
+    try:
+        snapshot1 = db.get_config_snapshot(snapshot_id)
+        snapshot2 = db.get_config_snapshot(other_snapshot_id)
+
+        if not snapshot1:
+            return jsonify({'success': False, 'error': f'Snapshot {snapshot_id} not found'}), 404
+        if not snapshot2:
+            return jsonify({'success': False, 'error': f'Snapshot {other_snapshot_id} not found'}), 404
+
+        # Get backups for both snapshots
+        backups1 = db.get_snapshot_backups(snapshot_id)
+        backups2 = db.get_snapshot_backups(other_snapshot_id)
+
+        # Create lookup by device name
+        backup_map1 = {b['device_name']: b for b in backups1}
+        backup_map2 = {b['device_name']: b for b in backups2}
+
+        # Find all devices
+        all_devices = set(backup_map1.keys()) | set(backup_map2.keys())
+
+        comparison = []
+        for device in sorted(all_devices):
+            b1 = backup_map1.get(device)
+            b2 = backup_map2.get(device)
+
+            comp_item = {
+                'device_name': device,
+                'in_snapshot1': b1 is not None,
+                'in_snapshot2': b2 is not None,
+                'changed': False
+            }
+
+            if b1 and b2:
+                comp_item['changed'] = b1.get('config_hash') != b2.get('config_hash')
+                comp_item['backup1_id'] = b1['backup_id']
+                comp_item['backup2_id'] = b2['backup_id']
+            elif b1:
+                comp_item['backup1_id'] = b1['backup_id']
+            elif b2:
+                comp_item['backup2_id'] = b2['backup_id']
+
+            comparison.append(comp_item)
+
+        return jsonify({
+            'success': True,
+            'snapshot1': snapshot1,
+            'snapshot2': snapshot2,
+            'comparison': comparison,
+            'summary': {
+                'total_devices': len(all_devices),
+                'changed': sum(1 for c in comparison if c['changed']),
+                'only_in_snapshot1': sum(1 for c in comparison if c['in_snapshot1'] and not c['in_snapshot2']),
+                'only_in_snapshot2': sum(1 for c in comparison if c['in_snapshot2'] and not c['in_snapshot1'])
+            }
+        })
+    except Exception as e:
+        log.error(f"Error comparing snapshots: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/snapshots')
+@login_required
+def snapshots_page():
+    """Snapshots page - manage network configuration snapshots and device backups"""
+    return render_template('config_backups.html')
+
+
+@app.route('/config-backups')
+@login_required
+def config_backups_redirect():
+    """Redirect old config-backups URL to snapshots"""
+    return redirect(url_for('snapshots_page'))
 
 
 @app.route('/api/network-topology', methods=['GET'])
@@ -1780,117 +2337,6 @@ def test_netbox_connection():
         }), 500
 
 
-@app.route('/api/test-netstacker', methods=['POST'])
-@login_required
-def test_netstacker_connection():
-    """Test Netstacker API connection with provided credentials"""
-    try:
-        import time
-
-        data = request.json
-        netstacker_url = data.get('netstacker_url', '').strip()
-        netstacker_api_key = data.get('netstacker_api_key', '').strip()
-
-        if not netstacker_url:
-            return jsonify({'success': False, 'error': 'Netstacker URL is required'}), 400
-
-        if not netstacker_api_key:
-            return jsonify({'success': False, 'error': 'Netstacker API key is required'}), 400
-
-        # Build the test URL (check workers endpoint as a simple test)
-        test_url = f"{netstacker_url.rstrip('/')}/workers"
-
-        log.info(f"Testing Netstacker connection to: {test_url}")
-
-        # Prepare headers
-        test_headers = {
-            'x-api-key': netstacker_api_key,
-            'Content-Type': 'application/json'
-        }
-
-        # Measure response time
-        start_time = time.time()
-
-        # Try to fetch workers (simple read-only endpoint)
-        response = requests.get(
-            test_url,
-            headers=test_headers,
-            timeout=10
-        )
-
-        response_time = round((time.time() - start_time) * 1000, 2)  # Convert to ms
-
-        if response.status_code == 200:
-            result = response.json()
-
-            # Try to extract workers from different possible response structures
-            workers = None
-            if isinstance(result, dict):
-                # Try nested structure: data.task_result
-                workers = result.get('data', {})
-                if isinstance(workers, dict):
-                    workers = workers.get('task_result', [])
-                # If data itself is a list, use it directly
-                elif isinstance(result.get('data'), list):
-                    workers = result.get('data')
-            elif isinstance(result, list):
-                # Response is a list directly
-                workers = result
-
-            # Count workers
-            worker_count = len(workers) if isinstance(workers, list) else 0
-
-            log.info(f"Netstacker test successful: {worker_count} workers found")
-
-            return jsonify({
-                'success': True,
-                'worker_count': worker_count,
-                'response_time': response_time,
-                'message': 'Successfully connected to Netstacker API',
-                'api_url': test_url,
-                'has_api_key': bool(netstacker_api_key)
-            })
-        elif response.status_code == 401:
-            return jsonify({
-                'success': False,
-                'error': 'Authentication failed. Check your Netstacker API key.',
-                'api_url': test_url,
-                'status_code': response.status_code
-            }), 401
-        else:
-            return jsonify({
-                'success': False,
-                'error': f'Netstacker API returned status code {response.status_code}',
-                'api_url': test_url,
-                'status_code': response.status_code,
-                'details': response.text[:200]
-            }), 500
-
-    except requests.exceptions.ConnectionError as e:
-        log.error(f"Connection Error testing Netstacker: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Could not connect to Netstacker. Check the URL and network connectivity.',
-            'api_url': test_url if 'test_url' in locals() else 'N/A',
-            'details': str(e)
-        }), 500
-    except requests.exceptions.Timeout as e:
-        log.error(f"Timeout testing Netstacker: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Connection to Netstacker timed out after 10 seconds.',
-            'api_url': test_url if 'test_url' in locals() else 'N/A'
-        }), 500
-    except Exception as e:
-        log.error(f"Error testing Netstacker connection: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'api_url': test_url if 'test_url' in locals() else 'N/A',
-            'details': str(e)
-        }), 500
-
-
 @app.route('/api/device-names')
 @login_required
 def get_device_names():
@@ -1956,32 +2402,21 @@ def api_get_device_connection_info(device_name):
 @app.route('/api/tasks')
 @login_required
 def get_tasks():
-    """Get all tasks - combines queue and history, sorted by creation time (newest first)"""
+    """Get all tasks from local task history"""
     try:
-        # Get currently queued tasks from netstacker
-        response = requests.get(f'{NETSTACKER_API_URL}/taskqueue/', headers=NETSTACKER_HEADERS, timeout=5)
-        response.raise_for_status()
-        queued_data = response.json()
-
         # Get task history from our local store
         history = get_task_history()
 
         # Build map of task_id to creation time
         task_times = {}
+        all_task_ids = []
         for item in history:
             task_id = item.get('task_id')
             created = item.get('created', '1970-01-01T00:00:00')
             if task_id:
                 task_times[task_id] = created
-
-        # Get all unique task IDs
-        all_task_ids = list(set(queued_data.get('data', {}).get('task_id', [])))
-
-        # Add historical tasks not in queue
-        for item in history:
-            task_id = item['task_id']
-            if task_id not in all_task_ids:
-                all_task_ids.append(task_id)
+                if task_id not in all_task_ids:
+                    all_task_ids.append(task_id)
 
         # Sort by creation time (newest first)
         sorted_tasks = sorted(
@@ -1990,7 +2425,6 @@ def get_tasks():
             reverse=True
         )
 
-        # Return in same format as netstacker
         return jsonify({
             'status': 'success',
             'data': {
@@ -2033,11 +2467,17 @@ def get_tasks_metadata():
 @app.route('/api/task/<task_id>')
 @login_required
 def get_task(task_id):
-    """Get specific task details"""
+    """Get specific task details from Celery"""
     try:
-        response = requests.get(f'{NETSTACKER_API_URL}/task/{task_id}', headers=NETSTACKER_HEADERS, timeout=5)
-        response.raise_for_status()
-        return jsonify(response.json())
+        result = celery_device_service.get_task_result(task_id)
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'task_id': task_id,
+                'task_status': result.get('status', 'unknown'),
+                'task_result': result.get('result', {})
+            }
+        })
     except Exception as e:
         log.error(f"Error fetching task {task_id}: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2046,62 +2486,101 @@ def get_task(task_id):
 @app.route('/api/workers')
 @login_required
 def get_workers():
-    """Get all workers from netstacker"""
+    """Get Celery worker info"""
     try:
-        response = requests.get(f'{NETSTACKER_API_URL}/workers', headers=NETSTACKER_HEADERS, timeout=5)
-        response.raise_for_status()
+        from tasks import celery_app
 
-        # Return the data in a consistent format
-        result = response.json()
-        if isinstance(result, list):
-            return jsonify(result)
-        elif isinstance(result, dict) and 'data' in result:
-            data = result['data']
-            if isinstance(data, dict) and 'task_result' in data:
-                return jsonify(data['task_result'])
-            return jsonify(data)
-        return jsonify(result)
+        # Get active workers from Celery
+        inspect = celery_app.control.inspect()
+        active = inspect.active() or {}
+        stats = inspect.stats() or {}
+
+        workers = []
+        for worker_name, worker_stats in stats.items():
+            workers.append({
+                'name': worker_name,
+                'status': 'online',
+                'active_tasks': len(active.get(worker_name, [])),
+                'pool': worker_stats.get('pool', {}).get('max-concurrency', 'N/A'),
+                'broker': worker_stats.get('broker', {}).get('hostname', 'redis')
+            })
+
+        if not workers:
+            workers = [{'name': 'No workers connected', 'status': 'offline'}]
+
+        return jsonify(workers)
     except Exception as e:
         log.error(f"Error fetching workers: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workers/tasks')
+@login_required
+def get_registered_tasks():
+    """Get list of registered Celery tasks"""
+    try:
+        from tasks import celery_app
+
+        # Get registered tasks from Celery
+        inspect = celery_app.control.inspect()
+        registered = inspect.registered() or {}
+
+        # Collect all unique tasks across workers
+        all_tasks = set()
+        for worker_name, tasks in registered.items():
+            all_tasks.update(tasks)
+
+        # Filter out celery internal tasks
+        filtered_tasks = [t for t in all_tasks if not t.startswith('celery.')]
+
+        return jsonify({
+            'success': True,
+            'tasks': sorted(filtered_tasks)
+        })
+    except Exception as e:
+        log.error(f"Error fetching registered tasks: {e}")
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/deploy/getconfig', methods=['POST'])
 @login_required
 def deploy_getconfig():
-    """Deploy getconfig to device"""
+    """Deploy getconfig to device - uses Celery"""
     try:
         data = request.json
         log.info(f"Received getconfig request: {data}")
 
-        # Extract device name if provided
         device_name = data.get('device_name')
+        payload = data.get('payload', {})
+        connection_args = payload.get('connection_args', {})
+        command = payload.get('command', 'show running-config')
 
-        # Forward request to netstacker
-        library = data.get('library', 'netmiko')
-        endpoint = f'/getconfig/{library}' if library != 'auto' else '/getconfig'
+        # Extract parsing options from payload.args (where frontend sends them)
+        args = payload.get('args', {})
+        use_textfsm = args.get('use_textfsm', False)
+        use_genie = args.get('use_genie', False)
+        use_ttp = args.get('use_ttp', False)
+        ttp_template = args.get('ttp_template', None)
 
-        payload = data.get('payload')
-        log.info(f"Sending to netstacker {NETSTACKER_API_URL}{endpoint}: {payload}")
+        log.info(f"Parsing options: textfsm={use_textfsm}, genie={use_genie}, ttp={use_ttp}")
 
-        response = requests.post(
-            f'{NETSTACKER_API_URL}{endpoint}',
-            json=payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=30
+        # Execute via Celery
+        task_id = celery_device_service.execute_get_config(
+            connection_args=connection_args,
+            command=command,
+            use_textfsm=use_textfsm,
+            use_genie=use_genie,
+            use_ttp=use_ttp,
+            ttp_template=ttp_template
         )
 
-        log.info(f"Netstacker response status: {response.status_code}")
-        log.info(f"Netstacker response body: {response.text}")
+        if task_id:
+            save_task_id(task_id, device_name)
 
-        response.raise_for_status()
-        result = response.json()
-
-        # Save task ID to history with device name
-        if result.get('status') == 'success' and result.get('data', {}).get('task_id'):
-            save_task_id(result['data']['task_id'], device_name)
-
-        return jsonify(result)
+        return jsonify({
+            'status': 'success',
+            'data': {'task_id': task_id}
+        })
     except Exception as e:
         log.error(f"Error deploying getconfig: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2110,31 +2589,34 @@ def deploy_getconfig():
 @app.route('/api/deploy/setconfig', methods=['POST'])
 @login_required
 def deploy_setconfig():
-    """Deploy setconfig to device"""
+    """Deploy setconfig to device - uses Celery"""
     try:
         data = request.json
-
-        # Extract device name if provided
         device_name = data.get('device_name')
+        payload = data.get('payload', {})
+        connection_args = payload.get('connection_args', {})
+        config = payload.get('config', payload.get('config_set', ''))
 
-        # Forward request to netstacker
-        library = data.get('library', 'netmiko')
-        endpoint = f'/setconfig/{library}' if library != 'auto' else '/setconfig'
+        # Handle config as string or list
+        if isinstance(config, list):
+            config_lines = config
+        else:
+            config_lines = config.split('\n') if config else []
 
-        response = requests.post(
-            f'{NETSTACKER_API_URL}{endpoint}',
-            json=data.get('payload'),
-            headers=NETSTACKER_HEADERS,
-            timeout=30
+        # Execute via Celery
+        task_id = celery_device_service.execute_set_config(
+            connection_args=connection_args,
+            config_lines=config_lines,
+            save_config=payload.get('save_config', True)
         )
-        response.raise_for_status()
-        result = response.json()
 
-        # Save task ID to history with device name
-        if result.get('status') == 'success' and result.get('data', {}).get('task_id'):
-            save_task_id(result['data']['task_id'], device_name)
+        if task_id:
+            save_task_id(task_id, device_name)
 
-        return jsonify(result)
+        return jsonify({
+            'status': 'success',
+            'data': {'task_id': task_id}
+        })
     except Exception as e:
         log.error(f"Error deploying setconfig: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2143,20 +2625,29 @@ def deploy_setconfig():
 @app.route('/api/deploy/setconfig/dry-run', methods=['POST'])
 @login_required
 def deploy_setconfig_dryrun():
-    """Deploy setconfig dry-run to device"""
+    """Deploy setconfig dry-run - renders template without deploying"""
     try:
         data = request.json
+        payload = data.get('payload', {})
 
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/setconfig/dry-run',
-            json=data.get('payload'),
-            headers=NETSTACKER_HEADERS,
-            timeout=30
-        )
-        response.raise_for_status()
-        return jsonify(response.json())
+        # If there's a j2config, render it locally
+        j2config = payload.get('j2config', {})
+        if j2config:
+            template_name = j2config.get('template', '')
+            variables = j2config.get('args', {})
+            rendered = render_j2_template(template_name, variables)
+            return jsonify({
+                'status': 'success',
+                'data': {'rendered_config': rendered}
+            })
+
+        # Otherwise just return the config that would be deployed
+        return jsonify({
+            'status': 'success',
+            'data': {'rendered_config': payload.get('config', '')}
+        })
     except Exception as e:
-        log.error(f"Error deploying dry-run: {e}")
+        log.error(f"Error in dry-run: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -2165,38 +2656,21 @@ def deploy_setconfig_dryrun():
 @app.route('/api/templates')
 @login_required
 def get_templates():
-    """List all J2 config templates with metadata"""
+    """List all J2 config templates with metadata - now uses local database"""
     try:
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/j2template/config/',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
+        templates = db.get_all_templates()
 
-        # Extract template list from response
-        templates = result.get('data', {}).get('task_result', {}).get('templates', [])
+        # Format for frontend compatibility
+        template_list = [{
+            'name': t['name'],
+            'type': t.get('type', 'deploy'),
+            'validation_template': t.get('validation_template'),
+            'delete_template': t.get('delete_template'),
+            'description': t.get('description'),
+            'has_content': bool(t.get('content'))
+        } for t in templates]
 
-        # Get all template metadata
-        all_metadata = get_all_template_metadata()
-
-        # Enhance template list with metadata
-        enhanced_templates = []
-        for template_name in templates:
-            # Strip .j2 extension for lookup
-            lookup_name = template_name[:-3] if template_name.endswith('.j2') else template_name
-
-            metadata = all_metadata.get(lookup_name, {})
-            enhanced_templates.append({
-                'name': template_name,
-                'type': metadata.get('type', 'deploy'),  # Default to deploy if not set
-                'validation_template': metadata.get('validation_template'),
-                'delete_template': metadata.get('delete_template'),
-                'description': metadata.get('description')
-            })
-
-        return jsonify({'success': True, 'templates': enhanced_templates})
+        return jsonify({'success': True, 'templates': template_list})
     except Exception as e:
         log.error(f"Error fetching templates: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2205,30 +2679,16 @@ def get_templates():
 @app.route('/api/templates/<template_name>')
 @login_required
 def get_template(template_name):
-    """Get specific J2 template content"""
+    """Get specific J2 template content - now uses local database"""
     try:
-        # Strip .j2 extension if present (Netstacker adds it automatically)
+        # Strip .j2 extension if present
         if template_name.endswith('.j2'):
-            template_name_without_ext = template_name[:-3]
-        else:
-            template_name_without_ext = template_name
+            template_name = template_name[:-3]
 
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/j2template/config/{template_name_without_ext}',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
+        template = db.get_template_metadata(template_name)
 
-        # Extract base64 template content and decode
-        template_data = result.get('data', {}).get('task_result', {})
-        base64_content = template_data.get('base64_payload') or template_data.get('template')
-
-        if base64_content:
-            # Decode from base64
-            decoded_content = base64.b64decode(base64_content).decode('utf-8')
-            return jsonify({'success': True, 'content': decoded_content})
+        if template and template.get('content'):
+            return jsonify({'success': True, 'content': template['content']})
         else:
             return jsonify({'success': False, 'error': 'Template not found'}), 404
 
@@ -2240,50 +2700,38 @@ def get_template(template_name):
 @app.route('/api/templates', methods=['POST'])
 @login_required
 def create_template():
-    """Create/update J2 template - saves to Netstacker only"""
+    """Create/update J2 template - saves to local database"""
     try:
         data = request.json
         template_name = data.get('name')
-        base64_payload = data.get('base64_payload')
+        content = data.get('content')
 
-        if not template_name or not base64_payload:
-            return jsonify({'success': False, 'error': 'Missing name or base64_payload'}), 400
+        if not template_name:
+            return jsonify({'success': False, 'error': 'Missing template name'}), 400
 
-        # Strip .j2 extension if present (Netstacker handles this)
+        # Strip .j2 extension if present
         if template_name.endswith('.j2'):
-            template_name_no_ext = template_name[:-3]
-        else:
-            template_name_no_ext = template_name
+            template_name = template_name[:-3]
 
-        # Push to Netstacker (primary storage)
-        payload = {
-            'name': template_name_no_ext,
-            'base64_payload': base64_payload
+        if not content:
+            return jsonify({'success': False, 'error': 'Missing template content'}), 400
+
+        # Build metadata
+        metadata = {
+            'type': data.get('type', 'deploy'),
+            'description': data.get('description'),
+            'validation_template': data.get('validation_template'),
+            'delete_template': data.get('delete_template')
         }
 
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/j2template/config/',
-            json=payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
+        # Save to local database
+        db.save_template(template_name, content, metadata)
+        log.info(f"Saved template: {template_name}")
 
-        # Check if netstacker returned success
-        if result.get('status') == 'success':
-            log.info(f"Saved template to Netstacker: {template_name_no_ext}")
-            return jsonify({
-                'success': True,
-                'message': f'Template saved to Netstacker successfully'
-            })
-        else:
-            error_msg = result.get('data', {}).get('task_result', {}).get('error', 'Unknown error')
-            log.error(f"Netstacker save failed: {error_msg}")
-            return jsonify({
-                'success': False,
-                'error': f'Failed to save template: {error_msg}'
-            }), 500
+        return jsonify({
+            'success': True,
+            'message': f'Template {template_name} saved successfully'
+        })
 
     except Exception as e:
         log.error(f"Error creating template: {e}")
@@ -2322,7 +2770,7 @@ def update_template_metadata(template_name):
 @app.route('/api/templates', methods=['DELETE'])
 @login_required
 def delete_template():
-    """Delete J2 template"""
+    """Delete J2 template from local database"""
     try:
         data = request.json
         template_name = data.get('name')
@@ -2330,24 +2778,17 @@ def delete_template():
         if not template_name:
             return jsonify({'success': False, 'error': 'Missing template name'}), 400
 
-        payload = {'name': template_name}
+        # Strip .j2 extension if present
+        if template_name.endswith('.j2'):
+            template_name = template_name[:-3]
 
-        # Delete from Netstacker
-        response = requests.delete(
-            f'{NETSTACKER_API_URL}/j2template/config/',
-            json=payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
+        # Delete from local database
+        if db.delete_template_metadata(template_name):
+            log.info(f"Deleted template: {template_name}")
+            return jsonify({'success': True, 'message': 'Template deleted successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Template not found'}), 404
 
-        # Delete metadata from local database
-        try:
-            delete_template_metadata(template_name)
-        except Exception as db_error:
-            log.warning(f"Failed to delete template metadata for {template_name}: {db_error}")
-
-        return jsonify({'success': True, 'message': 'Template deleted successfully'})
     except Exception as e:
         log.error(f"Error deleting template: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2360,33 +2801,18 @@ def delete_template():
 def get_template_variables(template_name):
     """Extract variables from J2 template"""
     try:
-        # Strip .j2 extension if present (Netstacker adds it automatically)
+        import re
+
+        # Strip .j2 extension if present
         if template_name.endswith('.j2'):
-            template_name_without_ext = template_name[:-3]
-        else:
-            template_name_without_ext = template_name
+            template_name = template_name[:-3]
 
-        # Get template content
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/j2template/config/{template_name_without_ext}',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        template_data = result.get('data', {}).get('task_result', {})
-        base64_content = template_data.get('base64_payload') or template_data.get('template')
-
-        if not base64_content:
+        # Get template content from local database
+        template_content = db.get_template_content(template_name)
+        if not template_content:
             return jsonify({'success': False, 'error': 'Template not found'}), 404
 
-        # Decode template
-        template_content = base64.b64decode(base64_content).decode('utf-8')
-
-        # Extract variables using regex
-        import re
-        # Match {{ variable_name }} patterns
+        # Extract variables using regex - match {{ variable_name }} patterns
         variable_pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}'
         variables = list(set(re.findall(variable_pattern, template_content)))
         variables.sort()
@@ -2409,27 +2835,11 @@ def api_render_j2_template():
         if not template_name:
             return jsonify({'success': False, 'error': 'Missing template name'}), 400
 
-        # Call netstacker's template render API
-        payload = {
-            'template_name': template_name,
-            'args': variables
-        }
-
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/j2template/render/config/{template_name}',
-            json=payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        # Extract rendered configuration from response
-        task_result = result.get('data', {}).get('task_result', {})
-        rendered_config = task_result.get('template_render_result', '') or task_result.get('rendered_config', '')
+        # Render template locally
+        rendered_config = render_j2_template(template_name, variables)
 
         if not rendered_config:
-            return jsonify({'success': False, 'error': 'No rendered configuration returned from template'}), 500
+            return jsonify({'success': False, 'error': 'Failed to render template'}), 500
 
         return jsonify({'success': True, 'rendered_config': rendered_config})
     except Exception as e:
@@ -2601,82 +3011,48 @@ def set_user_theme():
 @app.route('/api/services/templates')
 @login_required
 def get_service_templates():
-    """List all available service templates using helper script"""
+    """List all available service templates from local database"""
     try:
-        # Use custom script to list service templates
-        payload = {
-            "script": "list_service_templates",
-            "args": {}
-        }
-
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/script',
-            json=payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        # Get the task_id and retrieve the result
-        task_id = result.get('data', {}).get('task_id')
-        if task_id:
-            import time
-            time.sleep(0.5)  # Brief wait for task to complete
-
-            task_response = requests.get(
-                f'{NETSTACKER_API_URL}/task/{task_id}',
-                headers=NETSTACKER_HEADERS,
-                timeout=10
-            )
-            task_response.raise_for_status()
-            task_result = task_response.json()
-
-            script_result = task_result.get('data', {}).get('task_result', {})
-            templates = script_result.get('templates', [])
-
-            return jsonify({'success': True, 'templates': templates})
-
-        # Fallback to empty list
-        return jsonify({'success': True, 'templates': []})
+        # Get deploy-type templates from local database
+        all_templates = db.get_all_templates()
+        templates = [
+            {'name': t['name'], 'description': t.get('description', '')}
+            for t in all_templates
+            if t.get('type', 'deploy') == 'deploy'
+        ]
+        return jsonify({'success': True, 'templates': templates})
     except Exception as e:
         log.error(f"Error fetching service templates: {e}")
-        # Return empty list as fallback
         return jsonify({'success': True, 'templates': []})
 
 
 @app.route('/api/services/templates/<template_name>/schema')
 @login_required
 def get_service_template_schema(template_name):
-    """Get the Pydantic model schema for a service template
-
-    Note: This endpoint is maintained for backward compatibility.
-    The template-based system now uses dynamic template variable extraction
-    instead of hardcoded schemas.
-    """
-
-    # Empty schemas dictionary - using template-based system now
-    service_schemas = {}
-
-    # Check if we have a hardcoded schema (none currently)
-    if template_name in service_schemas:
-        return jsonify({'success': True, 'schema': service_schemas[template_name]})
-
+    """Get schema for a service template by extracting variables from template"""
     try:
-        # Try to get the schema from netstacker (if it provides one)
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/service/schema/{template_name}',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
+        import re
 
-        if response.status_code == 200:
-            result = response.json()
-            schema = result.get('data', {}).get('task_result', {})
-            return jsonify({'success': True, 'schema': schema})
-        else:
-            # Return empty schema if not available
+        # Strip .j2 extension if present
+        if template_name.endswith('.j2'):
+            template_name = template_name[:-3]
+
+        # Get template content
+        template_content = db.get_template_content(template_name)
+        if not template_content:
             return jsonify({'success': True, 'schema': None})
+
+        # Extract variables from template
+        variable_pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}'
+        variables = list(set(re.findall(variable_pattern, template_content)))
+
+        # Build a simple schema from extracted variables
+        schema = {
+            'properties': {var: {'type': 'string'} for var in variables},
+            'required': variables
+        }
+
+        return jsonify({'success': True, 'schema': schema})
     except Exception as e:
         log.error(f"Error fetching service schema: {e}")
         return jsonify({'success': True, 'schema': None})
@@ -2774,24 +3150,12 @@ def create_template_service():
                 'error': f'Failed to render template: {template}'
             }), 500
 
-        # Push config to device using setconfig
-        setconfig_payload = {
-            'library': 'netmiko',
-            'connection_args': device_info['connection_args'],
-            'config': rendered_config.split('\n'),
-            'queue_strategy': 'fifo'
-        }
-
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/setconfig',
-            json=setconfig_payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=30
+        # Push config to device using Celery
+        task_id = celery_device_service.execute_set_config(
+            connection_args=device_info['connection_args'],
+            config_lines=rendered_config.split('\n'),
+            save_config=True
         )
-        response.raise_for_status()
-        result = response.json()
-
-        task_id = result.get('data', {}).get('task_id')
         if task_id:
             save_task_id(task_id, device_name=f"service:{service_name}")
 
@@ -2826,21 +3190,42 @@ def create_template_service():
 @app.route('/api/services/instances/<service_id>/healthcheck', methods=['POST'])
 @login_required
 def health_check_service_instance(service_id):
-    """Health check a service instance"""
+    """Health check a service instance by validating config on device"""
     try:
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/service/instance/healthcheck/{service_id}',
-            headers=NETSTACKER_HEADERS,
-            timeout=30
-        )
-        response.raise_for_status()
-        result = response.json()
+        from services.device_service import get_device_connection_info as get_conn_info
 
-        task_id = result.get('data', {}).get('task_id')
+        service = get_service_instance(service_id)
+        if not service:
+            return jsonify({'success': False, 'error': 'Service not found'}), 404
+
+        device = service.get('device')
+        if not device:
+            return jsonify({'success': False, 'error': 'Service has no device'}), 400
+
+        # Get device connection info
+        device_info = get_conn_info(device)
+        if not device_info:
+            return jsonify({'success': False, 'error': f'Could not get connection info for device: {device}'}), 400
+
+        # Get validation patterns from rendered config
+        rendered_config = service.get('rendered_config', '')
+        if not rendered_config:
+            return jsonify({'success': False, 'error': 'No rendered config to validate'}), 400
+
+        # Use first few lines as validation patterns
+        patterns = [line.strip() for line in rendered_config.split('\n')[:5] if line.strip()]
+
+        # Execute validation via Celery
+        task_id = celery_device_service.execute_validate(
+            connection_args=device_info['connection_args'],
+            expected_patterns=patterns,
+            validation_command='show running-config'
+        )
+
         if task_id:
             save_task_id(task_id, device_name=f"service_healthcheck:{service_id}")
 
-        return jsonify({'success': True, 'task_id': task_id, 'result': result.get('data', {})})
+        return jsonify({'success': True, 'task_id': task_id})
     except Exception as e:
         log.error(f"Error health checking service instance: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2851,64 +3236,46 @@ def health_check_service_instance(service_id):
 def redeploy_service_instance(service_id):
     """Redeploy a service instance using stored configuration"""
     try:
+        from services.device_service import get_device_connection_info as get_conn_info
+
         service = get_service_instance(service_id)
         if not service:
             return jsonify({'success': False, 'error': 'Service not found'}), 404
 
-        # Check if service has template and variables
         if not service.get('template'):
-            return jsonify({
-                'success': False,
-                'error': 'Service has no template to redeploy'
-            }), 400
+            return jsonify({'success': False, 'error': 'Service has no template to redeploy'}), 400
 
         # Get credentials from request if provided
         data = request.json or {}
         username = data.get('username')
         password = data.get('password')
 
-        log.info(f"Redeploying service {service_id} to device {service.get('device')} with template {service.get('template')}")
+        log.info(f"Redeploying service {service_id} to device {service.get('device')}")
 
         # Get device connection info
-        credential_override = None
-        if username and password:
-            credential_override = {'username': username, 'password': password}
-
-        device_info = get_device_connection_info(service['device'], credential_override)
+        credential_override = {'username': username, 'password': password} if username and password else None
+        device_info = get_conn_info(service['device'], credential_override)
         if not device_info:
-            return jsonify({
-                'success': False,
-                'error': f'Could not get connection info for device: {service["device"]}'
-            }), 400
+            return jsonify({'success': False, 'error': f'Could not get connection info for device: {service["device"]}'}), 400
 
-        # Deploy using j2config - let Netstacker render and deploy
-        deploy_response = requests.post(
-            f'{NETSTACKER_API_URL}/setconfig',
-            headers=NETSTACKER_HEADERS,
-            json={
-                'library': 'netmiko',
-                'connection_args': device_info['connection_args'],
-                'j2config': {
-                    'template': service['template'],
-                    'args': service.get('variables', {})
-                },
-                'queue_strategy': 'fifo'
-            },
-            timeout=60
+        # Render template and deploy via Celery
+        rendered_config = render_j2_template(service['template'], service.get('variables', {}))
+        if not rendered_config:
+            return jsonify({'success': False, 'error': 'Failed to render template'}), 500
+
+        task_id = celery_device_service.execute_set_config(
+            connection_args=device_info['connection_args'],
+            config_lines=rendered_config.split('\n'),
+            save_config=True
         )
-
-        if deploy_response.status_code != 201:
-            raise Exception(f"Failed to deploy configuration: {deploy_response.text}")
-
-        deploy_result = deploy_response.json()
-        task_id = deploy_result.get('data', {}).get('task_id')
 
         if task_id:
             save_task_id(task_id, device_name=f"service_redeploy:{service_id}:{service.get('device')}")
 
-        # Update service state to deploying (non-blocking - let Netstacker queue handle it)
+        # Update service state
         service['state'] = 'deploying'
         service['task_id'] = task_id
+        service['rendered_config'] = rendered_config
         if 'error' in service:
             del service['error']
         save_service_instance(service)
@@ -2916,7 +3283,7 @@ def redeploy_service_instance(service_id):
         return jsonify({
             'success': True,
             'task_id': task_id,
-            'message': f'Service redeploy job submitted to Netstacker. Task ID: {task_id}'
+            'message': f'Service redeploy submitted. Task ID: {task_id}'
         })
 
     except Exception as e:
@@ -2929,12 +3296,12 @@ def redeploy_service_instance(service_id):
 def delete_template_service(service_id):
     """Delete a template-based service instance - removes config from device first"""
     try:
-        # Get service instance
+        from services.device_service import get_device_connection_info as get_conn_info
+
         service = get_service_instance(service_id)
         if not service:
             return jsonify({'success': False, 'error': 'Service not found'}), 404
 
-        # Get credentials from request if provided
         data = request.json or {}
         username = data.get('username')
         password = data.get('password')
@@ -2943,78 +3310,37 @@ def delete_template_service(service_id):
         delete_template = service.get('delete_template') or service.get('reverse_template')
 
         # If delete template exists, use it to remove config from device
-        if delete_template:
+        if delete_template and service.get('device'):
             log.info(f"Using delete template '{delete_template}' to remove service from device")
 
-            # Get device connection info
-            credential_override = None
-            if username and password:
-                credential_override = {'username': username, 'password': password}
+            credential_override = {'username': username, 'password': password} if username and password else None
+            device_info = get_conn_info(service['device'], credential_override)
 
-            device_info = get_device_connection_info(service['device'], credential_override)
-            if not device_info:
-                return jsonify({
-                    'success': False,
-                    'error': f'Could not get connection info for device: {service["device"]}'
-                }), 400
+            if device_info:
+                # Render and deploy delete template via Celery
+                template_name = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
+                rendered_config = render_j2_template(template_name, service.get('variables', {}))
 
-            # Add credentials
-            if username and password:
-                device_info['connection_args']['username'] = username
-                device_info['connection_args']['password'] = password
+                if rendered_config:
+                    task_id = celery_device_service.execute_set_config(
+                        connection_args=device_info['connection_args'],
+                        config_lines=rendered_config.split('\n'),
+                        save_config=True
+                    )
 
-            # Use j2config to let Netstacker render and deploy the delete template
-            # Strip .j2 extension - Netstacker stores templates without extension
-            template_name = delete_template[:-3] if delete_template.endswith('.j2') else delete_template
+                    if task_id:
+                        stack_name = "N/A"
+                        if service.get('stack_id'):
+                            stack = get_service_stack(service['stack_id'])
+                            if stack:
+                                stack_name = stack.get('name', 'N/A')
 
-            log.info(f"Deploying delete template '{template_name}' via Netstacker with j2config")
+                        service_name = service.get('name', 'N/A')
+                        if ' (' in service_name:
+                            service_name = service_name.split(' (')[0]
 
-            # Push delete config to device using j2config
-            setconfig_payload = {
-                'library': 'netmiko',
-                'connection_args': device_info['connection_args'],
-                'j2config': {
-                    'template': template_name,
-                    'args': service.get('variables', {})
-                },
-                'queue_strategy': 'fifo'
-            }
-
-            response = requests.post(
-                f'{NETSTACKER_API_URL}/setconfig',
-                json=setconfig_payload,
-                headers=NETSTACKER_HEADERS,
-                timeout=60
-            )
-
-            if response.status_code != 201:
-                return jsonify({
-                    'success': False,
-                    'error': f'Failed to submit delete job to Netstacker: {response.text}'
-                }), 500
-
-            result = response.json()
-            task_id = result.get('data', {}).get('task_id')
-
-            if task_id:
-                # Get stack name for standardized format
-                stack_name = "N/A"
-                if service.get('stack_id'):
-                    stack = get_service_stack(service['stack_id'])
-                    if stack:
-                        stack_name = stack.get('name', 'N/A')
-
-                # Extract service name (remove device suffix if present)
-                service_name = service.get('name', 'N/A')
-                if ' (' in service_name:
-                    service_name = service_name.split(' (')[0]
-
-                # Format: stack:DELETE:{StackName}:{ServiceName}:{DeviceName}:{JobID}
-                job_name = f"stack:DELETE:{stack_name}:{service_name}:{service.get('device', 'N/A')}:{task_id}"
-                save_task_id(task_id, device_name=job_name)
-                log.info(f"Delete job submitted to Netstacker, task_id: {task_id}")
-
-            # Non-blocking: job submitted to Netstacker queue, don't wait for completion
+                        job_name = f"stack:DELETE:{stack_name}:{service_name}:{service.get('device', 'N/A')}:{task_id}"
+                        save_task_id(task_id, device_name=job_name)
 
         # Remove service from any stacks that reference it
         stack_id = service.get('stack_id')
@@ -3026,16 +3352,15 @@ def delete_template_service(service_id):
                     deployed_services.remove(service_id)
                     stack['deployed_services'] = deployed_services
                     save_service_stack(stack)
-                    log.info(f"Removed service {service_id} from stack {stack_id}")
 
-        # Only delete from database after successful device cleanup
+        # Delete from database
         delete_service_instance(service_id)
 
         return jsonify({
             'success': True,
             'task_id': task_id,
             'message': f'Service "{service["name"]}" deleted successfully',
-            'stack_id': stack_id  # Return stack_id so UI can refresh stack
+            'stack_id': stack_id
         })
 
     except Exception as e:
@@ -3056,24 +3381,16 @@ def check_service_status(service_id):
         if not task_id:
             return jsonify({'success': False, 'error': 'No task ID found'}), 400
 
-        # Check task status
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/task/{task_id}',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        task_data = response.json()
-
-        task_status = task_data.get('data', {}).get('task_status')
-        task_errors = task_data.get('data', {}).get('task_errors', [])
+        # Check task status via Celery
+        task_result = celery_device_service.get_task_result(task_id)
+        task_status = task_result.get('status', 'PENDING')
 
         # Update service state based on task status
-        if task_status == 'finished' and not task_errors:
+        if task_status == 'SUCCESS':
             service['state'] = 'deployed'
-        elif task_status == 'failed' or task_errors:
+        elif task_status == 'FAILURE':
             service['state'] = 'failed'
-            service['error'] = str(task_errors) if task_errors else 'Task failed'
+            service['error'] = str(task_result.get('error', 'Task failed'))
 
         save_service_instance(service)
 
@@ -3091,239 +3408,109 @@ def check_service_status(service_id):
 @app.route('/api/services/instances/<service_id>/validate', methods=['POST'])
 @login_required
 def validate_service_instance(service_id):
-    """Validate that the service configuration exists on the device"""
+    """Validate that the service configuration exists on the device.
+
+    Supports two modes:
+    - use_backup=true (default): Validate against latest config backup (fast, no device connection)
+    - use_backup=false: Validate live against device (slower, requires connection)
+    """
     try:
+        from services.device_service import get_device_connection_info as get_conn_info
+
         service = get_service_instance(service_id)
         if not service:
             return jsonify({'success': False, 'error': 'Service not found'}), 404
 
-        # Check if service is in failed state
         if service.get('state') == 'failed':
-            return jsonify({
-                'success': False,
-                'error': f"Cannot validate failed service: {service.get('error', 'Service deployment failed')}"
-            }), 400
+            return jsonify({'success': False, 'error': f"Cannot validate failed service: {service.get('error', 'Service deployment failed')}"}), 400
 
-        # Check if service has template and variables (needed for validation)
         if not service.get('template'):
-            return jsonify({
-                'success': False,
-                'error': 'Service has no template defined'
-            }), 400
+            return jsonify({'success': False, 'error': 'Service has no template defined'}), 400
 
-        # Get credentials from request if provided
         data = request.json or {}
+        use_backup = data.get('use_backup', True)  # Default to using backup
         username = data.get('username')
         password = data.get('password')
 
-        log.info(f"Service validation RAW request data: {data}")
-        log.info(f"Validation credentials - username: {username}, has_password: {bool(password)}")
+        # Get validation template
+        validation_template = service.get('validation_template') or service.get('template')
+        template_lookup = validation_template[:-3] if validation_template.endswith('.j2') else validation_template
+        validation_config = render_j2_template(template_lookup, service.get('variables', {}))
 
-        # Get device connection info
-        credential_override = None
-        if username and password:
-            credential_override = {'username': username, 'password': password}
-            log.info(f"Using credential override for validation")
+        if not validation_config:
+            return jsonify({'success': False, 'error': f'Template not found or failed to render: {validation_template}'}), 500
 
-        device_info = get_device_connection_info(service['device'], credential_override)
+        # Extract patterns to validate
+        patterns = [line.strip() for line in validation_config.split('\n') if line.strip()]
+
+        device_name = service['device']
+
+        if use_backup:
+            # Try to get latest backup for the device
+            backup = db.get_latest_backup_for_device(device_name)
+
+            if backup and backup.get('config_content'):
+                # Validate against backup (synchronous, no device connection needed)
+                import re
+                validations = []
+                all_passed = True
+
+                for pattern in patterns:
+                    found = bool(re.search(pattern, backup['config_content'], re.MULTILINE))
+                    validations.append({'pattern': pattern, 'found': found})
+                    if not found:
+                        all_passed = False
+
+                # Return immediate result
+                return jsonify({
+                    'success': True,
+                    'validation_source': 'backup',
+                    'backup_id': backup.get('backup_id'),
+                    'backup_time': backup.get('created_at'),
+                    'status': 'success',
+                    'validation_status': 'passed' if all_passed else 'failed',
+                    'all_passed': all_passed,
+                    'validations': validations,
+                    'message': f'Validated against backup from {backup.get("created_at", "unknown")}'
+                })
+            else:
+                # No backup available, fall back to live validation
+                log.warning(f"No backup found for {device_name}, falling back to live validation")
+                use_backup = False
+
+        # Live validation (use_backup=False or no backup available)
+        credential_override = {'username': username, 'password': password} if username and password else None
+        device_info = get_conn_info(device_name, credential_override)
         if not device_info:
-            return jsonify({
-                'success': False,
-                'error': f'Could not get connection info for device: {service["device"]}'
-            }), 400
+            return jsonify({'success': False, 'error': f'Could not get connection info for device: {device_name}'}), 400
 
-        # Add credentials
-        if username and password:
-            device_info['connection_args']['username'] = username
-            device_info['connection_args']['password'] = password
-        else:
-            # Use default credentials from settings
-            settings = {}
-            try:
-                # Try to load from environment or config
-                settings = {
-                    'username': os.environ.get('DEFAULT_USERNAME'),
-                    'password': os.environ.get('DEFAULT_PASSWORD')
-                }
-            except:
-                pass
-
-            if settings.get('username'):
-                device_info['connection_args']['username'] = settings['username']
-                device_info['connection_args']['password'] = settings['password']
-
-        # Determine appropriate show command based on device type
-        device_type = device_info['connection_args'].get('device_type', 'cisco_ios')
-
-        if 'juniper' in device_type.lower() or 'junos' in device_type.lower():
-            # For Juniper devices, use "show configuration | display set" for set format
-            show_command = 'show configuration | display set'
-        else:
-            # For Cisco and other vendors, use standard running-config
-            show_command = 'show running-config'
-
-        # Get running config from device
-        getconfig_payload = {
-            'library': 'netmiko',
-            'connection_args': device_info['connection_args'],
-            'command': show_command,
-            'queue_strategy': 'fifo'
-        }
-
-        response = requests.post(
-            f'{NETSTACKER_API_URL}/getconfig',
-            json=getconfig_payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=30
+        # Submit validation task via Celery
+        task_id = celery_device_service.execute_validate(
+            connection_args=device_info['connection_args'],
+            expected_patterns=patterns,
+            validation_command='show running-config'
         )
-        response.raise_for_status()
-        result = response.json()
 
-        task_id = result.get('data', {}).get('task_id')
         if task_id:
-            # Get stack name for standardized format
             stack_name = "N/A"
             if service.get('stack_id'):
                 stack = get_service_stack(service['stack_id'])
                 if stack:
                     stack_name = stack.get('name', 'N/A')
 
-            # Extract service name (remove device suffix if present)
             service_name = service.get('name', 'N/A')
             if ' (' in service_name:
                 service_name = service_name.split(' (')[0]
 
-            # Format: stack:VALIDATION:{StackName}:{ServiceName}:{DeviceName}:{JobID}
-            job_name = f"stack:VALIDATION:{stack_name}:{service_name}:{service['device']}:{task_id}"
+            job_name = f"stack:VALIDATION:{stack_name}:{service_name}:{device_name}:{task_id}"
             save_task_id(task_id, device_name=job_name)
 
-        # Poll for task completion (simple approach for now)
-        import time
-        max_wait = 30
-        waited = 0
-        running_config = None
-
-        while waited < max_wait:
-            time.sleep(2)
-            waited += 2
-
-            task_response = requests.get(
-                f'{NETSTACKER_API_URL}/task/{task_id}',
-                headers=NETSTACKER_HEADERS,
-                timeout=10
-            )
-            task_response.raise_for_status()
-            task_data = task_response.json()
-
-            task_status = task_data.get('data', {}).get('task_status')
-            if task_status == 'finished':
-                running_config = task_data.get('data', {}).get('task_result', {})
-                break
-            elif task_status == 'failed':
-                return jsonify({
-                    'success': False,
-                    'error': 'Failed to retrieve running config',
-                    'task_errors': task_data.get('data', {}).get('task_errors', [])
-                }), 500
-
-        if not running_config:
-            return jsonify({
-                'success': False,
-                'error': 'Timeout waiting for config retrieval'
-            }), 500
-
-        # Extract config - handle both dict and list formats
-        running_config_lines = []
-
-        if isinstance(running_config, dict):
-            # Extract from dict (command key)
-            config_text = running_config.get(show_command, '') or running_config.get('show running-config', '')
-            if isinstance(config_text, list):
-                running_config_lines = [line.strip() for line in config_text if line.strip()]
-            else:
-                running_config_lines = [line.strip() for line in config_text.split('\n') if line.strip()]
-        elif isinstance(running_config, list):
-            # Already a list
-            running_config_lines = [line.strip() for line in running_config if isinstance(line, str) and line.strip()]
-        else:
-            # String format
-            running_config_lines = [line.strip() for line in str(running_config).split('\n') if line.strip()]
-
-        # Get validation config - use validation template if specified, otherwise use deployment template
-        validation_template = service.get('validation_template')
-        template_to_use = validation_template if validation_template else service.get('template')
-
-        if not template_to_use:
-            log.error(f"Service {service_id} has no template for validation")
-            return jsonify({
-                'success': False,
-                'error': 'Service has no template defined for validation'
-            }), 400
-
-        # Render template LOCALLY with service variables
-        # Fetch template content from Netstacker and render locally
-        log.info(f"Using template for validation: {template_to_use}")
-        template_lookup = template_to_use[:-3] if template_to_use.endswith('.j2') else template_to_use
-        validation_config = render_local_j2_template(template_lookup, service.get('variables', {}))
-
-        if not validation_config:
-            log.error(f"Failed to render validation template: {template_lookup}")
-            return jsonify({
-                'success': False,
-                'error': f'Template not found or failed to render: {template_to_use}'
-            }), 500
-
-        rendered_lines = [line.strip() for line in validation_config.split('\n') if line.strip()]
-
-        # Normalize config lines for comparison - handle abbreviations and whitespace
-        def normalize_config_line(line):
-            """Normalize a config line for comparison"""
-            # Strip all whitespace
-            line = line.strip()
-
-            # Handle common Cisco abbreviations
-            line = line.replace('int ', 'interface ')
-            line = line.replace('Int ', 'Interface ')
-
-            # Normalize IP address format (remove /32 if present for comparison)
-            # This helps with cases where running config shows it differently
-
-            return line
-
-        # Normalize both lists for comparison
-        normalized_running = [normalize_config_line(line) for line in running_config_lines]
-        normalized_rendered = [normalize_config_line(line) for line in rendered_lines]
-
-        # Validate line by line - each rendered line should exist as a substring in running config
-        missing_lines = []
-        for i, line in enumerate(normalized_rendered):
-            # Check if this line appears as a substring in any running config line
-            found = False
-            for running_line in normalized_running:
-                if line in running_line:
-                    found = True
-                    break
-
-            if not found:
-                # Store the original line, not normalized
-                missing_lines.append(rendered_lines[i])
-
-        is_valid = len(missing_lines) == 0
-
-        # Update service validation status
-        service['last_validated'] = datetime.now().isoformat()
-        service['validation_status'] = 'valid' if is_valid else 'invalid'
-        if not is_valid:
-            service['validation_errors'] = missing_lines
-
-        save_service_instance(service)
-
+        # Return task_id for async polling
         return jsonify({
             'success': True,
-            'valid': is_valid,
-            'missing_lines': missing_lines,
+            'validation_source': 'live',
             'task_id': task_id,
-            'message': 'Configuration is present on device' if is_valid else 'Configuration drift detected'
+            'message': 'Live validation task submitted'
         })
 
     except Exception as e:
@@ -3334,12 +3521,11 @@ def validate_service_instance(service_id):
 @app.route('/api/services/instances/sync-states', methods=['POST'])
 @login_required
 def sync_service_instance_states():
-    """Sync service instance states from Netstacker task status"""
+    """Sync service instance states from Celery task status"""
     try:
         updated_count = 0
         failed_count = 0
 
-        # Get all service instances in 'deploying' state
         all_services = get_all_service_instances()
         deploying_services = [s for s in all_services if s.get('state') == 'deploying']
 
@@ -3351,32 +3537,23 @@ def sync_service_instance_states():
                 continue
 
             try:
-                # Query Netstacker for task status
-                response = requests.get(
-                    f'{NETSTACKER_API_URL}/task/{task_id}',
-                    headers=NETSTACKER_HEADERS,
-                    timeout=10
-                )
+                # Query Celery for task status
+                task_result = celery_device_service.get_task_result(task_id)
+                task_status = task_result.get('status', 'PENDING').upper()
 
-                if response.status_code == 200:
-                    task_data = response.json().get('data', {})
-                    task_status = task_data.get('task_status')
+                log.info(f"Service {service.get('service_id')} task {task_id} status: {task_status}")
 
-                    if task_status == 'finished':
-                        # Update to deployed
-                        service['state'] = 'deployed'
-                        service['deployed_at'] = datetime.now().isoformat()
-                        save_service_instance(service)
-                        updated_count += 1
-                        log.info(f"Updated service {service.get('service_id')} to deployed")
+                if task_status == 'SUCCESS':
+                    service['state'] = 'deployed'
+                    service['deployed_at'] = datetime.now().isoformat()
+                    save_service_instance(service)
+                    updated_count += 1
 
-                    elif task_status == 'failed':
-                        # Update to failed
-                        service['state'] = 'failed'
-                        service['error'] = task_data.get('task_errors', 'Deployment failed')
-                        save_service_instance(service)
-                        failed_count += 1
-                        log.info(f"Updated service {service.get('service_id')} to failed")
+                elif task_status in ['FAILURE', 'FAILED']:
+                    service['state'] = 'failed'
+                    service['error'] = str(task_result.get('error', 'Deployment failed'))
+                    save_service_instance(service)
+                    failed_count += 1
 
             except Exception as e:
                 log.error(f"Error syncing service {service.get('service_id')}: {e}")
@@ -3387,10 +3564,7 @@ def sync_service_instance_states():
         for service in deploying_services:
             stack_id = service.get('stack_id')
             if stack_id and stack_id not in stacks_updated:
-                # Get all services for this stack
                 stack_services = [s for s in all_services if s.get('stack_id') == stack_id]
-
-                # Calculate stack state based on service states
                 states = [s.get('state') for s in stack_services]
 
                 if all(state == 'deployed' for state in states):
@@ -3402,12 +3576,10 @@ def sync_service_instance_states():
                 else:
                     new_state = 'pending'
 
-                # Update stack state
                 stack = get_service_stack(stack_id)
                 if stack and stack.get('state') != new_state:
                     stack['state'] = new_state
                     db.save_service_stack(stack)
-                    log.info(f"Updated stack {stack_id} state to {new_state}")
                     stacks_updated.add(stack_id)
 
         return jsonify({
@@ -3657,7 +3829,7 @@ def deploy_service_stack(stack_id):
             credential_override = {'username': username, 'password': password}
             log.info(f"Using provided credentials for stack deployment (user: {username})")
         else:
-            log.warning(f"No credentials provided in deployment request!")
+            log.info(f"No credential override - using device-specific credentials")
 
         stack = get_service_stack(stack_id)
 
@@ -3725,7 +3897,7 @@ def deploy_service_stack(stack_id):
                 # Get template metadata (validation and delete templates)
                 template_metadata = get_template_metadata(template_name) or {}
 
-                # Use template name without .j2 extension (Netstacker stores templates without extension)
+                # Use template name without .j2 extension (templates stored without extension)
                 log.info(f"Deploying template '{template_name}' with variables: {variables}")
 
                 # Handle both single device (old format) and multiple devices (new format)
@@ -3769,44 +3941,19 @@ def deploy_service_stack(stack_id):
                         if not device_info:
                             raise Exception(f"Could not get connection info for device '{device_name}'")
 
-                        log.info(f"Deploying template to {device_name} via Netstacker (template or variables changed)")
+                        log.info(f"Deploying template to {device_name} via Celery")
 
-                        # Log the exact payload being sent
-                        payload = {
-                            'library': 'netmiko',
-                            'connection_args': device_info['connection_args'],
-                            'j2config': {
-                                'template': template_name,
-                                'args': variables
-                            },
-                            'queue_strategy': 'fifo'
-                        }
+                        # Render template locally and deploy via Celery
+                        rendered_config = render_j2_template(template_name, variables)
+                        if not rendered_config:
+                            raise Exception(f"Failed to render template '{template_name}'")
 
-                        # Add pre/post checks if defined in service
-                        if service_def.get('pre_checks'):
-                            payload['pre_checks'] = service_def['pre_checks']
-                            log.info(f"Adding pre-checks: {service_def['pre_checks']}")
-
-                        if service_def.get('post_checks'):
-                            payload['post_checks'] = service_def['post_checks']
-                            log.info(f"Adding post-checks: {service_def['post_checks']}")
-
-                        log.info(f"Sending payload to Netstacker: j2config.template='{template_name}', args={variables}")
-
-                        # Deploy using Netstacker's j2config - Netstacker renders and deploys in one call
-                        deploy_response = requests.post(
-                            f'{NETSTACKER_API_URL}/setconfig',
-                            headers=NETSTACKER_HEADERS,
-                            json=payload,
-                            timeout=60
+                        task_id = celery_device_service.execute_set_config(
+                            connection_args=device_info['connection_args'],
+                            config_lines=rendered_config.split('\n'),
+                            save_config=True
                         )
 
-                        log.info(f"Deploy response status: {deploy_response.status_code}")
-                        if deploy_response.status_code != 201:
-                            raise Exception(f"Failed to deploy configuration to {device_name}: {deploy_response.text}")
-
-                        deploy_result = deploy_response.json()
-                        task_id = deploy_result.get('data', {}).get('task_id')
                         log.info(f"Got task_id: {task_id}")
 
                         # Save task to history for monitoring with standardized format
@@ -3814,9 +3961,7 @@ def deploy_service_stack(stack_id):
                         job_name = f"stack:DEPLOY:{stack.get('name')}:{service_def['name']}:{device_name}:{task_id}"
                         save_task_id(task_id, device_name=job_name)
 
-                        # Create service instance record immediately in 'deploying' state
-                        # Let Netstacker queue handle the deployment - don't wait here
-                        # Note: rendered_config is not stored since Netstacker does the rendering
+                        # Create service instance record in 'deploying' state
                         service_instance = {
                             'service_id': str(uuid.uuid4()),
                             'name': f"{service_def['name']} ({device_name})",
@@ -3825,9 +3970,10 @@ def deploy_service_stack(stack_id):
                             'delete_template': template_metadata.get('delete_template'),
                             'device': device_name,
                             'variables': variables,
+                            'rendered_config': rendered_config,
                             'pre_checks': service_def.get('pre_checks'),
                             'post_checks': service_def.get('post_checks'),
-                            'state': 'deploying',  # Jobs submitted to Netstacker queue
+                            'state': 'deploying',
                             'task_id': task_id,
                             'stack_id': stack_id,
                             'stack_order': service_def.get('order', 0),
@@ -3901,7 +4047,7 @@ def deploy_service_stack(stack_id):
                 continue
 
         # Update stack state
-        # Since services are submitted to Netstacker queue and may still be deploying,
+        # Since services are submitted to Celery queue and may still be deploying,
         # the stack state reflects job submission, not completion
         if failed_services:
             # Check if we have ANY successful job submissions
@@ -3912,8 +4058,8 @@ def deploy_service_stack(stack_id):
                 stack['state'] = 'failed'  # All jobs failed to submit
             stack['deployment_errors'] = failed_services
         else:
-            # All jobs successfully submitted to Netstacker queue
-            stack['state'] = 'deploying'  # Changed from 'deployed' - jobs are queued in Netstacker
+            # All jobs successfully submitted to Celery queue
+            stack['state'] = 'deploying'  # Jobs are queued in Celery
 
         stack['deployed_services'] = deployed_service_ids
         stack['deploy_completed_at'] = datetime.now().isoformat()
@@ -4127,7 +4273,7 @@ def validate_service_stack(stack_id):
 def create_scheduled_operation():
     """Create a new scheduled stack operation"""
     try:
-        from database import create_scheduled_operation as db_create_schedule
+        from db import create_scheduled_operation as db_create_schedule
         import uuid
         from datetime import datetime as dt, timedelta
 
@@ -4201,7 +4347,7 @@ def create_scheduled_operation():
         )
 
         # Update next_run
-        from database import update_scheduled_operation
+        from db import update_scheduled_operation
         update_scheduled_operation(schedule_id, next_run=next_run.isoformat())
 
         log.info(f"Created scheduled operation: {schedule_id} for stack {stack_id}")
@@ -4217,7 +4363,7 @@ def create_scheduled_operation():
 def get_scheduled_operations():
     """Get scheduled operations, optionally filtered by stack_id"""
     try:
-        from database import get_scheduled_operations as db_get_schedules
+        from db import get_scheduled_operations as db_get_schedules
 
         stack_id = request.args.get('stack_id')
         schedules = db_get_schedules(stack_id=stack_id)
@@ -4234,7 +4380,7 @@ def get_scheduled_operations():
 def get_scheduled_operation(schedule_id):
     """Get a specific scheduled operation"""
     try:
-        from database import get_scheduled_operation as db_get_schedule
+        from db import get_scheduled_operation as db_get_schedule
 
         schedule = db_get_schedule(schedule_id)
         if not schedule:
@@ -4252,7 +4398,7 @@ def get_scheduled_operation(schedule_id):
 def update_scheduled_operation_endpoint(schedule_id):
     """Update a scheduled operation"""
     try:
-        from database import update_scheduled_operation as db_update_schedule, get_scheduled_operation
+        from db import update_scheduled_operation as db_update_schedule, get_scheduled_operation
         from datetime import datetime as dt, timedelta
 
         data = request.json
@@ -4315,7 +4461,7 @@ def update_scheduled_operation_endpoint(schedule_id):
 def delete_scheduled_operation_endpoint(schedule_id):
     """Delete a scheduled operation"""
     try:
-        from database import delete_scheduled_operation as db_delete_schedule
+        from db import delete_scheduled_operation as db_delete_schedule
 
         success = db_delete_schedule(schedule_id)
 
@@ -4335,7 +4481,7 @@ def delete_scheduled_operation_endpoint(schedule_id):
 def create_scheduled_config_operation():
     """Create a scheduled config deployment operation"""
     try:
-        from database import create_scheduled_operation as db_create_schedule
+        from db import create_scheduled_operation as db_create_schedule
         import uuid
         from datetime import datetime as dt, timedelta
         import json
@@ -4408,7 +4554,7 @@ def create_scheduled_config_operation():
         )
 
         # Update next_run
-        from database import update_scheduled_operation
+        from db import update_scheduled_operation
         update_scheduled_operation(schedule_id, next_run=next_run.isoformat())
 
         log.info(f"Created scheduled config operation: {schedule_id}")
@@ -4425,13 +4571,39 @@ def create_scheduled_config_operation():
 @app.route('/api/step-types-introspect', methods=['GET'])
 @login_required
 def get_step_types_introspect_api():
-    """Get step types by introspecting mop_engine.py"""
+    """Get step types from database for visual builder"""
     try:
-        from step_types_introspect import get_step_types
-        step_types = get_step_types()
-        return jsonify({'success': True, 'step_types': step_types})
+        # Get all enabled step types from database
+        step_types = db.get_all_step_types()
+
+        # Transform to format expected by visual builder
+        result = []
+        for st in step_types:
+            params = []
+            # Convert parameters_schema to visual builder format
+            schema = st.get('parameters_schema', {})
+            for param_name, param_def in schema.items():
+                params.append({
+                    'name': param_name,
+                    'type': param_def.get('type', 'string'),
+                    'required': param_def.get('required', False),
+                    'description': param_def.get('description', ''),
+                    'default': param_def.get('default')
+                })
+
+            result.append({
+                'id': st['step_type_id'],
+                'name': st['name'],
+                'description': st.get('description', ''),
+                'icon': st.get('icon', 'cog'),
+                'category': st.get('category', 'General'),
+                'action_type': st.get('action_type', 'get_config'),
+                'parameters': params
+            })
+
+        return jsonify({'success': True, 'step_types': result})
     except Exception as e:
-        log.error(f"Error introspecting step types: {e}", exc_info=True)
+        log.error(f"Error getting step types: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -4441,8 +4613,8 @@ def get_custom_step_types_api():
     """Get all custom step types"""
     try:
         step_types = db.get_all_step_types()
-        # Filter only custom types
-        custom_types = [st for st in step_types if st.get('is_custom')]
+        # Filter only custom types (non-builtin)
+        custom_types = [st for st in step_types if not st.get('is_builtin')]
         return jsonify({'success': True, 'step_types': custom_types})
     except Exception as e:
         log.error(f"Error getting custom step types: {e}", exc_info=True)
@@ -4572,14 +4744,13 @@ def delete_custom_step_type_api(step_type_id):
 def get_mops_api():
     """Get all workflows"""
     try:
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session:
+            result = session.execute(text('''
                 SELECT mop_id, name, description, devices, enabled, created_at, updated_at
                 FROM mops
                 ORDER BY created_at DESC
-            ''')
-            MOPs = [dict(row) for row in cursor.fetchall()]
+            '''))
+            MOPs = [dict(row._mapping) for row in result.fetchall()]
             return jsonify({'success': True, 'mops': MOPs})
     except Exception as e:
         log.error(f"Error getting MOPs: {e}", exc_info=True)
@@ -4606,20 +4777,18 @@ def create_mop_api():
             except Exception as e:
                 log.warning(f"Could not parse YAML to extract devices: {e}")
 
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session_db:
+            session_db.execute(text('''
                 INSERT INTO mops (mop_id, name, description, yaml_content, devices, created_by)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                mop_id,
-                data.get('name'),
-                data.get('description'),
-                yaml_content,
-                json.dumps(devices),
-                session.get('username')
-            ))
-            conn.commit()
+                VALUES (:mop_id, :name, :description, :yaml_content, :devices, :created_by)
+            '''), {
+                'mop_id': mop_id,
+                'name': data.get('name'),
+                'description': data.get('description'),
+                'yaml_content': yaml_content,
+                'devices': json.dumps(devices),
+                'created_by': session.get('username')
+            })
 
         return jsonify({'success': True, 'mop_id': mop_id})
     except Exception as e:
@@ -4632,15 +4801,14 @@ def create_mop_api():
 def get_mop_api(mop_id):
     """Get a specific workflow"""
     try:
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM mops WHERE mop_id = ?', (mop_id,))
-            MOP = cursor.fetchone()
+        with db.get_db() as session_db:
+            result = session_db.execute(text('SELECT * FROM mops WHERE mop_id = :mop_id'), {'mop_id': mop_id})
+            MOP = result.fetchone()
 
             if not MOP:
                 return jsonify({'success': False, 'error': 'MOP not found'}), 404
 
-            return jsonify({'success': True, 'mop': dict(MOP)})
+            return jsonify({'success': True, 'mop': dict(MOP._mapping)})
     except Exception as e:
         log.error(f"Error getting MOP: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -4665,20 +4833,19 @@ def update_mop_api(mop_id):
             except Exception as e:
                 log.warning(f"Could not parse YAML to extract devices: {e}")
 
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session_db:
+            session_db.execute(text('''
                 UPDATE mops
-                SET name = ?, description = ?, yaml_content = ?, devices = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE mop_id = ?
-            ''', (
-                data.get('name'),
-                data.get('description'),
-                yaml_content,
-                json.dumps(devices),
-                mop_id
-            ))
-            conn.commit()
+                SET name = :name, description = :description, yaml_content = :yaml_content,
+                    devices = :devices, updated_at = CURRENT_TIMESTAMP
+                WHERE mop_id = :mop_id
+            '''), {
+                'name': data.get('name'),
+                'description': data.get('description'),
+                'yaml_content': yaml_content,
+                'devices': json.dumps(devices),
+                'mop_id': mop_id
+            })
 
         return jsonify({'success': True})
     except Exception as e:
@@ -4691,10 +4858,8 @@ def update_mop_api(mop_id):
 def delete_mop_api(mop_id):
     """Delete a workflow"""
     try:
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM mops WHERE mop_id = ?', (mop_id,))
-            conn.commit()
+        with db.get_db() as session_db:
+            session_db.execute(text('DELETE FROM mops WHERE mop_id = :mop_id'), {'mop_id': mop_id})
 
         return jsonify({'success': True})
     except Exception as e:
@@ -4708,27 +4873,24 @@ def execute_mop_api(mop_id):
     """Execute a workflow"""
     try:
         # Get MOP from database
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM mops WHERE mop_id = ?', (mop_id,))
-            MOP_row = cursor.fetchone()
+        with db.get_db() as session_db:
+            result = session_db.execute(text('SELECT * FROM mops WHERE mop_id = :mop_id'), {'mop_id': mop_id})
+            MOP_row = result.fetchone()
 
             if not MOP_row:
                 return jsonify({'success': False, 'error': 'MOP not found'}), 404
 
-            MOP = dict(MOP_row)
+            MOP = dict(MOP_row._mapping)
 
         # Create execution record
         execution_id = str(uuid.uuid4())
 
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session_db:
+            session_db.execute(text('''
                 INSERT INTO mop_executions
                 (execution_id, mop_id, status, started_at, started_by)
-                VALUES (?, ?, 'running', CURRENT_TIMESTAMP, ?)
-            ''', (execution_id, mop_id, session.get('username')))
-            conn.commit()
+                VALUES (:execution_id, :mop_id, 'running', CURRENT_TIMESTAMP, :started_by)
+            '''), {'execution_id': execution_id, 'mop_id': mop_id, 'started_by': session.get('username')})
 
         # Execute MOP asynchronously
         def run_mop():
@@ -4739,8 +4901,13 @@ def execute_mop_api(mop_id):
                 context = {'devices': {}}
 
                 # Get device info from Netbox if devices specified
-                # First try to get from database field
-                devices = json.loads(MOP.get('devices', '[]'))
+                # First try to get from database field (JSONB returns as list directly)
+                devices_data = MOP.get('devices', [])
+                # Handle both string (legacy) and list (JSONB) formats
+                if isinstance(devices_data, str):
+                    devices = json.loads(devices_data) if devices_data else []
+                else:
+                    devices = devices_data if devices_data else []
 
                 # If no devices in database, parse from YAML
                 if not devices:
@@ -4793,19 +4960,17 @@ def execute_mop_api(mop_id):
                 result = engine.execute()
 
                 # Update execution record
-                with db.get_db() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('''
+                with db.get_db() as session_db:
+                    session_db.execute(text('''
                         UPDATE mop_executions
-                        SET status = ?, execution_log = ?, context = ?, completed_at = CURRENT_TIMESTAMP
-                        WHERE execution_id = ?
-                    ''', (
-                        result['status'],
-                        json.dumps(result.get('execution_log', [])),
-                        json.dumps(result.get('context', {})),
-                        execution_id
-                    ))
-                    conn.commit()
+                        SET status = :status, execution_log = :execution_log, context = :context, completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = :execution_id
+                    '''), {
+                        'status': result['status'],
+                        'execution_log': json.dumps(result.get('execution_log', [])),
+                        'context': json.dumps(result.get('context', {})),
+                        'execution_id': execution_id
+                    })
 
                 log.info(f"MOP {mop_id} execution {execution_id} completed with status: {result['status']}")
 
@@ -4813,14 +4978,12 @@ def execute_mop_api(mop_id):
                 log.error(f"Error executing MOP: {e}", exc_info=True)
 
                 # Update execution record with error
-                with db.get_db() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('''
+                with db.get_db() as session_db:
+                    session_db.execute(text('''
                         UPDATE mop_executions
-                        SET status = 'failed', error = ?, completed_at = CURRENT_TIMESTAMP
-                        WHERE execution_id = ?
-                    ''', (str(e), execution_id))
-                    conn.commit()
+                        SET status = 'failed', error = :error, completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = :execution_id
+                    '''), {'error': str(e), 'execution_id': execution_id})
 
         # Start background thread
         import threading
@@ -4840,16 +5003,15 @@ def execute_mop_api(mop_id):
 def get_mop_executions_api(mop_id):
     """Get execution history for a workflow"""
     try:
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session_db:
+            result = session_db.execute(text('''
                 SELECT execution_id, status, started_at, completed_at, started_by
                 FROM mop_executions
-                WHERE mop_id = ?
+                WHERE mop_id = :mop_id
                 ORDER BY started_at DESC
                 LIMIT 50
-            ''', (mop_id,))
-            executions = [dict(row) for row in cursor.fetchall()]
+            '''), {'mop_id': mop_id})
+            executions = [dict(row._mapping) for row in result.fetchall()]
             return jsonify({'success': True, 'executions': executions})
     except Exception as e:
         log.error(f"Error getting MOP executions: {e}", exc_info=True)
@@ -4861,20 +5023,19 @@ def get_mop_executions_api(mop_id):
 def get_mop_execution_details_api(execution_id):
     """Get detailed execution information"""
     try:
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session_db:
+            result = session_db.execute(text('''
                 SELECT we.*, w.name as mop_name
                 FROM mop_executions we
                 LEFT JOIN mops w ON we.mop_id = w.mop_id
-                WHERE we.execution_id = ?
-            ''', (execution_id,))
-            execution = cursor.fetchone()
+                WHERE we.execution_id = :execution_id
+            '''), {'execution_id': execution_id})
+            execution = result.fetchone()
 
             if not execution:
                 return jsonify({'success': False, 'error': 'Execution not found'}), 404
 
-            execution_dict = dict(execution)
+            execution_dict = dict(execution._mapping)
 
             # Parse JSON fields if they are strings
             if execution_dict.get('execution_log'):
@@ -4901,17 +5062,16 @@ def get_mop_execution_details_api(execution_id):
 def get_running_mop_executions_api():
     """Get recent MOP executions (last 20)"""
     try:
-        with db.get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+        with db.get_db() as session_db:
+            result = session_db.execute(text('''
                 SELECT we.execution_id, we.mop_id, we.status, we.current_step,
                        we.started_at, we.completed_at, we.started_by, w.name as mop_name
                 FROM mop_executions we
                 JOIN mops w ON we.mop_id = w.mop_id
                 ORDER BY we.started_at DESC
                 LIMIT 20
-            ''')
-            executions = [dict(row) for row in cursor.fetchall()]
+            '''))
+            executions = [dict(row._mapping) for row in result.fetchall()]
             return jsonify({'success': True, 'executions': executions})
     except Exception as e:
         log.error(f"Error getting MOP executions: {e}", exc_info=True)
@@ -4921,15 +5081,17 @@ def get_running_mop_executions_api():
 @app.route('/api/task/<task_id>/result', methods=['GET'])
 @login_required
 def get_task_result_api(task_id):
-    """Get task result from netstacker"""
+    """Get task result from Celery"""
     try:
-        response = requests.get(
-            f'{NETSTACKER_API_URL}/task/{task_id}',
-            headers=NETSTACKER_HEADERS,
-            timeout=10
-        )
-        response.raise_for_status()
-        return jsonify(response.json())
+        result = celery_device_service.get_task_result(task_id)
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'task_id': task_id,
+                'task_status': result.get('status', 'PENDING'),
+                'task_result': result.get('result', {})
+            }
+        })
     except Exception as e:
         log.error(f"Error getting task result: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -5032,21 +5194,15 @@ def execute_getconfig_step(step, context=None, step_index=0):
                         if config.get('ttp_template'):
                             payload['args']['ttp_template'] = config['ttp_template']
 
-                # Call the existing deploy_getconfig endpoint logic
-                endpoint = f'/getconfig/{library}' if library != 'auto' else '/getconfig'
-                log.info(f"Sending getconfig for {device_name} to {NETSTACKER_API_URL}{endpoint}")
+                # Execute via Celery
+                log.info(f"Sending getconfig for {device_name} via Celery")
 
-                response = requests.post(
-                    f'{NETSTACKER_API_URL}{endpoint}',
-                    json=payload,
-                    headers=NETSTACKER_HEADERS,
-                    timeout=30
+                task_id = celery_device_service.execute_get_config(
+                    connection_args=payload['connection_args'],
+                    command=command,
+                    use_textfsm=config.get('use_textfsm', False),
+                    use_genie=False
                 )
-
-                response.raise_for_status()
-                result = response.json()
-
-                task_id = result.get('data', {}).get('task_id')
 
                 # Save task ID to history
                 if task_id:
@@ -5057,7 +5213,7 @@ def execute_getconfig_step(step, context=None, step_index=0):
                     results.append({
                         'device': device_name,
                         'status': 'error',
-                        'error': 'No task_id returned from Netstacker'
+                        'error': 'No task_id returned from Celery'
                     })
 
             except Exception as device_error:
@@ -5091,32 +5247,18 @@ def execute_getconfig_step(step, context=None, step_index=0):
                 all_complete = False
 
                 try:
-                    print(f"[MOP] Polling {task_id} for {state['device']}", file=sys.stderr, flush=True)
-                    task_response = requests.get(
-                        f'{NETSTACKER_API_URL}/task/{task_id}',
-                        headers=NETSTACKER_HEADERS,
-                        timeout=10
-                    )
-                    print(f"[MOP] Got HTTP {task_response.status_code}", file=sys.stderr, flush=True)
+                    # Poll Celery for task status
+                    task_result = celery_device_service.get_task_result(task_id)
+                    task_status = task_result.get('status', 'PENDING').upper()
+                    task_output = task_result.get('result')
 
-                    if task_response.status_code == 200:
-                        task_data = task_response.json().get('data', {})
-                        task_output = task_data.get('task_result')
-                        task_status = task_data.get('task_status', 'pending')
-                        print(f"[MOP] {state['device']} task_status={task_status}", file=sys.stderr, flush=True)
-
-                        # Check for final states (case-insensitive to handle 'failed', 'FAILED', 'finished', 'FINISHED', etc.)
-                        task_status_upper = task_status.upper() if task_status else 'PENDING'
-                        if task_status_upper in ['SUCCESS', 'FAILED', 'FAILURE', 'FINISHED']:
-                            log.info(f"Task {task_id} for {state['device']} completed with status: {task_status}")
-                            print(f"[MOP] {state['device']} COMPLETE: {task_status}", file=sys.stderr, flush=True)
-                            state['status'] = task_status_upper
-                            state['output'] = task_output
-                    else:
-                        log.warning(f"Failed to get task {task_id} status: HTTP {task_response.status_code}")
+                    # Check for completion states (handle both Celery states and result statuses)
+                    if task_status in ['SUCCESS', 'FAILURE', 'FAILED']:
+                        log.info(f"Task {task_id} for {state['device']} completed with status: {task_status}")
+                        state['status'] = task_status
+                        state['output'] = task_output
 
                 except Exception as e:
-                    print(f"[MOP] EXCEPTION polling {task_id}: {e}", file=sys.stderr, flush=True)
                     log.error(f"Error polling task {task_id}: {e}", exc_info=True)
                     state['status'] = 'ERROR'
                     state['error'] = str(e)
@@ -5125,7 +5267,6 @@ def execute_getconfig_step(step, context=None, step_index=0):
                 log.info("All tasks completed")
                 break
 
-            print(f"[MOP] Sleeping {poll_interval}s...", file=sys.stderr, flush=True)
             time.sleep(poll_interval)
 
         # Build results from task states
@@ -5253,21 +5394,14 @@ def execute_setconfig_step(step, context=None, step_index=0):
                         'match': config.get('post_check_match', '')
                     }
 
-                # Call netstacker
-                endpoint = f'/setconfig/{library}' if library != 'auto' else '/setconfig'
-                log.info(f"Sending setconfig for {device_name} to {NETSTACKER_API_URL}{endpoint}")
+                # Execute via Celery
+                log.info(f"Sending setconfig for {device_name} via Celery")
 
-                response = requests.post(
-                    f'{NETSTACKER_API_URL}{endpoint}',
-                    json=payload,
-                    headers=NETSTACKER_HEADERS,
-                    timeout=30
+                task_id = celery_device_service.execute_set_config(
+                    connection_args=payload['connection_args'],
+                    config_lines=commands,
+                    save_config=not config.get('dry_run', False)
                 )
-
-                response.raise_for_status()
-                result = response.json()
-
-                task_id = result.get('data', {}).get('task_id')
 
                 # Save task ID to history
                 if task_id:
@@ -5300,78 +5434,65 @@ def execute_setconfig_step(step, context=None, step_index=0):
         return {'status': 'error', 'error': str(e)}
 
 def execute_template_step(step, context=None, step_index=0):
-    """Execute a template deployment step
-
-    Args:
-        step: Step configuration dict
-        context: Dict of previous step results for reference
-        step_index: Index of the step in the MOP (0-based)
-    """
+    """Execute a template deployment step via Celery"""
     try:
+        from services.device_service import get_device_connection_info as get_conn_info
+
         config = step['config']
         devices = step['devices']
 
-        # Get template content
         template_name = config.get('template')
         if not template_name:
             return {'status': 'error', 'error': 'Template name is required'}
 
-        # Read template file
-        template_path = os.path.join(TEMPLATES_DIR, f"{template_name}.j2")
-        if not os.path.exists(template_path):
+        # Strip .j2 extension if present
+        if template_name.endswith('.j2'):
+            template_name = template_name[:-3]
+
+        # Get template from database
+        template_content = db.get_template_content(template_name)
+        if not template_content:
             return {'status': 'error', 'error': f'Template not found: {template_name}'}
 
-        with open(template_path, 'r') as f:
-            template_content = f.read()
+        variables = config.get('variables', {})
+        rendered_config = render_j2_template(template_name, variables)
+        if not rendered_config:
+            return {'status': 'error', 'error': 'Failed to render template'}
 
-        payload = {
-            'hosts': devices,
-            'template': template_content,
-            'variables': config.get('variables', {}),
-            'dry_run': config.get('dry_run', False)
-        }
+        # Get credentials
+        settings = db.get_all_settings()
+        username = config.get('username') or settings.get('default_username', '')
+        password = config.get('password') or settings.get('default_password', '')
 
-        # Add credentials if provided
-        if config.get('username'):
-            payload['username'] = config['username']
-        if config.get('password'):
-            payload['password'] = config['password']
+        results = []
+        for device_name in devices:
+            try:
+                credential_override = {'username': username, 'password': password} if username and password else None
+                device_info = get_conn_info(device_name, credential_override)
 
-        # Add pre/post checks if provided
-        if config.get('pre_check_command'):
-            payload['pre_check'] = {
-                'command': config['pre_check_command'],
-                'match': config.get('pre_check_match', '')
-            }
-        if config.get('post_check_command'):
-            payload['post_check'] = {
-                'command': config['post_check_command'],
-                'match': config.get('post_check_match', '')
-            }
+                if not device_info:
+                    results.append({'device': device_name, 'status': 'error', 'error': 'Device not found'})
+                    continue
 
-        library = config.get('library', 'netmiko')
-        endpoint = f'/setconfig/{library}' if library != 'auto' else '/setconfig'
+                task_id = celery_device_service.execute_set_config(
+                    connection_args=device_info['connection_args'],
+                    config_lines=rendered_config.split('\n'),
+                    save_config=not config.get('dry_run', False)
+                )
 
-        log.info(f"Sending template deployment request to {NETSTACKER_API_URL}{endpoint}")
-        response = requests.post(
-            f'{NETSTACKER_API_URL}{endpoint}',
-            json=payload,
-            headers=NETSTACKER_HEADERS,
-            timeout=30
-        )
-        response.raise_for_status()
-        result = response.json()
+                if task_id:
+                    save_task_id(task_id, device_name=f"mop:STEP{step_index+1}-{step.get('step_name', 'unknown')}-:{device_name}")
 
-        task_id = result.get('data', {}).get('task_id')
+                results.append({'device': device_name, 'status': 'success', 'task_id': task_id})
 
-        # Save task ID to history
-        if task_id:
-            save_task_id(task_id, device_name=f"mop:STEP{step_index+1}-{step.get('step_name', 'unknown')}-:template")
+            except Exception as e:
+                results.append({'device': device_name, 'status': 'error', 'error': str(e)})
 
+        task_ids = [r['task_id'] for r in results if r.get('task_id')]
         return {
-            'status': result.get('status', 'success'),
-            'data': result.get('data'),
-            'task_id': task_id
+            'status': 'success' if task_ids else 'error',
+            'data': results,
+            'task_id': task_ids[0] if task_ids else None
         }
 
     except Exception as e:
@@ -5703,74 +5824,46 @@ def execute_deploy_stack_step(step, mop_context=None, step_index=0):
                         if not device_info:
                             raise Exception(f"Could not get connection info for device '{device_name}'")
 
-                        # Deploy template to device
-                        payload = {
-                            'library': 'netmiko',
-                            'connection_args': device_info['connection_args'],
-                            'j2config': {
-                                'template': template_name,
-                                'args': variables
-                            },
-                            'queue_strategy': 'fifo'
-                        }
+                        # Render template and deploy via Celery
+                        rendered_config = render_j2_template(template_name, variables)
+                        if not rendered_config:
+                            raise Exception(f"Failed to render template '{template_name}'")
 
-                        log.info(f"Deploying template '{template_name}' to {device_name}")
+                        log.info(f"Deploying template '{template_name}' to {device_name} via Celery")
 
-                        response = requests.post(
-                            f'{NETSTACKER_API_URL}/setconfig',
-                            json=payload,
-                            headers=NETSTACKER_HEADERS,
-                            timeout=300
+                        task_id = celery_device_service.execute_set_config(
+                            connection_args=device_info['connection_args'],
+                            config_lines=rendered_config.split('\n'),
+                            save_config=True
                         )
-                        response.raise_for_status()
 
-                        task_data = response.json()
-                        log.info(f"Deploy response data: {task_data}")
-                        task_id = task_data.get('data', {}).get('task_id') or task_data.get('task_id')
                         log.info(f"Template deployment initiated for {device_name}: task_id={task_id}")
 
-                        # Save task to history for job monitoring
-                        # Format: mop:DEPLOY_STACK:{StackName}:{ServiceName}:{DeviceName}:{TaskID}
                         if task_id:
                             job_name = f"mop:DEPLOY_STACK:{stack.get('name')}:{service_def['name']}:{device_name}:{task_id}"
                             save_task_id(task_id, device_name=job_name)
 
-                            # Poll and wait for task completion
+                            # Poll Celery for task completion
                             import time
-                            max_wait = 300  # 5 minutes max
-                            poll_interval = 2  # Poll every 2 seconds
+                            max_wait = 300
+                            poll_interval = 2
                             elapsed = 0
-                            task_status = 'pending'
 
                             while elapsed < max_wait:
                                 try:
-                                    task_response = requests.get(
-                                        f'{NETSTACKER_API_URL}/task/{task_id}',
-                                        headers=NETSTACKER_HEADERS,
-                                        timeout=10
-                                    )
-                                    if task_response.status_code == 200:
-                                        task_result = task_response.json().get('data', {})
-                                        task_status = task_result.get('task_status', 'pending')
+                                    task_result = celery_device_service.get_task_result(task_id)
+                                    task_status = task_result.get('status', 'PENDING')
 
-                                        # Check if task is in final state
-                                        if task_status in ['SUCCESS', 'FAILED', 'FAILURE', 'finished']:
-                                            log.info(f"Deploy task {task_id} completed with status: {task_status}")
-                                            break
-                                    else:
-                                        log.warning(f"Failed to get deploy task {task_id} status: HTTP {task_response.status_code}")
+                                    if task_status in ['SUCCESS', 'FAILURE']:
+                                        log.info(f"Deploy task {task_id} completed with status: {task_status}")
+                                        break
 
                                 except Exception as poll_error:
-                                    log.error(f"Error polling deploy task {task_id}: {poll_error}", exc_info=True)
-                                    task_status = 'FAILED'
+                                    log.error(f"Error polling deploy task {task_id}: {poll_error}")
                                     break
 
                                 time.sleep(poll_interval)
                                 elapsed += poll_interval
-
-                            if task_status not in ['SUCCESS', 'FAILED', 'FAILURE', 'finished']:
-                                log.error(f"Deploy task {task_id} did not complete within {max_wait}s, final status: {task_status}")
-                                task_status = 'TIMEOUT'
 
                     except Exception as e:
                         log.error(f"Failed to deploy to {device_name}: {e}")
@@ -5855,29 +5948,21 @@ def create_stack_template():
         for service in services:
             template_name = service.get('template')
             if template_name:
-                # Get variables from the device template
                 template_name_clean = template_name[:-3] if template_name.endswith('.j2') else template_name
                 try:
-                    # Call the existing API endpoint to get template variables
-                    response = requests.get(
-                        f'{NETSTACKER_API_URL}/j2template/config/{template_name_clean}',
-                        headers=NETSTACKER_HEADERS,
-                        timeout=10
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        template_data = result.get('data', {}).get('task_result', {})
-                        base64_content = template_data.get('base64_payload') or template_data.get('template')
-
-                        if base64_content:
-                            # Decode and extract variables
-                            template_content = base64.b64decode(base64_content).decode('utf-8')
-                            import re
-                            variable_pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}'
-                            variables = re.findall(variable_pattern, template_content)
-                            required_variables.update(variables)
+                    # Get template from local database
+                    template_content = db.get_template_content(template_name_clean)
+                    if template_content:
+                        import re
+                        variable_pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}'
+                        variables = re.findall(variable_pattern, template_content)
+                        required_variables.update(variables)
                 except Exception as e:
                     log.warning(f"Could not extract variables from template {template_name}: {e}")
+
+        # Check if this is an update (template_id provided) or create (new)
+        existing_template_id = data.get('template_id')
+        is_update = bool(existing_template_id)
 
         template_data = {
             'name': data['name'],
@@ -5890,12 +5975,17 @@ def create_stack_template():
             'created_by': session.get('username', 'unknown')
         }
 
+        # Include template_id if updating existing template
+        if existing_template_id:
+            template_data['template_id'] = existing_template_id
+
         template_id = db.save_stack_template(template_data)
 
+        action = 'updated' if is_update else 'created'
         return jsonify({
             'success': True,
             'template_id': template_id,
-            'message': f'Stack template "{data["name"]}" created successfully'
+            'message': f'Stack template "{data["name"]}" {action} successfully'
         })
 
     except Exception as e:
@@ -6127,7 +6217,7 @@ def run_scheduled_operations():
     """Background thread to execute scheduled operations"""
     print("SCHEDULER THREAD FUNCTION CALLED!", flush=True)
     try:
-        from database import get_pending_scheduled_operations, update_scheduled_operation
+        from db import get_pending_scheduled_operations, update_scheduled_operation
         from datetime import datetime as dt, timedelta
 
         log.info("Starting scheduled operations background thread")
@@ -6242,40 +6332,21 @@ def run_scheduled_operations():
                                                 log.warning(f"[DEPLOY] No default_username found in settings!")
                                             log.info(f"[DEPLOY] Connection args AFTER creds: {device_info['connection_args']}")
     
-                                            # Prepare payload for netstacker
-                                            payload = {
-                                                'library': 'netmiko',
-                                                'connection_args': device_info['connection_args'],
-                                                'j2config': {
-                                                    'template': template_name,
-                                                    'args': variables
-                                                },
-                                                'queue_strategy': 'fifo'
-                                            }
-    
-                                            # Add pre/post checks if defined
-                                            if service_def.get('pre_checks'):
-                                                payload['pre_checks'] = service_def['pre_checks']
-    
-                                            if service_def.get('post_checks'):
-                                                payload['post_checks'] = service_def['post_checks']
-    
-                                            log.info(f"Sending deployment to netstacker: {NETSTACKER_API_URL}/setconfig")
-    
-                                            # Deploy using Netstacker
-                                            import requests
-                                            deploy_response = requests.post(
-                                                f'{NETSTACKER_API_URL}/setconfig',
-                                                headers=NETSTACKER_HEADERS,
-                                                json=payload,
-                                                timeout=60
+                                            # Render template and deploy via Celery
+                                            rendered_config = render_j2_template(template_name, variables)
+                                            if not rendered_config:
+                                                raise Exception(f"Failed to render template '{template_name}'")
+
+                                            log.info(f"Sending deployment via Celery")
+
+                                            task_id = celery_device_service.execute_set_config(
+                                                connection_args=device_info['connection_args'],
+                                                config_lines=rendered_config.split('\n'),
+                                                save_config=True
                                             )
-    
-                                            if deploy_response.status_code != 201:
-                                                raise Exception(f"Failed to deploy to {device_name}: {deploy_response.text}")
-    
-                                            deploy_result = deploy_response.json()
-                                            task_id = deploy_result.get('data', {}).get('task_id')
+
+                                            if not task_id:
+                                                raise Exception(f"Failed to deploy to {device_name}: no task_id returned")
     
                                             # Save task to history
                                             save_task_id(task_id, device_name=f"scheduled:{stack.get('name')}:{service_def['name']}:{device_name}")
@@ -6368,37 +6439,25 @@ def run_scheduled_operations():
                                                 device_info['connection_args']['username'] = settings['default_username']
                                                 device_info['connection_args']['password'] = settings.get('default_password', '')
     
-                                            # Prepare payload for netstacker getconfig
-                                            payload = {
-                                                'library': 'netmiko',
-                                                'connection_args': device_info['connection_args'],
-                                                'command': 'show running-config',
-                                                'args': {},
-                                                'queue_strategy': 'fifo'
-                                            }
-    
-                                            # Get config using Netstacker
-                                            import requests
-                                            log.info(f"Sending validation payload to {NETSTACKER_API_URL}/getconfig/netmiko: {payload}")
-                                            validate_response = requests.post(
-                                                f'{NETSTACKER_API_URL}/getconfig/netmiko',
-                                                headers=NETSTACKER_HEADERS,
-                                                json=payload,
-                                                timeout=60
+                                            # Execute validation via Celery
+                                            log.info(f"Sending validation via Celery for {device_name}")
+
+                                            # Get expected patterns from template
+                                            rendered_config = render_j2_template(template_name, variables) if template_name else ""
+                                            patterns = [line.strip() for line in rendered_config.split('\n') if line.strip()][:10]
+
+                                            task_id = celery_device_service.execute_validate(
+                                                connection_args=device_info['connection_args'],
+                                                expected_patterns=patterns,
+                                                validation_command='show running-config'
                                             )
-    
-                                            if validate_response.status_code == 200 or validate_response.status_code == 201:
-                                                result = validate_response.json()
-                                                task_id = result.get('data', {}).get('task_id')
+
+                                            if task_id:
                                                 log.info(f"Validation task created for {device_name}: {task_id}")
-                                                # Save task ID to history so it appears in Job Monitor with standardized format
-                                                # Format: stack:VALIDATION:{StackName}:{ServiceName}:{DeviceName}:{JobID}
-                                                if task_id:
-                                                    job_name = f"stack:VALIDATION:{stack.get('name')}:{service_def.get('name')}:{device_name}:{task_id}"
-                                                    save_task_id(task_id, device_name=job_name)
+                                                job_name = f"stack:VALIDATION:{stack.get('name')}:{service_def.get('name')}:{device_name}:{task_id}"
+                                                save_task_id(task_id, device_name=job_name)
                                             else:
-                                                log.error(f"Validation failed for {device_name}: {validate_response.status_code}")
-                                                log.error(f"Response: {validate_response.text}")
+                                                log.error(f"Validation failed for {device_name}: no task_id returned")
     
                                     except Exception as svc_err:
                                         log.error(f"Error validating service {service_def.get('name')}: {svc_err}", exc_info=True)
@@ -6467,37 +6526,29 @@ def run_scheduled_operations():
                                                 device_info['connection_args']['username'] = settings['default_username']
                                                 device_info['connection_args']['password'] = settings.get('default_password', '')
     
-                                            # Prepare payload for netstacker
-                                            payload = {
-                                                'library': 'netmiko',
-                                                'connection_args': device_info['connection_args'],
-                                                'j2config': {
-                                                    'template': delete_template,
-                                                    'args': variables
-                                                },
-                                                'queue_strategy': 'fifo'
-                                            }
-    
-                                            # Deploy delete template using Netstacker
-                                            import requests
-                                            delete_response = requests.post(
-                                                f'{NETSTACKER_API_URL}/setconfig',
-                                                headers=NETSTACKER_HEADERS,
-                                                json=payload,
-                                                timeout=60
+                                            # Render delete template locally
+                                            rendered_config = render_j2_template(delete_template, variables)
+                                            if not rendered_config:
+                                                log.error(f"Failed to render delete template '{delete_template}' for {device_name}")
+                                                continue
+
+                                            # Deploy delete template using Celery
+                                            config_lines = [cmd.strip() for cmd in rendered_config.split('\n') if cmd.strip()]
+
+                                            task_id = celery_device_service.execute_set_config(
+                                                connection_args=device_info['connection_args'],
+                                                config_lines=config_lines,
+                                                save_config=True
                                             )
-    
-                                            if delete_response.status_code == 201:
-                                                result = delete_response.json()
-                                                task_id = result.get('data', {}).get('task_id')
+
+                                            if task_id:
                                                 log.info(f"Delete task created for {device_name}: {task_id}")
                                                 # Save task ID to history so it appears in Job Monitor with standardized format
                                                 # Format: stack:DELETE:{StackName}:{ServiceName}:{DeviceName}:{JobID}
-                                                if task_id:
-                                                    job_name = f"stack:DELETE:{stack.get('name')}:{service_def.get('name')}:{device_name}:{task_id}"
-                                                    save_task_id(task_id, device_name=job_name)
+                                                job_name = f"stack:DELETE:{stack.get('name')}:{service_def.get('name')}:{device_name}:{task_id}"
+                                                save_task_id(task_id, device_name=job_name)
                                             else:
-                                                log.error(f"Delete failed for {device_name}: {delete_response.status_code}")
+                                                log.error(f"Delete task creation failed for {device_name}")
     
                                     except Exception as svc_err:
                                         log.error(f"Error deleting service {service_def.get('name')}: {svc_err}", exc_info=True)
@@ -6561,33 +6612,28 @@ def run_scheduled_operations():
                                                 log.error(f"No IP address found for device {device_name}")
                                                 continue
     
-                                            # Build netstacker payload
-                                            payload = {
-                                                'connection_args': {
-                                                    'device_type': nornir_platform or 'cisco_ios',
-                                                    'host': ip_address,
-                                                    'username': username,
-                                                    'password': password,
-                                                    'timeout': 10
-                                                },
-                                                'config': config_commands,
-                                                'queue_strategy': 'pinned'
+                                            # Build connection args
+                                            connection_args = {
+                                                'device_type': nornir_platform or 'cisco_ios',
+                                                'host': ip_address,
+                                                'username': username,
+                                                'password': password,
+                                                'timeout': 10
                                             }
-    
-                                            # Send to Netstacker
-                                            endpoint = '/setconfig/dry-run' if dry_run else '/setconfig/netmiko'
-                                            response = requests.post(
-                                                f'{NETSTACKER_API_URL}{endpoint}',
-                                                json=payload,
-                                                headers=NETSTACKER_HEADERS,
-                                                timeout=30
+
+                                            # Deploy via Celery (dry_run not supported in Celery - skip if dry_run)
+                                            if dry_run:
+                                                log.info(f"Dry run mode - skipping actual deployment to {device_name}")
+                                                continue
+
+                                            task_id = celery_device_service.execute_set_config(
+                                                connection_args=connection_args,
+                                                config_lines=config_commands,
+                                                save_config=True
                                             )
-                                            response.raise_for_status()
-                                            result = response.json()
-    
+
                                             # Save task ID
-                                            if result.get('status') == 'success' and result.get('data', {}).get('task_id'):
-                                                task_id = result['data']['task_id']
+                                            if task_id:
                                                 save_task_id(task_id, device_name)
                                                 log.info(f"Scheduled setconfig deployed to {device_name}, task: {task_id}")
     
@@ -6601,42 +6647,30 @@ def run_scheduled_operations():
                                     username = config_data.get('username')
                                     password = config_data.get('password')
                                     dry_run = config_data.get('dry_run', False)
-    
+
                                     log.info(f"Scheduled template deploy: {template_name} to {len(devices)} devices")
-    
+
                                     try:
-                                        # Render template first
-                                        render_response = requests.post(
-                                            f'{NETSTACKER_API_URL}/j2template/render',
-                                            json={
-                                                'template_name': template_name.replace('.j2', ''),
-                                                'args': variables
-                                            },
-                                            headers=NETSTACKER_HEADERS,
-                                            timeout=10
-                                        )
-                                        render_response.raise_for_status()
-                                        render_result = render_response.json()
-    
-                                        rendered_config = render_result.get('data', {}).get('task_result', {}).get('template_render_result', '')
-    
+                                        # Render template locally
+                                        rendered_config = render_j2_template(template_name, variables)
+
                                         if not rendered_config:
                                             log.error(f"Failed to render template {template_name}")
                                         else:
                                             # Split into commands
                                             config_commands = [cmd.strip() for cmd in rendered_config.split('\n') if cmd.strip()]
-    
+
                                             # Deploy to each device
                                             for device_name in devices:
                                                 try:
                                                     # Get device connection info from Netbox
                                                     netbox_client = get_netbox_client()
                                                     device = netbox_client.get_device_by_name(device_name)
-    
+
                                                     if not device:
                                                         log.error(f"Device {device_name} not found for scheduled deployment")
                                                         continue
-    
+
                                                     # Get device type
                                                     nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
                                                     if not nornir_platform:
@@ -6646,51 +6680,47 @@ def run_scheduled_operations():
                                                         manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
                                                         from netbox_client import get_netmiko_device_type
                                                         nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
-    
+
                                                     # Get IP address
                                                     primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
                                                     ip_address = None
                                                     if primary_ip:
                                                         ip_addr_full = primary_ip.get('address', '')
                                                         ip_address = ip_addr_full.split('/')[0] if ip_addr_full else None
-    
+
                                                     if not ip_address:
                                                         log.error(f"No IP address found for device {device_name}")
                                                         continue
-    
-                                                    # Build netstacker payload
-                                                    payload = {
-                                                        'connection_args': {
-                                                            'device_type': nornir_platform or 'cisco_ios',
-                                                            'host': ip_address,
-                                                            'username': username,
-                                                            'password': password,
-                                                            'timeout': 10
-                                                        },
-                                                        'config': config_commands,
-                                                        'queue_strategy': 'pinned'
+
+                                                    # Skip if dry run mode
+                                                    if dry_run:
+                                                        log.info(f"Dry run mode - skipping actual deployment to {device_name}")
+                                                        continue
+
+                                                    # Build connection args
+                                                    connection_args = {
+                                                        'device_type': nornir_platform or 'cisco_ios',
+                                                        'host': ip_address,
+                                                        'username': username,
+                                                        'password': password,
+                                                        'timeout': 10
                                                     }
-    
-                                                    # Send to Netstacker
-                                                    endpoint = '/setconfig/dry-run' if dry_run else '/setconfig/netmiko'
-                                                    response = requests.post(
-                                                        f'{NETSTACKER_API_URL}{endpoint}',
-                                                        json=payload,
-                                                        headers=NETSTACKER_HEADERS,
-                                                        timeout=30
+
+                                                    # Deploy via Celery
+                                                    task_id = celery_device_service.execute_set_config(
+                                                        connection_args=connection_args,
+                                                        config_lines=config_commands,
+                                                        save_config=True
                                                     )
-                                                    response.raise_for_status()
-                                                    result = response.json()
-    
+
                                                     # Save task ID
-                                                    if result.get('status') == 'success' and result.get('data', {}).get('task_id'):
-                                                        task_id = result['data']['task_id']
+                                                    if task_id:
                                                         save_task_id(task_id, device_name)
                                                         log.info(f"Scheduled template deployed to {device_name}, task: {task_id}")
-    
+
                                                 except Exception as e:
                                                     log.error(f"Error deploying scheduled template to {device_name}: {e}")
-    
+
                                     except Exception as e:
                                         log.error(f"Error rendering template {template_name}: {e}")
                             else:

@@ -45,11 +45,6 @@ $(document).ready(function() {
         }
     });
 
-    // Push to Netstacker button
-    $('#push-template-btn').click(function() {
-        pushTemplateToNetstacker(currentTemplate);
-    });
-
     // Template type change handler - show/hide validation and delete options
     $('#template-type').change(function() {
         const type = $(this).val();
@@ -500,13 +495,13 @@ function saveTemplate() {
         return;
     }
 
-    // Strip .j2 extension if user added it - Netstacker stores without extension
+    // Strip .j2 extension if user added it - templates stored without extension
     if (templateName.endsWith('.j2')) {
         templateName = templateName.slice(0, -3);
         $('#template-name').val(templateName);
     }
 
-    // Base64 encode the content for Netstacker API
+    // Base64 encode the content for API
     const base64Content = btoa(content);
 
     const templateData = {
@@ -517,7 +512,7 @@ function saveTemplate() {
         delete_template: deleteTemplate || null
     };
 
-    // First, save the template content to Netstacker
+    // Save the template content to database
     $.ajax({
         url: '/api/templates',
         method: 'POST',
@@ -596,39 +591,3 @@ function deleteTemplate(templateName) {
     });
 }
 
-/**
- * Push template to Netstacker for persistent storage
- */
-function pushTemplateToNetstacker(templateName) {
-    if (!templateName) {
-        alert('No template selected');
-        return;
-    }
-
-    const templateNameNoExt = templateName.endsWith('.j2') ? templateName.slice(0, -3) : templateName;
-
-    // Show loading state
-    const $btn = $('#push-template-btn');
-    const originalHtml = $btn.html();
-    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Pushing...');
-
-    $.ajax({
-        url: '/api/templates/' + encodeURIComponent(templateNameNoExt) + '/push',
-        method: 'POST',
-        timeout: 30000
-    })
-    .done(function(data) {
-        if (data.success) {
-            alert(`✓ Template "${templateName}" successfully pushed to Netstacker!\n\n${data.message}`);
-        } else {
-            alert('Error pushing to Netstacker: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .fail(function(xhr) {
-        const error = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to push template';
-        alert('Error: ' + error);
-    })
-    .always(function() {
-        $btn.prop('disabled', false).html(originalHtml);
-    });
-}

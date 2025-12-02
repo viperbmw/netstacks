@@ -39,13 +39,13 @@
             <div class="card-body p-0">
                 <div class="list-group list-group-flush">
                     <a href="#" class="list-group-item list-group-item-action load-example" data-example="maintenance">
-                        <i class="fas fa-tools"></i> Maintenance Window
+                        <i class="fas fa-tools"></i> Maintenance Window (Deploy Stack)
                     </a>
                     <a href="#" class="list-group-item list-group-item-action load-example" data-example="simple">
-                        <i class="fas fa-check"></i> Simple BGP Check
+                        <i class="fas fa-check"></i> Simple BGP Check & Webhook
                     </a>
                     <a href="#" class="list-group-item list-group-item-action load-example" data-example="custom">
-                        <i class="fas fa-code"></i> Custom Python Validation
+                        <i class="fas fa-hand-paper"></i> Manual Approval Workflow
                     </a>
                 </div>
             </div>
@@ -183,39 +183,46 @@ steps:
   - name: "Check BGP Neighbors"
     id: check_bgp
     type: check_bgp
-    expect_neighbor_count: 4
-    compare_to_netbox: true
+    command: "show ip bgp summary"
     on_success: deploy_stack
     on_failure: send_alert
 
   - name: "Deploy Stack"
     id: deploy_stack
     type: deploy_stack
-    stack_id: "my-stack-id"
+    stack_name: "my-stack-name"
+    on_success: validate
+    on_failure: send_alert
+
+  - name: "Validate Config"
+    id: validate
+    type: validate_config
+    command: "show running-config"
     on_success: send_success
     on_failure: send_alert
 
-  - name: "Send Success Email"
+  - name: "Send Webhook"
     id: send_success
-    type: email
-    to: "ops@company.com"
-    subject: "Deployment Complete"
-    body: "Deployed at {timestamp}"
+    type: webhook
+    url: "https://hooks.slack.com/..."
+    message: "Deployment Complete"
 
-  - name: "Send Alert"
-    id: send_alert
-    type: email
-    to: "oncall@company.com"
-    subject: "MOP Failed"
+  - name: "Wait 30 Seconds"
+    id: wait_step
+    type: wait
+    seconds: 30
 
 <strong>Available Step Types:</strong>
-- check_bgp, check_ping, check_interfaces
-- deploy_stack, run_command
-- email, webhook
-- custom_python, wait
+<span class="badge bg-primary">get_config</span> Run show commands (check_bgp, check_interfaces, check_routing, get_config)
+<span class="badge bg-success">set_config</span> Push configuration to devices
+<span class="badge bg-danger">deploy_stack</span> Deploy a service stack
+<span class="badge bg-warning text-dark">validate</span> Validate output patterns (validate_config)
+<span class="badge bg-info">api_call</span> HTTP API calls (api_call, webhook)
+<span class="badge bg-secondary">wait</span> Pause execution
+<span style="background-color: #6f42c1; padding: 2px 6px; border-radius: 4px; color: white; font-size: 11px;">manual</span> Human approval (manual_approval)
 
 <strong>Variables:</strong>
-Use {timestamp}, {mop_name}, {device_name}, etc.</pre>
+Use {{ timestamp }}, {{ mop_name }}, {{ device_name }}, etc.</pre>
                         </div>
                     </div>
 

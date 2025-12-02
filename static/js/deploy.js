@@ -285,7 +285,7 @@ function executeGetConfig() {
                     timeout: 30000
                 })
                 .done(function(data) {
-                    // Netstacker returns: {status: 'success', data: {task_id: '...', ...}}
+                    // API returns: {status: 'success', data: {task_id: '...', ...}}
                     const taskId = data.data?.task_id || data.task_id || data.id;
                     if (taskId) {
                         taskIds.push(taskId);
@@ -410,7 +410,7 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
                     queue_strategy: "pinned"
                 };
 
-                // Add Netstacker pre_checks if enabled and command is provided
+                // Add pre_checks if enabled and command is provided
                 if (checkOptions.enabled && checkOptions.preCheckCommand) {
                     const matchArray = checkOptions.preCheckMatch ?
                         checkOptions.preCheckMatch.split(',').map(s => s.trim()).filter(s => s) :
@@ -425,7 +425,7 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
                     }];
                 }
 
-                // Add Netstacker post_checks if enabled and command is provided
+                // Add post_checks if enabled and command is provided
                 if (checkOptions.enabled && checkOptions.postCheckCommand) {
                     const matchArray = checkOptions.postCheckMatch ?
                         checkOptions.postCheckMatch.split(',').map(s => s.trim()).filter(s => s) :
@@ -452,7 +452,7 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
                     timeout: 30000
                 })
                 .done(function(data) {
-                    // Netstacker returns: {status: 'success', data: {task_id: '...', ...}}
+                    // API returns: {status: 'success', data: {task_id: '...', ...}}
                     const taskId = data.data?.task_id || data.task_id || data.id;
                     if (taskId) {
                         taskIds.push(taskId);
@@ -537,7 +537,7 @@ function oldExecuteSetConfigSingle() {
         timeout: 30000
     })
     .done(function(data) {
-        // Netstacker returns: {status: 'success', data: {task_id: '...', ...}}
+        // API returns: {status: 'success', data: {task_id: '...', ...}}
         const taskId = data.data?.task_id || data.task_id || data.id;
         showStatus('success', { taskId: taskId });
 
@@ -570,7 +570,7 @@ function pollTaskResult(taskId, attempts = 0) {
     setTimeout(function() {
         $.get('/api/task/' + taskId)
             .done(function(data) {
-                // Netstacker returns: {status: 'success', data: {task_status: '...', task_result: ...}}
+                // API returns: {status: 'success', data: {task_status: '...', task_result: ...}}
                 const taskData = data.data || data;
                 const status = taskData.task_status || taskData.status;
 

@@ -1,0 +1,1832 @@
+{% extends "base.html" %}
+
+{% block title %}Snapshots - NetStacks{% endblock %}
+
+{% block extra_css %}
+<style>
+    .diff-line { font-family: monospace; padding: 2px 8px; }
+    .diff-added { background-color: #d4edda; color: #155724; }
+    .diff-removed { background-color: #f8d7da; color: #721c24; }
+    .diff-unchanged { color: #6c757d; }
+    .diff-line-num { display: inline-block; width: 40px; color: #999; text-align: right; margin-right: 10px; user-select: none; }
+    .diff-line-content { white-space: pre-wrap; word-break: break-all; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-camera"></i> Snapshots
+        </h1>
+        <p class="text-muted">Network configuration snapshots and device backups</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Left Panel: Controls -->
+    <div class="col-md-4">
+        <!-- Backup Actions Card -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-play-circle"></i> Backup Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary btn-lg" id="create-snapshot-btn">
+                        <i class="fas fa-camera"></i> Create Network Snapshot
+                    </button>
+                    <button class="btn btn-outline-primary" id="run-single-backup-btn">
+                        <i class="fas fa-server"></i> Backup Single Device
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Card -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Summary</h5>
+            </div>
+            <div class="card-body">
+                <div id="backup-summary">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Maintenance Card -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-wrench"></i> Maintenance</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-warning btn-sm" id="fix-stale-btn">
+                        <i class="fas fa-first-aid"></i> Fix Stuck Snapshots
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" id="cleanup-btn">
+                        <i class="fas fa-broom"></i> Cleanup Old Backups
+                    </button>
+                </div>
+                <small class="text-muted mt-2 d-block">
+                    Fix snapshots stuck in "In Progress" state.
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel: Snapshots & Backups -->
+    <div class="col-md-8">
+        <!-- Active Snapshot Progress (shown when snapshot is running) -->
+        <div class="card mb-3 border-primary" id="active-snapshot-card" style="display: none;">
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span id="active-snapshot-title">Snapshot In Progress</span>
+                    </h5>
+                    <span class="badge bg-light text-dark fs-6" id="active-snapshot-pct">0%</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Progress Bar -->
+                <div class="progress mb-3" style="height: 30px;">
+                    <div class="progress-bar bg-success" id="progress-success-bar" role="progressbar" style="width: 0%">
+                        <span id="progress-success-text">0</span>
+                    </div>
+                    <div class="progress-bar bg-danger" id="progress-failed-bar" role="progressbar" style="width: 0%">
+                        <span id="progress-failed-text"></span>
+                    </div>
+                    <div class="progress-bar bg-secondary progress-bar-striped progress-bar-animated" id="progress-pending-bar" role="progressbar" style="width: 100%">
+                        <span id="progress-pending-text">Pending...</span>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="row text-center">
+                    <div class="col-3">
+                        <div class="border rounded p-2">
+                            <h4 class="mb-0 text-primary" id="stat-total">0</h4>
+                            <small class="text-muted">Total</small>
+                        </div>
+                    </div>
+                    <div class="col-3">
+                        <div class="border rounded p-2">
+                            <h4 class="mb-0 text-success" id="stat-success">0</h4>
+                            <small class="text-muted">Success</small>
+                        </div>
+                    </div>
+                    <div class="col-3">
+                        <div class="border rounded p-2">
+                            <h4 class="mb-0 text-danger" id="stat-failed">0</h4>
+                            <small class="text-muted">Failed</small>
+                        </div>
+                    </div>
+                    <div class="col-3">
+                        <div class="border rounded p-2">
+                            <h4 class="mb-0 text-warning" id="stat-pending">0</h4>
+                            <small class="text-muted">Pending</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Elapsed Time -->
+                <div class="text-center mt-2">
+                    <small class="text-muted">Elapsed: <span id="elapsed-time">0:00</span></small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Snapshots Table -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-camera"></i> Network Snapshots</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" id="compare-snapshots-btn" title="Compare Snapshots">
+                        <i class="fas fa-code-compare"></i> Compare
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="refresh-snapshots-btn">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Snapshot</th>
+                                <th style="width: 200px;">Progress</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="snapshots-tbody">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading snapshots...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Backups -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-history"></i> Recent Backups</h5>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm" id="device-filter" style="width: 200px;">
+                        <option value="">All Devices</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" id="refresh-backups-btn">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 400px;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>Device</th>
+                                <th>Time</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backups-tbody">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Snapshot Modal -->
+<div class="modal fade" id="viewSnapshotModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-camera"></i> <span id="modal-snapshot-title">Snapshot Details</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Snapshot Stats -->
+                <div class="row mb-4">
+                    <div class="col-md-3 text-center">
+                        <div class="border rounded p-3 h-100">
+                            <h3 class="mb-0 text-primary" id="modal-total">0</h3>
+                            <small class="text-muted">Total Devices</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="border rounded p-3 h-100">
+                            <h3 class="mb-0 text-success" id="modal-success">0</h3>
+                            <small class="text-muted">Successful</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="border rounded p-3 h-100">
+                            <h3 class="mb-0 text-danger" id="modal-failed">0</h3>
+                            <small class="text-muted">Failed</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="border rounded p-3 h-100">
+                            <span class="badge fs-5" id="modal-status-badge">Unknown</span>
+                            <small class="text-muted d-block mt-1">Status</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Snapshot Info -->
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <small class="text-muted">Created:</small>
+                        <span id="modal-created"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-muted">Completed:</small>
+                        <span id="modal-completed"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-muted">Created By:</small>
+                        <span id="modal-created-by"></span>
+                    </div>
+                </div>
+
+                <!-- Search/Filter -->
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <input type="text" class="form-control" id="modal-search" placeholder="Search devices...">
+                    </div>
+                    <div class="col-md-4">
+                        <select class="form-select" id="modal-status-filter">
+                            <option value="">All</option>
+                            <option value="success">Success</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Backups Table -->
+                <div class="table-responsive" style="max-height: 350px;">
+                    <table class="table table-sm table-hover">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>Device</th>
+                                <th>IP</th>
+                                <th>Time</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modal-backups-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-warning" id="modal-recalculate-btn">
+                    <i class="fas fa-calculator"></i> Recalculate Counts
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Config Modal -->
+<div class="modal fade" id="viewConfigModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-file-code"></i> <span id="config-modal-title">Configuration</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-3"><strong>Device:</strong> <span id="config-device"></span></div>
+                    <div class="col-md-3"><strong>Format:</strong> <span id="config-format"></span></div>
+                    <div class="col-md-3"><strong>Size:</strong> <span id="config-size"></span></div>
+                    <div class="col-md-3"><strong>Time:</strong> <span id="config-time"></span></div>
+                </div>
+
+                <!-- Tabs for Config and Diff views -->
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-view" type="button" role="tab">
+                            <i class="fas fa-file-alt"></i> Configuration
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff-view" type="button" role="tab">
+                            <i class="fas fa-code-compare"></i> Compare
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Config View Tab -->
+                    <div class="tab-pane fade show active" id="config-view" role="tabpanel">
+                        <textarea class="form-control font-monospace" id="config-content" rows="20" readonly style="font-size: 12px;"></textarea>
+                    </div>
+
+                    <!-- Diff View Tab -->
+                    <div class="tab-pane fade" id="diff-view" role="tabpanel">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <label class="form-label mb-0">Compare with:</label>
+                                    <select class="form-select form-select-sm d-inline-block ms-2" id="diff-compare-backup" style="width: auto;">
+                                        <option value="">Select backup to compare...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <span class="badge bg-success me-2"><i class="fas fa-plus"></i> <span id="diff-added-count">0</span> added</span>
+                                    <span class="badge bg-danger me-2"><i class="fas fa-minus"></i> <span id="diff-removed-count">0</span> removed</span>
+                                    <span class="badge bg-secondary"><i class="fas fa-equals"></i> <span id="diff-unchanged-count">0</span> unchanged</span>
+                                </div>
+                            </div>
+                            <div id="diff-loading" class="text-center py-4" style="display: none;">
+                                <div class="spinner-border spinner-border-sm" role="status"></div>
+                                <span class="ms-2">Loading comparison...</span>
+                            </div>
+                            <div id="diff-no-previous" class="alert alert-info" style="display: none;">
+                                <i class="fas fa-info-circle"></i> No other backups available for comparison.
+                            </div>
+                            <div id="diff-no-changes" class="alert alert-success" style="display: none;">
+                                <i class="fas fa-check-circle"></i> No changes detected between the selected backups.
+                            </div>
+                            <div id="diff-content-container" class="border rounded" style="max-height: 500px; overflow-y: auto; display: none;">
+                                <pre id="diff-content" class="m-0 p-2" style="white-space: pre-wrap; font-size: 0.85rem;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-primary" id="copy-config-btn">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+                <button type="button" class="btn btn-outline-success" id="download-config-btn">
+                    <i class="fas fa-download"></i> Download
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Single Backup Modal -->
+<div class="modal fade" id="singleBackupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-server"></i> Backup Single Device</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Select Device</label>
+                    <select class="form-select" id="single-device-select">
+                        <option value="">Loading devices...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="start-single-backup-btn">
+                    <i class="fas fa-play"></i> Start Backup
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Compare Snapshots Modal -->
+<div class="modal fade" id="compareSnapshotsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-code-compare"></i> Compare Snapshots</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Snapshot Selection -->
+                <div class="row mb-4">
+                    <div class="col-md-5">
+                        <label class="form-label"><strong>Base Snapshot (older):</strong></label>
+                        <select class="form-select" id="compare-snapshot1">
+                            <option value="">Select snapshot...</option>
+                        </select>
+                        <small class="text-muted" id="snapshot1-info"></small>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-center justify-content-center">
+                        <i class="fas fa-arrow-right fa-2x text-muted"></i>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label"><strong>Current Snapshot (newer):</strong></label>
+                        <select class="form-select" id="compare-snapshot2">
+                            <option value="">Select snapshot...</option>
+                        </select>
+                        <small class="text-muted" id="snapshot2-info"></small>
+                    </div>
+                </div>
+
+                <!-- Compare Button -->
+                <div class="text-center mb-4">
+                    <button class="btn btn-primary" id="run-comparison-btn">
+                        <i class="fas fa-balance-scale"></i> Compare Snapshots
+                    </button>
+                </div>
+
+                <!-- Loading -->
+                <div id="compare-loading" class="text-center py-4" style="display: none;">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="mt-2">Comparing snapshots...</div>
+                </div>
+
+                <!-- Results Summary -->
+                <div id="compare-results" style="display: none;">
+                    <div class="row mb-4 text-center">
+                        <div class="col-md-3">
+                            <div class="border rounded p-3 h-100">
+                                <h3 class="mb-0 text-primary" id="compare-total">0</h3>
+                                <small class="text-muted">Total Devices</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-3 h-100">
+                                <h3 class="mb-0 text-warning" id="compare-changed">0</h3>
+                                <small class="text-muted">Changed</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-3 h-100">
+                                <h3 class="mb-0 text-success" id="compare-added">0</h3>
+                                <small class="text-muted">Added</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-3 h-100">
+                                <h3 class="mb-0 text-danger" id="compare-removed">0</h3>
+                                <small class="text-muted">Removed</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filter -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <input type="text" class="form-control" id="compare-search" placeholder="Search devices...">
+                        </div>
+                        <div class="col-md-6">
+                            <select class="form-select" id="compare-filter">
+                                <option value="">All Devices</option>
+                                <option value="changed">Changed Only</option>
+                                <option value="added">Added Only</option>
+                                <option value="removed">Removed Only</option>
+                                <option value="unchanged">Unchanged Only</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- No Changes Message -->
+                    <div id="compare-no-changes" class="alert alert-success" style="display: none;">
+                        <i class="fas fa-check-circle"></i> <strong>No configuration changes detected!</strong>
+                        All device configurations are identical between the two snapshots.
+                    </div>
+
+                    <!-- Comparison Table -->
+                    <div class="table-responsive" style="max-height: 400px;">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="compare-results-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Error Details Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> <span id="error-modal-title">Backup Error</span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <strong>Device:</strong> <span id="error-device-name"></span>
+                </div>
+                <div class="mb-3">
+                    <strong>Error Message:</strong>
+                    <pre id="error-message-content" class="mt-2 p-3 bg-dark text-light border rounded" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cleanup Backups Modal -->
+<div class="modal fade" id="cleanupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-broom"></i> Cleanup Backups</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">Select a cleanup option:</p>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="radio" name="cleanupOption" id="cleanup-orphans" value="orphans" checked>
+                    <label class="form-check-label" for="cleanup-orphans">
+                        <strong>Delete orphaned backups</strong>
+                        <br><small class="text-muted">Remove backups for devices not in current cache. Make sure you've loaded devices on the Devices page first.</small>
+                    </label>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="radio" name="cleanupOption" id="cleanup-old" value="old">
+                    <label class="form-check-label" for="cleanup-old">
+                        <strong>Delete old backups</strong>
+                        <br><small class="text-muted">Remove backups older than a specified number of days.</small>
+                    </label>
+                </div>
+
+                <div id="retention-days-group" class="ms-4 mb-3" style="display: none;">
+                    <label class="form-label">Delete backups older than:</label>
+                    <div class="input-group" style="width: 200px;">
+                        <input type="number" class="form-control" id="retention-days-input" value="30" min="1">
+                        <span class="input-group-text">days</span>
+                    </div>
+                </div>
+
+                <div class="alert alert-warning mb-0">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Warning:</strong> This action cannot be undone.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-cleanup-btn">
+                    <i class="fas fa-trash-alt"></i> Delete Backups
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// State
+let activeSnapshotId = null;
+let pollInterval = null;
+let snapshotStartTime = null;
+let cachedDevices = [];
+let currentModalSnapshot = null;
+let currentModalBackups = [];
+let snapshotsList = [];  // Store loaded snapshots for comparison
+let currentComparisonData = [];  // Store comparison results for filtering
+
+// Initialize
+$(document).ready(function() {
+    loadSnapshots();
+    loadBackups();
+    loadSummary();
+    loadDevices();
+
+    // Check for active snapshots
+    checkActiveSnapshots();
+
+    // Check for URL parameters (e.g., ?backup=123 from devices page)
+    checkUrlParams();
+
+    // Event handlers
+    $('#create-snapshot-btn').click(createSnapshot);
+    $('#run-single-backup-btn').click(showSingleBackupModal);
+    $('#start-single-backup-btn').click(startSingleBackup);
+    $('#refresh-snapshots-btn').click(loadSnapshots);
+    $('#refresh-backups-btn').click(loadBackups);
+    $('#device-filter').change(loadBackups);
+    $('#fix-stale-btn').click(fixStaleSnapshots);
+    $('#cleanup-btn').click(showCleanupModal);
+    $('#confirm-cleanup-btn').click(executeCleanup);
+    $('#modal-search').on('input', filterModalBackups);
+    $('#modal-status-filter').change(filterModalBackups);
+    $('#modal-recalculate-btn').click(recalculateSnapshot);
+    $('#copy-config-btn').click(copyConfig);
+    $('#download-config-btn').click(downloadConfig);
+
+    // Compare snapshots handlers
+    $('#compare-snapshots-btn').click(showCompareSnapshotsModal);
+    $('#run-comparison-btn').click(runSnapshotComparison);
+    $('#compare-search').on('input', filterComparisonResults);
+    $('#compare-filter').change(filterComparisonResults);
+
+    // Toggle retention days input when "old backups" option selected
+    $('input[name="cleanupOption"]').change(function() {
+        if ($('#cleanup-old').is(':checked')) {
+            $('#retention-days-group').slideDown();
+        } else {
+            $('#retention-days-group').slideUp();
+        }
+    });
+});
+
+// Load summary stats
+function loadSummary() {
+    console.log('Loading summary...');
+    $.get('/api/config-backups?limit=1')
+        .done(function(response) {
+            console.log('Summary response:', response);
+            if (response.success && response.summary) {
+                const s = response.summary;
+                $('#backup-summary').html(`
+                    <div class="row text-center mb-3">
+                        <div class="col-6">
+                            <h3 class="mb-0 text-primary">${s.total_backups || 0}</h3>
+                            <small class="text-muted">Total Backups</small>
+                        </div>
+                        <div class="col-6">
+                            <h3 class="mb-0 text-success">${s.unique_devices || 0}</h3>
+                            <small class="text-muted">Devices</small>
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        <i class="fas fa-clock"></i> Latest: ${s.latest_backup ? formatDate(s.latest_backup) : 'Never'}
+                    </small>
+                `);
+
+                // Populate device filter
+                if (s.devices_with_backups && s.devices_with_backups.length > 0) {
+                    const $filter = $('#device-filter');
+                    $filter.find('option:not(:first)').remove();
+                    s.devices_with_backups.forEach(d => {
+                        $filter.append(`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`);
+                    });
+                }
+            } else {
+                console.log('No summary data in response');
+                $('#backup-summary').html(`
+                    <div class="text-center text-muted">
+                        <p class="mb-0">No backups yet</p>
+                    </div>
+                `);
+            }
+        })
+        .fail(function(xhr, status, error) {
+            console.error('Failed to load summary:', status, error);
+            $('#backup-summary').html(`
+                <div class="text-center text-danger">
+                    <i class="fas fa-exclamation-triangle"></i> Error loading summary
+                </div>
+            `);
+        });
+}
+
+// Load snapshots
+function loadSnapshots() {
+    $.get('/api/config-snapshots?limit=20')
+        .done(function(response) {
+            if (response.success && response.snapshots) {
+                snapshotsList = response.snapshots;  // Store for comparison modal
+                renderSnapshots(response.snapshots);
+            } else {
+                snapshotsList = [];
+                $('#snapshots-tbody').html('<tr><td colspan="5" class="text-center text-muted">No snapshots found</td></tr>');
+            }
+        })
+        .fail(function() {
+            $('#snapshots-tbody').html('<tr><td colspan="5" class="text-center text-danger">Error loading snapshots</td></tr>');
+        });
+}
+
+// Render snapshots table
+function renderSnapshots(snapshots) {
+    const $tbody = $('#snapshots-tbody');
+    $tbody.empty();
+
+    if (!snapshots || snapshots.length === 0) {
+        $tbody.html('<tr><td colspan="5" class="text-center text-muted py-4">No snapshots yet. Click "Create Network Snapshot" to create one.</td></tr>');
+        return;
+    }
+
+    snapshots.forEach(function(s) {
+        const total = s.total_devices || 0;
+        const success = s.success_count || 0;
+        const failed = s.failed_count || 0;
+        const completed = success + failed;
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        // Status badge
+        let statusBadge = '';
+        switch(s.status) {
+            case 'complete':
+                statusBadge = '<span class="badge bg-success">Complete</span>';
+                break;
+            case 'partial':
+                statusBadge = '<span class="badge bg-warning text-dark">Partial</span>';
+                break;
+            case 'failed':
+                statusBadge = '<span class="badge bg-danger">Failed</span>';
+                break;
+            case 'in_progress':
+                statusBadge = '<span class="badge bg-info"><i class="fas fa-spinner fa-spin"></i> In Progress</span>';
+                break;
+            default:
+                statusBadge = `<span class="badge bg-secondary">${s.status}</span>`;
+        }
+
+        // Progress bar
+        const successPct = total > 0 ? (success / total * 100) : 0;
+        const failedPct = total > 0 ? (failed / total * 100) : 0;
+        const pendingPct = 100 - successPct - failedPct;
+
+        const progressBar = `
+            <div class="progress" style="height: 20px;">
+                <div class="progress-bar bg-success" style="width: ${successPct}%" title="${success} success">${success > 0 ? success : ''}</div>
+                <div class="progress-bar bg-danger" style="width: ${failedPct}%" title="${failed} failed">${failed > 0 ? failed : ''}</div>
+                ${s.status === 'in_progress' ? `<div class="progress-bar bg-secondary progress-bar-striped progress-bar-animated" style="width: ${pendingPct}%"></div>` : ''}
+            </div>
+            <small class="text-muted">${completed} / ${total}</small>
+        `;
+
+        $tbody.append(`
+            <tr>
+                <td>
+                    <strong>${escapeHtml(s.name || 'Unnamed')}</strong>
+                    ${s.created_by ? `<br><small class="text-muted">by ${escapeHtml(s.created_by)}</small>` : ''}
+                </td>
+                <td>${progressBar}</td>
+                <td>${statusBadge}</td>
+                <td><small>${formatDate(s.created_at)}</small></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewSnapshot('${s.snapshot_id}')" title="View">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteSnapshot('${s.snapshot_id}')" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `);
+    });
+}
+
+// Load backups
+function loadBackups() {
+    const device = $('#device-filter').val();
+    let url = '/api/config-backups?limit=100';
+    if (device) url += `&device=${encodeURIComponent(device)}`;
+
+    $.get(url)
+        .done(function(response) {
+            if (response.success && response.backups) {
+                renderBackups(response.backups);
+            }
+        });
+}
+
+// Render backups table
+function renderBackups(backups) {
+    const $tbody = $('#backups-tbody');
+    $tbody.empty();
+
+    if (!backups || backups.length === 0) {
+        $tbody.html('<tr><td colspan="5" class="text-center text-muted py-4">No backups found</td></tr>');
+        return;
+    }
+
+    backups.forEach(function(b) {
+        const statusBadge = b.status === 'success'
+            ? '<span class="badge bg-success">OK</span>'
+            : '<span class="badge bg-danger">Failed</span>';
+
+        $tbody.append(`
+            <tr>
+                <td>
+                    <i class="fas fa-server text-muted"></i> ${escapeHtml(b.device_name)}
+                    ${b.device_ip ? `<br><small class="text-muted">${escapeHtml(b.device_ip)}</small>` : ''}
+                </td>
+                <td><small>${formatDate(b.created_at)}</small></td>
+                <td><small>${formatSize(b.file_size)}</small></td>
+                <td>${statusBadge}</td>
+                <td>
+                    ${b.status === 'success' ? `
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewConfig('${b.backup_id}')" title="View">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    ` : ''}
+                </td>
+            </tr>
+        `);
+    });
+}
+
+// Load devices for single backup
+function loadDevices() {
+    $.get('/api/devices/cached')
+        .done(function(response) {
+            if (response.success && response.devices) {
+                cachedDevices = response.devices;
+                const $select = $('#single-device-select');
+                $select.empty();
+                $select.append('<option value="">-- Select Device --</option>');
+                response.devices.forEach(d => {
+                    $select.append(`<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`);
+                });
+            }
+        });
+}
+
+// Check for active snapshots on page load
+function checkActiveSnapshots() {
+    $.get('/api/config-snapshots?limit=5')
+        .done(function(response) {
+            if (response.success && response.snapshots) {
+                const active = response.snapshots.find(s => s.status === 'in_progress');
+                if (active) {
+                    activeSnapshotId = active.snapshot_id;
+                    snapshotStartTime = new Date(active.created_at);
+                    showActiveSnapshot(active);
+                    startPolling();
+                }
+            }
+        });
+}
+
+// Create snapshot
+function createSnapshot() {
+    console.log('createSnapshot() called');
+    if (!confirm('Create a network snapshot of all devices?')) {
+        console.log('User cancelled snapshot creation');
+        return;
+    }
+    console.log('User confirmed, starting snapshot...');
+
+    const $btn = $('#create-snapshot-btn');
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Starting...');
+
+    $.ajax({
+        url: '/api/config-backups/run-all',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({})
+    })
+    .done(function(response) {
+        console.log('Snapshot response:', response);
+        if (response.success) {
+            activeSnapshotId = response.snapshot_id;
+            snapshotStartTime = new Date();
+
+            // Calculate totals - submitted and failed are counts
+            const totalDevices = (response.submitted || 0) + (response.errors ? response.errors.length : 0);
+            const failedCount = response.errors ? response.errors.length : 0;
+
+            console.log('Starting snapshot polling, total devices:', totalDevices);
+
+            showActiveSnapshot({
+                name: `Snapshot ${new Date().toLocaleString()}`,
+                total_devices: totalDevices,
+                success_count: 0,
+                failed_count: failedCount,
+                status: 'in_progress'
+            });
+
+            startPolling();
+            loadSnapshots();
+            loadSummary();
+        } else {
+            alert('Error: ' + response.error);
+        }
+    })
+    .fail(function(xhr, textStatus) {
+        if (textStatus !== 'abort' && xhr.status !== 0) {
+            alert('Error: ' + (xhr.responseJSON?.error || 'Failed to create snapshot'));
+        }
+    })
+    .always(function() {
+        $btn.prop('disabled', false).html('<i class="fas fa-camera"></i> Create Network Snapshot');
+    });
+}
+
+// Show active snapshot progress
+function showActiveSnapshot(snapshot) {
+    console.log('Showing active snapshot panel:', snapshot);
+    const $card = $('#active-snapshot-card');
+    // Remove Bootstrap classes and use jQuery show for compatibility with fadeOut
+    $card.removeClass('d-none d-block');
+    $card.show();
+    $('#active-snapshot-title').html('<i class="fas fa-spinner fa-spin"></i> ' + (snapshot.name || 'Snapshot In Progress'));
+    updateProgress(snapshot);
+}
+
+// Update progress display
+function updateProgress(snapshot) {
+    const total = snapshot.total_devices || 0;
+    const success = snapshot.success_count || 0;
+    const failed = snapshot.failed_count || 0;
+    const completed = success + failed;
+    const pending = total - completed;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    // Update stats
+    $('#stat-total').text(total);
+    $('#stat-success').text(success);
+    $('#stat-failed').text(failed);
+    $('#stat-pending').text(pending);
+    $('#active-snapshot-pct').text(pct + '%');
+
+    // Update progress bar
+    const successPct = total > 0 ? (success / total * 100) : 0;
+    const failedPct = total > 0 ? (failed / total * 100) : 0;
+    const pendingPct = total > 0 ? (pending / total * 100) : 0;
+
+    $('#progress-success-bar').css('width', successPct + '%');
+    $('#progress-success-text').text(success > 0 ? success : '');
+
+    $('#progress-failed-bar').css('width', failedPct + '%');
+    $('#progress-failed-text').text(failed > 0 ? failed : '');
+
+    $('#progress-pending-bar').css('width', pendingPct + '%');
+    $('#progress-pending-text').text(pending > 0 ? pending + ' pending' : '');
+
+    // Update elapsed time
+    if (snapshotStartTime) {
+        const elapsed = Math.floor((new Date() - snapshotStartTime) / 1000);
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        $('#elapsed-time').text(`${mins}:${secs.toString().padStart(2, '0')}`);
+    }
+}
+
+// Start polling for snapshot progress
+function startPolling() {
+    if (pollInterval) clearInterval(pollInterval);
+
+    console.log('Starting polling for snapshot:', activeSnapshotId);
+
+    pollInterval = setInterval(function() {
+        if (!activeSnapshotId) {
+            clearInterval(pollInterval);
+            return;
+        }
+
+        $.get(`/api/config-snapshots/${activeSnapshotId}`)
+            .done(function(response) {
+                console.log('Polling response:', response);
+                if (response.success && response.snapshot) {
+                    const s = response.snapshot;
+                    updateProgress(s);
+                    loadSnapshots(); // Refresh table too
+
+                    // Check if done
+                    if (s.status !== 'in_progress') {
+                        console.log('Snapshot completed with status:', s.status);
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+
+                        // Update progress bar to show completion
+                        $('#active-snapshot-title').html('<i class="fas fa-check-circle"></i> Snapshot Complete');
+
+                        // Hide after delay with fallback
+                        console.log('Scheduling card hide in 3 seconds...');
+                        setTimeout(function() {
+                            console.log('Hiding active snapshot card now');
+                            const $card = $('#active-snapshot-card');
+                            // Use fadeOut with callback to ensure it completes
+                            $card.fadeOut(400, function() {
+                                console.log('fadeOut complete');
+                                // Also explicitly hide in case fadeOut didn't work
+                                $(this).css('display', 'none').removeClass('d-block');
+                            });
+                            activeSnapshotId = null;
+                            snapshotStartTime = null;
+                            loadBackups();
+                            loadSummary();
+                        }, 3000);
+                    }
+                }
+            })
+            .fail(function(xhr, status, error) {
+                console.error('Polling error:', status, error);
+            });
+    }, 2000);
+}
+
+// View snapshot details
+function viewSnapshot(snapshotId) {
+    currentModalSnapshot = snapshotId;
+    $('#modal-backups-tbody').html('<tr><td colspan="6" class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>');
+    $('#viewSnapshotModal').modal('show');
+
+    $.get(`/api/config-snapshots/${snapshotId}`)
+        .done(function(response) {
+            if (response.success && response.snapshot) {
+                const s = response.snapshot;
+
+                // Update header
+                $('#modal-snapshot-title').text(s.name || 'Snapshot Details');
+                $('#modal-total').text(s.total_devices || 0);
+                $('#modal-success').text(s.success_count || 0);
+                $('#modal-failed').text(s.failed_count || 0);
+
+                // Status badge
+                let badgeClass = 'bg-secondary';
+                if (s.status === 'complete') badgeClass = 'bg-success';
+                else if (s.status === 'partial') badgeClass = 'bg-warning text-dark';
+                else if (s.status === 'failed') badgeClass = 'bg-danger';
+                else if (s.status === 'in_progress') badgeClass = 'bg-info';
+                $('#modal-status-badge').removeClass().addClass(`badge fs-5 ${badgeClass}`).text(s.status);
+
+                // Info
+                $('#modal-created').text(formatDate(s.created_at));
+                $('#modal-completed').text(s.completed_at ? formatDate(s.completed_at) : 'In Progress');
+                $('#modal-created-by').text(s.created_by || 'system');
+
+                // Store backups for filtering
+                currentModalBackups = s.backups || [];
+                renderModalBackups(currentModalBackups);
+            }
+        });
+}
+
+// Store backup errors for lookup
+let backupErrors = {};
+
+// Render modal backups
+function renderModalBackups(backups) {
+    const $tbody = $('#modal-backups-tbody');
+    $tbody.empty();
+    backupErrors = {};  // Reset error storage
+
+    if (!backups || backups.length === 0) {
+        $tbody.html('<tr><td colspan="6" class="text-center text-muted">No backups in this snapshot</td></tr>');
+        return;
+    }
+
+    backups.forEach(function(b) {
+        let statusBadge;
+        let actionButtons = '';
+
+        if (b.status === 'success') {
+            statusBadge = '<span class="badge bg-success">OK</span>';
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-primary view-config-btn" data-backup-id="${b.backup_id}" title="View Config">
+                    <i class="fas fa-eye"></i>
+                </button>
+            `;
+        } else {
+            statusBadge = '<span class="badge bg-danger">Failed</span>';
+            // Store error message for later lookup
+            backupErrors[b.backup_id] = {
+                device_name: b.device_name,
+                error_message: b.error_message || 'No error details available'
+            };
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-danger view-error-btn" data-backup-id="${b.backup_id}" title="View Error">
+                    <i class="fas fa-exclamation-circle"></i>
+                </button>
+            `;
+        }
+
+        $tbody.append(`
+            <tr>
+                <td>${escapeHtml(b.device_name)}</td>
+                <td><small>${escapeHtml(b.device_ip || '-')}</small></td>
+                <td><small>${formatDate(b.created_at)}</small></td>
+                <td><small>${formatSize(b.file_size)}</small></td>
+                <td>${statusBadge}</td>
+                <td>${actionButtons}</td>
+            </tr>
+        `);
+    });
+
+    // Bind click handlers using event delegation
+    $tbody.off('click', '.view-config-btn').on('click', '.view-config-btn', function() {
+        const backupId = $(this).data('backup-id');
+        viewConfig(backupId);
+    });
+
+    $tbody.off('click', '.view-error-btn').on('click', '.view-error-btn', function() {
+        const backupId = $(this).data('backup-id');
+        const errorInfo = backupErrors[backupId];
+        if (errorInfo) {
+            viewError(errorInfo.device_name, errorInfo.error_message);
+        }
+    });
+}
+
+// Filter modal backups
+function filterModalBackups() {
+    const search = $('#modal-search').val().toLowerCase();
+    const status = $('#modal-status-filter').val();
+
+    let filtered = currentModalBackups;
+
+    if (search) {
+        filtered = filtered.filter(b =>
+            (b.device_name || '').toLowerCase().includes(search) ||
+            (b.device_ip || '').toLowerCase().includes(search)
+        );
+    }
+
+    if (status) {
+        filtered = filtered.filter(b => b.status === status);
+    }
+
+    renderModalBackups(filtered);
+}
+
+// Recalculate snapshot counts
+function recalculateSnapshot() {
+    if (!currentModalSnapshot) return;
+    if (!confirm('Recalculate snapshot counts from actual backups?')) return;
+
+    $.ajax({
+        url: `/api/config-snapshots/${currentModalSnapshot}/recalculate`,
+        method: 'POST'
+    })
+    .done(function(response) {
+        if (response.success) {
+            alert('Counts recalculated successfully');
+            viewSnapshot(currentModalSnapshot);
+            loadSnapshots();
+        } else {
+            alert('Error: ' + response.error);
+        }
+    });
+}
+
+// Delete snapshot
+function deleteSnapshot(snapshotId) {
+    if (!confirm('Delete this snapshot and all its backups?')) return;
+
+    $.ajax({
+        url: `/api/config-snapshots/${snapshotId}`,
+        method: 'DELETE'
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadSnapshots();
+            loadBackups();
+            loadSummary();
+        } else {
+            alert('Error: ' + response.error);
+        }
+    });
+}
+
+// View error details for failed backup
+function viewError(deviceName, errorMessage) {
+    $('#error-device-name').text(deviceName);
+    $('#error-message-content').text(errorMessage);
+    $('#errorModal').modal('show');
+}
+
+// View config
+function viewConfig(backupId) {
+    $.get(`/api/config-backups/${backupId}`)
+        .done(function(response) {
+            if (response.success && response.backup) {
+                const b = response.backup;
+                $('#config-modal-title').text(`Configuration: ${b.device_name}`);
+                $('#config-device').text(b.device_name);
+                $('#config-format').text(b.config_format || 'native');
+                $('#config-size').text(formatSize(b.file_size));
+                $('#config-time').text(formatDate(b.created_at));
+                $('#config-content').val(b.config_content || '');
+                $('#viewConfigModal').data('backup', b);
+
+                // Reset to config tab
+                $('#config-tab').tab('show');
+
+                // Reset diff view
+                resetDiffView();
+
+                // Load other backups for comparison
+                loadBackupsForComparison(b.device_name, b.backup_id);
+
+                $('#viewConfigModal').modal('show');
+            }
+        });
+}
+
+// Reset diff view to initial state
+function resetDiffView() {
+    $('#diff-compare-backup').html('<option value="">Select backup to compare...</option>');
+    $('#diff-loading').hide();
+    $('#diff-no-previous').hide();
+    $('#diff-no-changes').hide();
+    $('#diff-content-container').hide();
+    $('#diff-content').html('');
+    $('#diff-added-count').text('0');
+    $('#diff-removed-count').text('0');
+    $('#diff-unchanged-count').text('0');
+}
+
+// Load other backups for comparison dropdown
+function loadBackupsForComparison(deviceName, currentBackupId) {
+    $.get(`/api/config-backups?device=${encodeURIComponent(deviceName)}&limit=20`)
+        .done(function(response) {
+            if (response.success && response.backups) {
+                const $select = $('#diff-compare-backup');
+                $select.html('<option value="">Select backup to compare...</option>');
+
+                // Filter out current backup and add others
+                const otherBackups = response.backups.filter(b => b.backup_id !== currentBackupId);
+
+                if (otherBackups.length === 0) {
+                    $select.append('<option value="" disabled>No other backups available</option>');
+                    return;
+                }
+
+                otherBackups.forEach(backup => {
+                    const date = formatDate(backup.created_at);
+                    const formatLabel = backup.config_format === 'set' ? ' (set)' : '';
+                    $select.append(`<option value="${backup.backup_id}">${date}${formatLabel}</option>`);
+                });
+            }
+        });
+}
+
+// When diff tab is shown, load the diff
+$('#diff-tab').on('shown.bs.tab', function() {
+    const compareBackupId = $('#diff-compare-backup').val();
+    if (compareBackupId) {
+        loadDiff(compareBackupId);
+    } else {
+        // Try to auto-select first available backup
+        const $select = $('#diff-compare-backup');
+        const firstOption = $select.find('option[value!=""]:not(:disabled)').first().val();
+        if (firstOption) {
+            $select.val(firstOption);
+            loadDiff(firstOption);
+        } else {
+            $('#diff-no-previous').show();
+        }
+    }
+});
+
+// When comparison backup changes
+$('#diff-compare-backup').change(function() {
+    const compareBackupId = $(this).val();
+    if (compareBackupId) {
+        loadDiff(compareBackupId);
+    }
+});
+
+// Load and display diff between current and selected backup
+function loadDiff(compareBackupId) {
+    const currentBackup = $('#viewConfigModal').data('backup');
+    if (!currentBackup) return;
+
+    // Show loading
+    $('#diff-loading').show();
+    $('#diff-no-previous').hide();
+    $('#diff-no-changes').hide();
+    $('#diff-content-container').hide();
+
+    // Fetch the comparison backup
+    $.get(`/api/config-backups/${compareBackupId}`)
+        .done(function(response) {
+            $('#diff-loading').hide();
+
+            if (response.success && response.backup) {
+                const compareBackup = response.backup;
+                const currentContent = currentBackup.config_content || '';
+                const compareContent = compareBackup.config_content || '';
+
+                // Compute and display diff
+                displayDiff(currentContent, compareContent);
+            } else {
+                $('#diff-no-previous').show();
+            }
+        })
+        .fail(function() {
+            $('#diff-loading').hide();
+            $('#diff-no-previous').show();
+        });
+}
+
+// Compute and display the diff between two configs
+function displayDiff(currentContent, previousContent) {
+    const currentLines = currentContent.split('\n');
+    const previousLines = previousContent.split('\n');
+
+    // Compute line diff
+    const diff = computeLineDiff(previousLines, currentLines);
+
+    if (diff.added === 0 && diff.removed === 0) {
+        $('#diff-no-changes').show();
+        $('#diff-content-container').hide();
+        $('#diff-added-count').text('0');
+        $('#diff-removed-count').text('0');
+        $('#diff-unchanged-count').text(currentLines.length);
+        return;
+    }
+
+    // Update counts
+    $('#diff-added-count').text(diff.added);
+    $('#diff-removed-count').text(diff.removed);
+    $('#diff-unchanged-count').text(diff.unchanged);
+
+    // Display diff content
+    $('#diff-content').html(diff.html);
+    $('#diff-content-container').show();
+    $('#diff-no-changes').hide();
+}
+
+// Compute line-by-line diff
+function computeLineDiff(oldLines, newLines) {
+    const oldSet = new Set(oldLines);
+    const newSet = new Set(newLines);
+
+    let html = '';
+    let added = 0;
+    let removed = 0;
+    let unchanged = 0;
+
+    // First pass: count removed and added
+    oldLines.forEach(line => {
+        if (!newSet.has(line)) removed++;
+    });
+    newLines.forEach(line => {
+        if (!oldSet.has(line)) added++;
+    });
+
+    // Build unified diff output
+    let i = 0, j = 0;
+
+    while (i < oldLines.length || j < newLines.length) {
+        const oldLine = i < oldLines.length ? oldLines[i] : null;
+        const newLine = j < newLines.length ? newLines[j] : null;
+
+        if (oldLine === newLine) {
+            unchanged++;
+            html += `<div class="diff-line diff-unchanged"><span class="diff-line-num">${j + 1}</span><span class="diff-line-content">${escapeHtml(newLine)}</span></div>`;
+            i++;
+            j++;
+        } else if (oldLine !== null && !newSet.has(oldLine)) {
+            html += `<div class="diff-line diff-removed"><span class="diff-line-num">-</span><span class="diff-line-content">${escapeHtml(oldLine)}</span></div>`;
+            i++;
+        } else if (newLine !== null && !oldSet.has(newLine)) {
+            html += `<div class="diff-line diff-added"><span class="diff-line-num">+</span><span class="diff-line-content">${escapeHtml(newLine)}</span></div>`;
+            j++;
+        } else {
+            unchanged++;
+            html += `<div class="diff-line diff-unchanged"><span class="diff-line-num">${j + 1}</span><span class="diff-line-content">${escapeHtml(newLine)}</span></div>`;
+            i++;
+            j++;
+        }
+    }
+
+    return { html, added, removed, unchanged };
+}
+
+// Check for backup parameter in URL and open modal
+function checkUrlParams() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const backupId = urlParams.get('backup');
+    if (backupId) {
+        // Clear the URL parameter without refreshing
+        window.history.replaceState({}, document.title, window.location.pathname);
+        // Open the backup view
+        viewConfig(backupId);
+    }
+}
+
+// Copy config to clipboard
+function copyConfig() {
+    const content = $('#config-content').val();
+    navigator.clipboard.writeText(content).then(function() {
+        const $btn = $('#copy-config-btn');
+        $btn.html('<i class="fas fa-check"></i> Copied!');
+        setTimeout(() => $btn.html('<i class="fas fa-copy"></i> Copy'), 2000);
+    });
+}
+
+// Download config
+function downloadConfig() {
+    const backup = $('#viewConfigModal').data('backup');
+    if (!backup) return;
+
+    const blob = new Blob([backup.config_content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${backup.device_name}_${backup.created_at.replace(/[: ]/g, '_')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// Single backup
+function showSingleBackupModal() {
+    $('#singleBackupModal').modal('show');
+}
+
+function startSingleBackup() {
+    const device = $('#single-device-select').val();
+    if (!device) {
+        alert('Please select a device');
+        return;
+    }
+
+    const $btn = $('#start-single-backup-btn');
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Starting...');
+
+    $.ajax({
+        url: '/api/config-backups/run-single',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ device_name: device })
+    })
+    .done(function(response) {
+        if (response.success) {
+            $('#singleBackupModal').modal('hide');
+            alert(`Backup started for ${device}`);
+            setTimeout(loadBackups, 5000);
+        } else {
+            alert('Error: ' + response.error);
+        }
+    })
+    .always(function() {
+        $btn.prop('disabled', false).html('<i class="fas fa-play"></i> Start Backup');
+    });
+}
+
+// Fix stale snapshots
+function fixStaleSnapshots() {
+    if (!confirm('Fix snapshots stuck in "In Progress" state for over 30 minutes?')) return;
+
+    $.ajax({
+        url: '/api/config-snapshots/fix-stale',
+        method: 'POST'
+    })
+    .done(function(response) {
+        if (response.success) {
+            alert(`Fixed ${response.fixed_count} stale snapshots`);
+            loadSnapshots();
+        } else {
+            alert('Error: ' + response.error);
+        }
+    });
+}
+
+// Show cleanup modal
+function showCleanupModal() {
+    // Reset to default state
+    $('#cleanup-orphans').prop('checked', true);
+    $('#retention-days-group').hide();
+    $('#retention-days-input').val('30');
+    $('#cleanupModal').modal('show');
+}
+
+// Execute cleanup based on selected option
+function executeCleanup() {
+    const $btn = $('#confirm-cleanup-btn');
+    const selectedOption = $('input[name="cleanupOption"]:checked').val();
+
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Deleting...');
+
+    if (selectedOption === 'orphans') {
+        // Delete orphaned backups
+        $.ajax({
+            url: '/api/config-backups/cleanup-orphans',
+            method: 'POST'
+        })
+        .done(function(response) {
+            $('#cleanupModal').modal('hide');
+            if (response.success) {
+                alert(`Deleted ${response.deleted_count} orphaned backups from ${response.orphaned_devices} devices.\n\nDevices in cache: ${response.cached_device_count}`);
+                loadBackups();
+                loadSummary();
+                loadSnapshots();
+            } else {
+                alert('Error: ' + response.error);
+            }
+        })
+        .fail(function(xhr) {
+            $('#cleanupModal').modal('hide');
+            alert('Error: ' + (xhr.responseJSON?.error || 'Failed to cleanup backups'));
+        })
+        .always(function() {
+            $btn.prop('disabled', false).html('<i class="fas fa-trash-alt"></i> Delete Backups');
+        });
+    } else {
+        // Delete old backups
+        const days = parseInt($('#retention-days-input').val()) || 30;
+
+        $.ajax({
+            url: '/api/config-backups/cleanup',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ retention_days: days })
+        })
+        .done(function(response) {
+            $('#cleanupModal').modal('hide');
+            if (response.success) {
+                alert(`Deleted ${response.deleted_count} backups older than ${days} days`);
+                loadBackups();
+                loadSummary();
+            } else {
+                alert('Error: ' + response.error);
+            }
+        })
+        .fail(function(xhr) {
+            $('#cleanupModal').modal('hide');
+            alert('Error: ' + (xhr.responseJSON?.error || 'Failed to cleanup backups'));
+        })
+        .always(function() {
+            $btn.prop('disabled', false).html('<i class="fas fa-trash-alt"></i> Delete Backups');
+        });
+    }
+}
+
+// =============================================================================
+// Snapshot Comparison Functions
+// =============================================================================
+
+// Show compare snapshots modal
+function showCompareSnapshotsModal() {
+    // Reset state
+    currentComparisonData = [];
+    $('#compare-results').hide();
+    $('#compare-loading').hide();
+    $('#compare-no-changes').hide();
+    $('#compare-results-tbody').empty();
+    $('#compare-search').val('');
+    $('#compare-filter').val('');
+
+    // Populate snapshot dropdowns with completed snapshots
+    const completedSnapshots = snapshotsList.filter(s => s.status === 'complete' || s.status === 'partial');
+    const $select1 = $('#compare-snapshot1');
+    const $select2 = $('#compare-snapshot2');
+
+    $select1.html('<option value="">Select snapshot...</option>');
+    $select2.html('<option value="">Select snapshot...</option>');
+
+    completedSnapshots.forEach(s => {
+        const date = formatDate(s.created_at);
+        const label = `${s.name || 'Unnamed'} - ${date} (${s.success_count}/${s.total_devices})`;
+        $select1.append(`<option value="${s.snapshot_id}">${label}</option>`);
+        $select2.append(`<option value="${s.snapshot_id}">${label}</option>`);
+    });
+
+    // Auto-select first two snapshots if available
+    if (completedSnapshots.length >= 2) {
+        $select1.val(completedSnapshots[1].snapshot_id);  // Older one
+        $select2.val(completedSnapshots[0].snapshot_id);  // Newer one
+    }
+
+    $('#compareSnapshotsModal').modal('show');
+}
+
+// Run snapshot comparison
+function runSnapshotComparison() {
+    const snapshot1 = $('#compare-snapshot1').val();
+    const snapshot2 = $('#compare-snapshot2').val();
+
+    if (!snapshot1 || !snapshot2) {
+        alert('Please select both snapshots to compare');
+        return;
+    }
+
+    if (snapshot1 === snapshot2) {
+        alert('Please select two different snapshots');
+        return;
+    }
+
+    // Show loading
+    $('#compare-loading').show();
+    $('#compare-results').hide();
+    $('#compare-no-changes').hide();
+
+    $.get(`/api/config-snapshots/${snapshot1}/compare/${snapshot2}`)
+        .done(function(response) {
+            $('#compare-loading').hide();
+
+            if (response.success) {
+                currentComparisonData = response.comparison;
+                const summary = response.summary;
+
+                // Update summary counts
+                $('#compare-total').text(summary.total_devices);
+                $('#compare-changed').text(summary.changed);
+                $('#compare-added').text(summary.only_in_snapshot2);
+                $('#compare-removed').text(summary.only_in_snapshot1);
+
+                // Show results
+                $('#compare-results').show();
+
+                // Check if no changes
+                if (summary.changed === 0 && summary.only_in_snapshot1 === 0 && summary.only_in_snapshot2 === 0) {
+                    $('#compare-no-changes').show();
+                } else {
+                    $('#compare-no-changes').hide();
+                }
+
+                renderComparisonResults(currentComparisonData);
+            } else {
+                alert('Error: ' + response.error);
+            }
+        })
+        .fail(function(xhr) {
+            $('#compare-loading').hide();
+            alert('Error: ' + (xhr.responseJSON?.error || 'Failed to compare snapshots'));
+        });
+}
+
+// Render comparison results table
+function renderComparisonResults(data) {
+    const $tbody = $('#compare-results-tbody');
+    $tbody.empty();
+
+    if (!data || data.length === 0) {
+        $tbody.html('<tr><td colspan="3" class="text-center text-muted">No devices to display</td></tr>');
+        return;
+    }
+
+    data.forEach(function(item) {
+        let statusBadge = '';
+        let statusClass = '';
+        let actionButtons = '';
+
+        if (!item.in_snapshot1 && item.in_snapshot2) {
+            // Added in snapshot2
+            statusBadge = '<span class="badge bg-success"><i class="fas fa-plus"></i> Added</span>';
+            statusClass = 'added';
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-primary" onclick="viewConfig('${item.backup2_id}')" title="View New Config">
+                    <i class="fas fa-eye"></i>
+                </button>
+            `;
+        } else if (item.in_snapshot1 && !item.in_snapshot2) {
+            // Removed in snapshot2
+            statusBadge = '<span class="badge bg-danger"><i class="fas fa-minus"></i> Removed</span>';
+            statusClass = 'removed';
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-secondary" onclick="viewConfig('${item.backup1_id}')" title="View Old Config">
+                    <i class="fas fa-eye"></i>
+                </button>
+            `;
+        } else if (item.changed) {
+            // Changed
+            statusBadge = '<span class="badge bg-warning text-dark"><i class="fas fa-exchange-alt"></i> Changed</span>';
+            statusClass = 'changed';
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-warning" onclick="viewDeviceDiff('${item.backup1_id}', '${item.backup2_id}', '${escapeHtml(item.device_name)}')" title="View Diff">
+                    <i class="fas fa-code-compare"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-primary" onclick="viewConfig('${item.backup2_id}')" title="View Current">
+                    <i class="fas fa-eye"></i>
+                </button>
+            `;
+        } else {
+            // Unchanged
+            statusBadge = '<span class="badge bg-secondary"><i class="fas fa-equals"></i> Unchanged</span>';
+            statusClass = 'unchanged';
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-primary" onclick="viewConfig('${item.backup2_id}')" title="View Config">
+                    <i class="fas fa-eye"></i>
+                </button>
+            `;
+        }
+
+        $tbody.append(`
+            <tr data-status="${statusClass}">
+                <td><i class="fas fa-server text-muted"></i> ${escapeHtml(item.device_name)}</td>
+                <td>${statusBadge}</td>
+                <td>${actionButtons}</td>
+            </tr>
+        `);
+    });
+}
+
+// Filter comparison results
+function filterComparisonResults() {
+    const search = $('#compare-search').val().toLowerCase();
+    const filter = $('#compare-filter').val();
+
+    let filtered = currentComparisonData;
+
+    // Apply search filter
+    if (search) {
+        filtered = filtered.filter(item => item.device_name.toLowerCase().includes(search));
+    }
+
+    // Apply status filter
+    if (filter) {
+        filtered = filtered.filter(item => {
+            if (filter === 'changed') return item.changed && item.in_snapshot1 && item.in_snapshot2;
+            if (filter === 'added') return !item.in_snapshot1 && item.in_snapshot2;
+            if (filter === 'removed') return item.in_snapshot1 && !item.in_snapshot2;
+            if (filter === 'unchanged') return !item.changed && item.in_snapshot1 && item.in_snapshot2;
+            return true;
+        });
+    }
+
+    renderComparisonResults(filtered);
+}
+
+// View diff between two specific backups
+function viewDeviceDiff(backup1Id, backup2Id, deviceName) {
+    // Fetch both backups and show diff
+    Promise.all([
+        $.get(`/api/config-backups/${backup1Id}`),
+        $.get(`/api/config-backups/${backup2Id}`)
+    ]).then(function([response1, response2]) {
+        if (response1.success && response2.success) {
+            const oldConfig = response1.backup.config_content || '';
+            const newConfig = response2.backup.config_content || '';
+
+            // Open the config modal with the new backup, then switch to diff tab
+            $('#config-modal-title').text(`Diff: ${deviceName}`);
+            $('#config-device').text(deviceName);
+            $('#config-format').text(response2.backup.config_format || 'native');
+            $('#config-size').text(formatSize(response2.backup.file_size));
+            $('#config-time').text(formatDate(response2.backup.created_at));
+            $('#config-content').val(newConfig);
+            $('#viewConfigModal').data('backup', response2.backup);
+
+            // Display the diff directly
+            displayDiff(newConfig, oldConfig);
+
+            // Switch to diff tab
+            $('#diff-tab').tab('show');
+
+            // Hide compare snapshots modal and show config modal
+            $('#compareSnapshotsModal').modal('hide');
+            setTimeout(() => {
+                $('#viewConfigModal').modal('show');
+            }, 300);
+        }
+    }).catch(function() {
+        alert('Error loading backup configurations');
+    });
+}
+
+// Utility functions
+function formatDate(dateStr) {
+    if (!dateStr) return 'N/A';
+    return new Date(dateStr).toLocaleString();
+}
+
+function formatSize(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

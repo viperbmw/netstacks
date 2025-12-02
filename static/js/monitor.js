@@ -67,7 +67,7 @@ function loadTasks() {
                     const tbody = $('#tasks-body');
                     tbody.empty();
 
-                    // Netstacker returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
+                    // API returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
                     let taskIds = [];
                     if (data.data && data.data.task_id && Array.isArray(data.data.task_id)) {
                         taskIds = data.data.task_id;
@@ -114,10 +114,11 @@ function loadTasks() {
                                 const created = task.created_on || task.enqueued_at || 'N/A';
 
                                 let statusBadge = 'secondary';
-                                if (status === 'queued') statusBadge = 'badge-queued';
-                                else if (status === 'started' || status === 'running') statusBadge = 'badge-running';
-                                else if (status === 'finished' || status === 'completed') statusBadge = 'badge-completed';
-                                else if (status === 'failed') statusBadge = 'badge-failed';
+                                const statusLower = status.toLowerCase();
+                                if (statusLower === 'queued' || statusLower === 'pending') statusBadge = 'badge-queued';
+                                else if (statusLower === 'started' || statusLower === 'running') statusBadge = 'badge-running';
+                                else if (statusLower === 'finished' || statusLower === 'completed' || statusLower === 'success') statusBadge = 'badge-completed';
+                                else if (statusLower === 'failed' || statusLower === 'failure' || statusLower === 'error') statusBadge = 'badge-failed';
 
                                 const createdDate = created !== 'N/A' ? formatDate(created) : 'N/A';
 
@@ -225,7 +226,7 @@ function viewTaskDetails(taskId) {
     // Fetch task details
     $.get('/api/task/' + taskId)
         .done(function(data) {
-            // Netstacker returns: {status: 'success', data: {task_status: '...', task_result: ...}}
+            // API returns: {status: 'success', data: {task_status: '...', task_result: ...}}
             const task = data.data || data;
             const status = task.task_status || task.status || 'unknown';
             const result = task.task_result || task.data || 'No result available';

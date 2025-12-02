@@ -28,10 +28,9 @@ const DEFAULT_SETTINGS = {
     netbox_filters: [],
     default_username: '',
     default_password: '',
-    netstacker_url: 'http://netstacker-controller:9000',
-    netstacker_api_key: '2a84465a-cf38-46b2-9d86-b84Q7d57f288',
     cache_ttl: 300,
-    timezone: 'auto'
+    timezone: 'auto',
+    celery_workers: 20
 };
 
 $(document).ready(function() {
@@ -79,10 +78,6 @@ $(document).ready(function() {
         testNetboxConnection();
     });
 
-    // Test Netstacker connection button
-    $('#test-netstacker-btn').click(function() {
-        testNetstackerConnection();
-    });
 });
 
 function loadSettings() {
@@ -100,17 +95,14 @@ function loadSettings() {
             const settings = {
                 ...localSettings,
                 netbox_url: data.settings.netbox_url || localSettings.netbox_url,
-                netstacker_url: data.settings.netstacker_url || localSettings.netstacker_url,
-                netbox_verify_ssl: data.settings.verify_ssl !== undefined ? data.settings.verify_ssl : localSettings.netbox_verify_ssl
+                netbox_verify_ssl: data.settings.verify_ssl !== undefined ? data.settings.verify_ssl : localSettings.netbox_verify_ssl,
+                celery_workers: data.settings.celery_workers || localSettings.celery_workers || 20
             };
 
-            // Note: tokens/keys are masked in API response, so we keep them from localStorage
+            // Note: tokens are masked in API response, so we keep them from localStorage
             // unless localStorage is empty (first time)
             if (!localSettings.netbox_token && data.settings.netbox_token !== '****') {
                 settings.netbox_token = data.settings.netbox_token;
-            }
-            if (!localSettings.netstacker_api_key && data.settings.netstacker_api_key !== '****') {
-                settings.netstacker_api_key = data.settings.netstacker_api_key;
             }
 
             populateForm(settings);
@@ -131,11 +123,10 @@ function populateForm(settings) {
     $('#netbox-verify-ssl').prop('checked', settings.netbox_verify_ssl);
     $('#default-username').val(settings.default_username);
     $('#default-password').val(settings.default_password);
-    $('#netstacker-url').val(settings.netstacker_url);
-    $('#netstacker-api-key').val(settings.netstacker_api_key);
     $('#cache-ttl').val(settings.cache_ttl);
     $('#timezone-select').val(settings.timezone || 'auto');
     $('#system-timezone').val(settings.system_timezone || 'UTC');
+    $('#celery-workers').val(settings.celery_workers || 20);
 
     // Load filters
     loadFilters(settings.netbox_filters || []);
@@ -162,37 +153,35 @@ function saveSettings() {
         netbox_filters: filters,
         default_username: $('#default-username').val().trim(),
         default_password: $('#default-password').val().trim(),
-        netstacker_url: $('#netstacker-url').val().trim(),
-        netstacker_api_key: $('#netstacker-api-key').val().trim(),
         cache_ttl: parseInt($('#cache-ttl').val()),
         timezone: $('#timezone-select').val(),
-        system_timezone: $('#system-timezone').val()
+        system_timezone: $('#system-timezone').val(),
+        celery_workers: parseInt($('#celery-workers').val()) || 20
     };
 
     // Validate
-    if (!settings.netstacker_url) {
-        alert('Netstacker URL is required');
+    if (settings.cache_ttl < 60 || settings.cache_ttl > 3600) {
+        alert('Cache TTL must be between 60 and 3600 seconds');
         return;
     }
 
-    if (settings.cache_ttl < 60 || settings.cache_ttl > 3600) {
-        alert('Cache TTL must be between 60 and 3600 seconds');
+    if (settings.celery_workers < 1 || settings.celery_workers > 50) {
+        alert('Celery workers must be between 1 and 50');
         return;
     }
 
     // Save to localStorage (for user preferences like filters, credentials)
     localStorage.setItem('netstacks_settings', JSON.stringify(settings));
 
-    // Save backend settings (Netbox/Netstacker URLs) to Redis via API
+    // Save backend settings (Netbox URLs) to database via API
     const backendSettings = {
         netbox_url: settings.netbox_url,
         netbox_token: settings.netbox_token,
-        netstacker_url: settings.netstacker_url,
-        netstacker_api_key: settings.netstacker_api_key,
         verify_ssl: settings.netbox_verify_ssl,
         default_username: settings.default_username,
         default_password: settings.default_password,
-        system_timezone: settings.system_timezone
+        system_timezone: settings.system_timezone,
+        celery_workers: settings.celery_workers
     };
 
     $.ajax({
@@ -235,9 +224,8 @@ function resetToDefaults() {
     $('#netbox-verify-ssl').prop('checked', DEFAULT_SETTINGS.netbox_verify_ssl);
     $('#default-username').val(DEFAULT_SETTINGS.default_username);
     $('#default-password').val(DEFAULT_SETTINGS.default_password);
-    $('#netstacker-url').val(DEFAULT_SETTINGS.netstacker_url);
-    $('#netstacker-api-key').val(DEFAULT_SETTINGS.netstacker_api_key);
     $('#cache-ttl').val(DEFAULT_SETTINGS.cache_ttl);
+    $('#celery-workers').val(DEFAULT_SETTINGS.celery_workers);
 
     // Clear filters
     loadFilters([]);
@@ -489,77 +477,6 @@ function testNetboxConnection() {
     })
     .always(function() {
         btn.prop('disabled', false).html('<i class="fas fa-plug"></i> Test Netbox Connection');
-    });
-}
-
-function testNetstackerConnection() {
-    const btn = $('#test-netstacker-btn');
-    const resultDiv = $('#netstacker-test-result');
-
-    // Get current values from form
-    const netstackerUrl = $('#netstacker-url').val().trim();
-    const netstackerApiKey = $('#netstacker-api-key').val().trim();
-
-    if (!netstackerUrl) {
-        resultDiv.html('<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please enter a Netstacker URL first</div>').show();
-        return;
-    }
-
-    if (!netstackerApiKey) {
-        resultDiv.html('<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Please enter a Netstacker API key first</div>').show();
-        return;
-    }
-
-    // Disable button and show loading
-    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Testing...');
-    resultDiv.html('<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Connecting to Netstacker API...</div>').show();
-
-    // Send test request
-    $.ajax({
-        url: '/api/test-netstacker',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({
-            netstacker_url: netstackerUrl,
-            netstacker_api_key: netstackerApiKey
-        }),
-        timeout: 15000
-    })
-    .done(function(data) {
-        if (data.success) {
-            resultDiv.html(`
-                <div class="alert alert-success">
-                    <i class="fas fa-check-circle"></i> <strong>Connection Successful!</strong><br>
-                    <small>Found ${data.worker_count} Netstacker worker(s)</small><br>
-                    <small class="text-muted">Response time: ${data.response_time}ms</small>
-                </div>
-            `);
-        } else {
-            resultDiv.html(`
-                <div class="alert alert-danger">
-                    <i class="fas fa-times-circle"></i> <strong>Connection Failed</strong><br>
-                    <small>${data.error || 'Unknown error'}</small>
-                </div>
-            `);
-        }
-    })
-    .fail(function(xhr) {
-        let errorMsg = 'Connection failed';
-        if (xhr.responseJSON) {
-            errorMsg = xhr.responseJSON.error || errorMsg;
-        } else if (xhr.statusText) {
-            errorMsg = xhr.statusText;
-        }
-
-        resultDiv.html(`
-            <div class="alert alert-danger">
-                <i class="fas fa-times-circle"></i> <strong>Connection Failed</strong><br>
-                <small>${errorMsg}</small>
-            </div>
-        `);
-    })
-    .always(function() {
-        btn.prop('disabled', false).html('<i class="fas fa-plug"></i> Test Netstacker Connection');
     });
 }
 
