@@ -2,15 +2,32 @@
 Template Routes
 Template management using local database storage
 """
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, render_template
+
 import logging
 
 import db
+from routes.auth import login_required
 
 log = logging.getLogger(__name__)
 
 templates_bp = Blueprint('templates', __name__)
 
+
+# ============================================================================
+# Template Pages
+# ============================================================================
+
+@templates_bp.route('/templates')
+@login_required
+def templates_page():
+    """Templates management page."""
+    return render_template('templates.html')
+
+
+# ============================================================================
+# Template API
+# ============================================================================
 
 @templates_bp.route('/api/v2/templates', methods=['GET'])
 def list_templates():

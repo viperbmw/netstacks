@@ -32,12 +32,7 @@ def services_page():
     return render_template('services.html')
 
 
-@services_bp.route('/service-stacks')
-@login_required
-def service_stacks_page():
-    """Render service stacks management page."""
-    return render_template('service-stacks.html')
-
+# /service-stacks page is in routes/stacks.py
 
 # ============================================================================
 # Service Template API

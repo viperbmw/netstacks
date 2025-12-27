@@ -3,7 +3,7 @@ Device Routes
 Device management, Netbox sync, manual devices, device overrides
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, render_template
 import logging
 
 from routes.auth import login_required
@@ -20,6 +20,17 @@ from utils.exceptions import ValidationError, NotFoundError, ConflictError
 log = logging.getLogger(__name__)
 
 devices_bp = Blueprint('devices', __name__)
+
+
+# ============================================================================
+# Device Pages
+# ============================================================================
+
+@devices_bp.route('/devices')
+@login_required
+def devices_page():
+    """Device management page."""
+    return render_template('devices.html')
 
 
 # ============================================================================

@@ -6,6 +6,7 @@ from flask import Blueprint
 
 # Import all route blueprints
 from .auth import auth_bp
+from .pages import pages_bp
 from .devices import devices_bp
 from .templates import templates_bp
 from .services import services_bp
@@ -20,6 +21,7 @@ from .api import api_bp
 def register_blueprints(app):
     """Register all blueprints with the Flask app"""
     app.register_blueprint(auth_bp)
+    app.register_blueprint(pages_bp)
     app.register_blueprint(devices_bp)
     app.register_blueprint(templates_bp)
     app.register_blueprint(services_bp)
