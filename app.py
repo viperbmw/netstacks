@@ -6227,21 +6227,21 @@ def local_auth_priority():
 # =============================================================================
 # Scheduled Operations
 # =============================================================================
-# NOTE: Scheduled operations are now handled by Celery Beat (see tasks.py)
-# The thread-based scheduler has been removed in favor of proper task queue
-# scheduling via celery_app.conf.beat_schedule
+# Scheduled operations are handled by Celery Beat (see tasks.py)
+# The old thread-based scheduler has been removed.
 #
-# To start the scheduler, run:
+# Celery Beat tasks:
+#   - tasks.check_scheduled_operations (every 60 seconds)
+#   - tasks.execute_scheduled_deploy
+#   - tasks.execute_scheduled_backup
+#   - tasks.execute_scheduled_mop
+#   - tasks.cleanup_old_backups (daily at 3 AM)
+#
+# To start the scheduler:
 #   celery -A tasks beat -l info --schedule=/data/celerybeat-schedule
 # =============================================================================
 
-# Legacy reference - this function has been moved to tasks.py as Celery Beat tasks:
-# - tasks.check_scheduled_operations (runs every 60 seconds)
-# - tasks.execute_scheduled_deploy
-# - tasks.execute_scheduled_backup
-# - tasks.execute_scheduled_mop
-# - tasks.cleanup_old_backups (runs daily at 3 AM)
 
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8088, debug=True)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8088, debug=True)

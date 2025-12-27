@@ -675,7 +675,7 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
     if '/app' not in sys.path:
         sys.path.insert(0, '/app')
     # Import here to avoid circular imports
-    import database_postgres as db
+    import database as db
 
     backup_saved = False
     backup_id = f"backup_{utc_now().strftime('%Y%m%d_%H%M%S%f')}_{device_name}"
@@ -722,7 +722,7 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
             log.error(f"CRITICAL: Failed to update snapshot counts for {snapshot_id}/{device_name}: {e}")
             # Last resort: try again with a fresh connection
             try:
-                import database_postgres as db2
+                import database as db2
                 db2.increment_snapshot_counts(snapshot_id, success=False)
                 log.info(f"Retry: Updated snapshot {snapshot_id} counts for {device_name}")
             except Exception as e2:
