@@ -7,9 +7,12 @@ Each task handles network device operations directly via Celery workers.
 import os
 import logging
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional
 from celery import Celery
+
+# Timezone utilities - use utc_now() for all timestamps
+from timezone_utils import utc_now
 
 # Network automation imports
 from netmiko import ConnectHandler
@@ -675,7 +678,7 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
     import database_postgres as db
 
     backup_saved = False
-    backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S%f')}_{device_name}"
+    backup_id = f"backup_{utc_now().strftime('%Y%m%d_%H%M%S%f')}_{device_name}"
 
     try:
         # Calculate config hash for change detection
@@ -783,3 +786,358 @@ def get_device_queue(device_ip: str) -> str:
     """
     # Sanitize IP for queue name
     return f"device_{device_ip.replace('.', '_').replace(':', '_')}"
+
+
+# ============================================================================
+# Celery Beat Periodic Tasks
+# ============================================================================
+
+from celery.schedules import crontab
+
+# Celery Beat schedule - runs scheduled operations check every minute
+celery_app.conf.beat_schedule = {
+    'check-scheduled-operations': {
+        'task': 'tasks.check_scheduled_operations',
+        'schedule': 60.0,  # Every 60 seconds
+    },
+    'cleanup-old-backups': {
+        'task': 'tasks.cleanup_old_backups',
+        'schedule': crontab(hour=3, minute=0),  # Daily at 3 AM
+    },
+}
+
+
+@celery_app.task(bind=True, name='tasks.check_scheduled_operations')
+def check_scheduled_operations(self):
+    """
+    Celery Beat periodic task to check and execute scheduled operations.
+
+    Replaces the thread-based scheduler with a proper Celery Beat task.
+    Runs every minute to check for pending scheduled operations.
+    """
+    from datetime import datetime as dt, timedelta
+
+    log.info("Celery Beat: Checking for pending scheduled operations...")
+
+    try:
+        # Import database functions (avoid circular imports)
+        import database_postgres as db
+
+        pending_schedules = db.get_pending_scheduled_operations()
+        log.info(f"Found {len(pending_schedules)} pending scheduled operations")
+
+        for schedule in pending_schedules:
+            try:
+                schedule_id = schedule['schedule_id']
+                stack_id = schedule['stack_id']
+                operation_type = schedule['operation_type']
+                schedule_type = schedule['schedule_type']
+
+                log.info(f"Executing scheduled operation: {operation_type} for stack/target {stack_id}")
+
+                # Dispatch the appropriate task
+                if operation_type == 'deploy':
+                    # Queue the deploy task
+                    execute_scheduled_deploy.delay(schedule_id, stack_id)
+                elif operation_type == 'backup':
+                    # Queue the backup task
+                    execute_scheduled_backup.delay(schedule_id, stack_id)
+                elif operation_type == 'mop':
+                    # Queue the MOP execution task
+                    execute_scheduled_mop.delay(schedule_id, stack_id)
+                else:
+                    log.warning(f"Unknown operation type: {operation_type}")
+                    continue
+
+                # Mark as in-progress (the task will update to completed/failed)
+                db.update_scheduled_operation(
+                    schedule_id,
+                    status='in_progress',
+                    last_run=utc_now().isoformat()
+                )
+
+            except Exception as e:
+                log.error(f"Error queuing scheduled operation {schedule.get('schedule_id')}: {e}", exc_info=True)
+
+    except Exception as e:
+        log.error(f"Error in check_scheduled_operations: {e}", exc_info=True)
+
+    return {'checked': True}
+
+
+@celery_app.task(bind=True, name='tasks.execute_scheduled_deploy')
+def execute_scheduled_deploy(self, schedule_id: str, stack_id: str):
+    """Execute a scheduled stack deployment"""
+    from datetime import datetime as dt, timedelta
+    import database_postgres as db
+
+    log.info(f"Executing scheduled deploy for stack {stack_id}")
+
+    try:
+        # Get stack details
+        stack = db.get_service_stack(stack_id)
+        if not stack:
+            raise Exception(f"Stack {stack_id} not found")
+
+        if stack.get('state') == 'deploying':
+            log.warning(f"Stack {stack_id} is already being deployed, skipping")
+            return {'status': 'skipped', 'reason': 'already deploying'}
+
+        # Update stack state
+        stack['state'] = 'deploying'
+        stack['deploy_started_at'] = utc_now().isoformat()
+        stack['deployed_services'] = []
+
+        # Clear pending changes
+        if 'has_pending_changes' in stack:
+            del stack['has_pending_changes']
+        if 'pending_since' in stack:
+            del stack['pending_since']
+
+        db.save_service_stack(stack)
+
+        # Deploy services sequentially
+        services = sorted(stack.get('services', []), key=lambda s: s.get('order', 0))
+        deployed_service_ids = []
+        failed_services = []
+
+        for service_def in services:
+            try:
+                # Get template
+                template_name = service_def.get('template')
+                if not template_name:
+                    raise Exception(f"Service '{service_def.get('name')}' has no template")
+
+                template = db.get_template_by_name(template_name)
+                if not template:
+                    raise Exception(f"Template '{template_name}' not found")
+
+                # Merge variables
+                variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
+
+                # Render template
+                env = Environment(loader=BaseLoader())
+                jinja_template = env.from_string(template.get('content', ''))
+                rendered_config = jinja_template.render(**variables)
+
+                # Get target devices
+                devices = service_def.get('devices') or stack.get('devices', [])
+
+                # Deploy to each device
+                for device_name in devices:
+                    device = db.get_device_by_name(device_name)
+                    if device:
+                        # Queue config push task
+                        set_config.delay(
+                            device_ip=device['ip_address'],
+                            username=device.get('username', 'admin'),
+                            password=device.get('password', ''),
+                            device_type=device.get('device_type', 'cisco_ios'),
+                            config_commands=rendered_config.split('\n')
+                        )
+
+                deployed_service_ids.append(service_def.get('id'))
+                log.info(f"Scheduled deploy: queued service {service_def.get('name')}")
+
+            except Exception as e:
+                log.error(f"Failed to deploy service {service_def.get('name')}: {e}")
+                failed_services.append({'name': service_def.get('name'), 'error': str(e)})
+
+        # Update stack state
+        stack['state'] = 'deployed' if not failed_services else 'failed'
+        stack['deployed_services'] = deployed_service_ids
+        stack['deploy_completed_at'] = utc_now().isoformat()
+        stack['last_deployed'] = utc_now().isoformat()
+        if failed_services:
+            stack['deploy_errors'] = failed_services
+        db.save_service_stack(stack)
+
+        # Update schedule
+        schedule = db.get_scheduled_operation(schedule_id)
+        if schedule:
+            schedule_type = schedule.get('schedule_type')
+            if schedule_type == 'once':
+                db.update_scheduled_operation(schedule_id, status='completed')
+            else:
+                # Calculate next run for recurring schedules
+                next_run = calculate_next_run(schedule)
+                db.update_scheduled_operation(schedule_id, status='pending', next_run=next_run)
+
+        return {'status': 'success', 'deployed': deployed_service_ids, 'failed': failed_services}
+
+    except Exception as e:
+        log.error(f"Error in scheduled deploy: {e}", exc_info=True)
+        db.update_scheduled_operation(schedule_id, status='failed', last_error=str(e))
+        return {'status': 'failed', 'error': str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.execute_scheduled_backup')
+def execute_scheduled_backup(self, schedule_id: str, target_id: str):
+    """Execute a scheduled backup operation"""
+    from datetime import datetime as dt
+    import database_postgres as db
+
+    log.info(f"Executing scheduled backup for target {target_id}")
+
+    try:
+        # target_id could be 'all' or a specific device name
+        if target_id == 'all':
+            devices = db.get_all_devices()
+        else:
+            device = db.get_device_by_name(target_id)
+            devices = [device] if device else []
+
+        if not devices:
+            raise Exception(f"No devices found for backup target: {target_id}")
+
+        backup_results = []
+        for device in devices:
+            try:
+                # Queue backup task
+                result = backup_device_config.delay(
+                    device_ip=device['ip_address'],
+                    device_name=device.get('name', device['ip_address']),
+                    username=device.get('username', 'admin'),
+                    password=device.get('password', ''),
+                    device_type=device.get('device_type', 'cisco_ios')
+                )
+                backup_results.append({'device': device.get('name'), 'task_id': result.id})
+            except Exception as e:
+                log.error(f"Failed to queue backup for {device.get('name')}: {e}")
+                backup_results.append({'device': device.get('name'), 'error': str(e)})
+
+        # Update schedule
+        schedule = db.get_scheduled_operation(schedule_id)
+        if schedule:
+            schedule_type = schedule.get('schedule_type')
+            if schedule_type == 'once':
+                db.update_scheduled_operation(schedule_id, status='completed')
+            else:
+                next_run = calculate_next_run(schedule)
+                db.update_scheduled_operation(schedule_id, status='pending', next_run=next_run)
+
+        return {'status': 'success', 'backups': backup_results}
+
+    except Exception as e:
+        log.error(f"Error in scheduled backup: {e}", exc_info=True)
+        db.update_scheduled_operation(schedule_id, status='failed', last_error=str(e))
+        return {'status': 'failed', 'error': str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.execute_scheduled_mop')
+def execute_scheduled_mop(self, schedule_id: str, mop_id: str):
+    """Execute a scheduled MOP"""
+    from datetime import datetime as dt
+    import database_postgres as db
+    from mop_engine import MOPEngine
+
+    log.info(f"Executing scheduled MOP {mop_id}")
+
+    try:
+        mop = db.get_mop(mop_id)
+        if not mop:
+            raise Exception(f"MOP {mop_id} not found")
+
+        # Create execution record
+        execution_id = db.create_mop_execution(mop_id, triggered_by='scheduled')
+
+        try:
+            # Execute MOP
+            yaml_content = mop.get('yaml_content') or mop.get('content', '')
+            engine = MOPEngine(yaml_content, context={'mop_id': mop_id, 'execution_id': execution_id})
+            result = engine.execute()
+
+            # Update execution record
+            db.update_mop_execution(
+                execution_id,
+                status='completed' if result.get('status') == 'success' else 'failed',
+                result=result
+            )
+
+        except Exception as e:
+            db.update_mop_execution(execution_id, status='failed', error=str(e))
+            raise
+
+        # Update schedule
+        schedule = db.get_scheduled_operation(schedule_id)
+        if schedule:
+            schedule_type = schedule.get('schedule_type')
+            if schedule_type == 'once':
+                db.update_scheduled_operation(schedule_id, status='completed')
+            else:
+                next_run = calculate_next_run(schedule)
+                db.update_scheduled_operation(schedule_id, status='pending', next_run=next_run)
+
+        return {'status': 'success', 'execution_id': execution_id}
+
+    except Exception as e:
+        log.error(f"Error in scheduled MOP: {e}", exc_info=True)
+        db.update_scheduled_operation(schedule_id, status='failed', last_error=str(e))
+        return {'status': 'failed', 'error': str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.cleanup_old_backups')
+def cleanup_old_backups(self):
+    """Celery Beat task to clean up old backup files based on retention policy"""
+    from datetime import datetime as dt, timedelta
+    import database_postgres as db
+
+    log.info("Celery Beat: Running backup cleanup...")
+
+    try:
+        # Get backup schedule for retention setting
+        schedule = db.get_backup_schedule()
+        retention_days = schedule.get('retention_days', 30) if schedule else 30
+
+        cutoff_date = utc_now() - timedelta(days=retention_days)
+        deleted_count = db.delete_old_backups(cutoff_date)
+
+        log.info(f"Cleaned up {deleted_count} old backups (retention: {retention_days} days)")
+        return {'status': 'success', 'deleted': deleted_count}
+
+    except Exception as e:
+        log.error(f"Error in cleanup_old_backups: {e}", exc_info=True)
+        return {'status': 'failed', 'error': str(e)}
+
+
+def calculate_next_run(schedule: dict) -> str:
+    """Calculate the next run time for a recurring schedule"""
+    from datetime import datetime as dt, timedelta
+
+    schedule_type = schedule.get('schedule_type')
+    scheduled_time = schedule.get('scheduled_time', '00:00')
+    now = utc_now()
+
+    if ':' in scheduled_time:
+        time_parts = scheduled_time.split(':')
+        hour = int(time_parts[0])
+        minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+    else:
+        hour, minute = 0, 0
+
+    if schedule_type == 'daily':
+        next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+    elif schedule_type == 'weekly':
+        day_of_week = schedule.get('day_of_week', 0)  # 0 = Monday
+        days_ahead = day_of_week - now.weekday()
+        if days_ahead <= 0:
+            days_ahead += 7
+        next_run = now + timedelta(days=days_ahead)
+        next_run = next_run.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    elif schedule_type == 'monthly':
+        day_of_month = schedule.get('day_of_month', 1)
+        next_run = now.replace(day=day_of_month, hour=hour, minute=minute, second=0, microsecond=0)
+        if next_run <= now:
+            # Move to next month
+            if now.month == 12:
+                next_run = next_run.replace(year=now.year + 1, month=1)
+            else:
+                next_run = next_run.replace(month=now.month + 1)
+    else:
+        # Default: next day
+        next_run = now + timedelta(days=1)
+        next_run = next_run.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    return next_run.isoformat()

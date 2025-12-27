@@ -8,12 +8,174 @@ Network engineers can create mops without writing Python code.
 import yaml
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import requests
 import time
 
+from datetime_utils import utc_now, format_iso
+
 log = logging.getLogger(__name__)
+
+
+# Security: Restricted builtins for exec() sandboxing
+# Only allow safe operations - no file I/O, imports, eval, etc.
+SAFE_BUILTINS = {
+    # Type conversions
+    'len': len,
+    'str': str,
+    'int': int,
+    'float': float,
+    'bool': bool,
+    'list': list,
+    'dict': dict,
+    'set': set,
+    'tuple': tuple,
+    # Iteration
+    'range': range,
+    'enumerate': enumerate,
+    'zip': zip,
+    'map': map,
+    'filter': filter,
+    'sorted': sorted,
+    'reversed': reversed,
+    # Math/comparison
+    'sum': sum,
+    'min': min,
+    'max': max,
+    'abs': abs,
+    'round': round,
+    'any': any,
+    'all': all,
+    # String operations
+    'ord': ord,
+    'chr': chr,
+    'repr': repr,
+    # Object inspection (safe subset)
+    'isinstance': isinstance,
+    'hasattr': hasattr,
+    'getattr': getattr,
+    # Output (for debugging)
+    'print': print,
+    # Explicitly deny dangerous operations
+    '__import__': None,
+    'eval': None,
+    'exec': None,
+    'compile': None,
+    'open': None,
+    'input': None,
+    'globals': None,
+    'locals': None,
+    'vars': None,
+    'dir': None,
+}
+
+# Patterns that indicate potentially dangerous code
+DANGEROUS_PATTERNS = [
+    r'__\w+__',           # Dunder attributes (except __builtins__ which we control)
+    r'import\s+',          # Import statements
+    r'from\s+\w+\s+import', # From imports
+    r'exec\s*\(',          # exec() calls
+    r'eval\s*\(',          # eval() calls
+    r'compile\s*\(',       # compile() calls
+    r'open\s*\(',          # file operations
+    r'subprocess',         # subprocess module
+    r'os\.',               # os module access
+    r'sys\.',              # sys module access
+    r'shutil\.',           # shutil module access
+    r'pickle\.',           # pickle (code execution risk)
+    r'marshal\.',          # marshal (code execution risk)
+    r'ctypes',             # ctypes (low-level access)
+    r'\.read\s*\(',        # file read
+    r'\.write\s*\(',       # file write
+    r'socket\.',           # raw socket access
+]
+
+
+def validate_python_code(code: str) -> tuple[bool, str]:
+    """
+    Validate Python code for dangerous patterns before execution.
+
+    Returns:
+        tuple: (is_safe, error_message)
+    """
+    if not code or not code.strip():
+        return True, ""
+
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, code, re.IGNORECASE):
+            return False, f"Code contains potentially dangerous pattern: {pattern}"
+
+    return True, ""
+
+
+def execute_sandboxed_python(code: str, extra_globals: Dict = None,
+                              allow_requests: bool = False) -> Dict[str, Any]:
+    """
+    Execute Python code in a sandboxed environment.
+
+    Security measures:
+    1. Restricted builtins (no imports, file I/O, eval, exec, etc.)
+    2. Pattern-based code validation
+    3. Limited module access
+    4. Explicit deny list
+
+    Args:
+        code: Python code to execute
+        extra_globals: Additional safe globals to expose
+        allow_requests: Whether to allow HTTP requests (for webhooks)
+
+    Returns:
+        dict: Execution result with 'status' and 'data' or 'error'
+    """
+    # Validate code first
+    is_safe, error_msg = validate_python_code(code)
+    if not is_safe:
+        log.warning(f"Blocked potentially dangerous code execution: {error_msg}")
+        return {
+            'status': 'failed',
+            'error': f'Security validation failed: {error_msg}'
+        }
+
+    # Build safe globals
+    safe_globals = {
+        '__builtins__': SAFE_BUILTINS.copy(),
+        'datetime': datetime,
+        'json': json,
+        're': re,  # regex is safe
+    }
+
+    # Only add requests if explicitly allowed
+    if allow_requests:
+        safe_globals['requests'] = requests
+
+    # Add extra globals (like context, params, etc.)
+    if extra_globals:
+        safe_globals.update(extra_globals)
+
+    # Log the execution for audit purposes
+    code_preview = code[:200] + '...' if len(code) > 200 else code
+    log.info(f"Executing sandboxed Python code ({len(code)} chars): {code_preview}")
+
+    try:
+        exec(code, safe_globals)
+
+        # Get result if set
+        if 'result' in safe_globals:
+            result = safe_globals['result']
+            if isinstance(result, dict) and 'status' in result:
+                return result
+            return {'status': 'success', 'data': result}
+
+        return {'status': 'success', 'message': 'Code executed successfully'}
+
+    except Exception as e:
+        log.error(f"Error in sandboxed Python execution: {e}", exc_info=True)
+        return {
+            'status': 'failed',
+            'error': f'Execution error: {str(e)}'
+        }
 
 
 class MOPExecutionError(Exception):
@@ -65,7 +227,7 @@ class MOPEngine:
         # Initialize execution context
         self.context = context or {}
         self.context['mop_name'] = self.mop.get('name', 'Unnamed MOP')
-        self.context['started_at'] = datetime.utcnow().isoformat()
+        self.context['started_at'] = format_iso(utc_now())
         self.context['step_results'] = {}
 
         # Execution state
@@ -107,7 +269,7 @@ class MOPEngine:
                     'step_index': self.current_step_index,
                     'status': result.get('status'),
                     'message': result.get('message', ''),
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': format_iso(utc_now())
                 }
 
                 # Add detailed data if available
@@ -160,7 +322,7 @@ class MOPEngine:
                 'message': 'MOP completed successfully',
                 'execution_log': self.execution_log,
                 'context': self.context,
-                'completed_at': datetime.utcnow().isoformat()
+                'completed_at': format_iso(utc_now())
             }
 
         except Exception as e:
@@ -170,7 +332,7 @@ class MOPEngine:
                 'error': str(e),
                 'execution_log': self.execution_log,
                 'context': self.context,
-                'failed_at': datetime.utcnow().isoformat()
+                'failed_at': format_iso(utc_now())
             }
 
     def execute_step(self, step: Dict) -> Dict[str, Any]:
@@ -662,35 +824,31 @@ class MOPEngine:
 
     def execute_custom_python(self, step: Dict) -> Dict[str, Any]:
         """
-        Execute custom Python code
+        Execute custom Python code in a sandboxed environment
 
         YAML example:
             - name: "Custom Validation"
               type: custom_python
               script: |
                 # Custom Python code here
-                result = check_something()
-                return {'status': 'success', 'data': result}
+                result = {'status': 'success', 'data': some_value}
+
+        Security: Code is validated and executed with restricted builtins.
         """
         script = step.get('script', '')
 
-        # Create safe execution environment
-        safe_globals = {
-            'context': self.context,
-            'log': log,
-            'datetime': datetime,
-            'json': json,
-        }
+        if not script:
+            return {'status': 'failed', 'error': 'No script provided'}
 
-        try:
-            exec(script, safe_globals)
-            # Script should set 'result' variable
-            if 'result' in safe_globals:
-                return safe_globals['result']
-            else:
-                return {'status': 'success', 'message': 'Script executed'}
-        except Exception as e:
-            return {'status': 'failed', 'error': f'Script error: {str(e)}'}
+        # Use sandboxed execution with context available
+        return execute_sandboxed_python(
+            code=script,
+            extra_globals={
+                'context': self.context,
+                'log': log,
+            },
+            allow_requests=False  # No HTTP requests in custom_python
+        )
 
     def execute_wait(self, step: Dict) -> Dict[str, Any]:
         """
@@ -730,7 +888,7 @@ class MOPEngine:
 
             # Handle special variables
             if var_path == 'timestamp':
-                return datetime.utcnow().isoformat()
+                return format_iso(utc_now())
             elif var_path == 'mop_name':
                 return self.context.get('mop_name', '')
 
@@ -784,7 +942,11 @@ class MOPEngine:
             return {'status': 'failed', 'error': f'Unknown custom type: {custom_type}'}
 
     def _execute_custom_python_type(self, step_type: Dict, step: Dict) -> Dict[str, Any]:
-        """Execute a custom Python step type"""
+        """Execute a custom Python step type in a sandboxed environment
+
+        Security: Code is validated and executed with restricted builtins.
+        HTTP requests are allowed for custom step types as they may need external integrations.
+        """
         code = step_type.get('custom_code', '')
 
         if not code:
@@ -800,35 +962,17 @@ class MOPEngine:
                 else:
                     step_params[key] = value
 
-        # Create safe execution environment
-        safe_globals = {
-            'context': self.context,
-            'step': step,
-            'params': step_params,
-            'log': log,
-            'datetime': datetime,
-            'json': json,
-            'requests': requests
-        }
-
-        try:
-            # Execute the custom code
-            exec(code, safe_globals)
-
-            # Code should set 'result' variable
-            if 'result' in safe_globals:
-                result = safe_globals['result']
-                # Ensure result has required fields
-                if isinstance(result, dict) and 'status' in result:
-                    return result
-                else:
-                    return {'status': 'success', 'data': result}
-            else:
-                return {'status': 'success', 'message': 'Custom code executed successfully'}
-
-        except Exception as e:
-            log.error(f"Error executing custom Python code: {e}", exc_info=True)
-            return {'status': 'failed', 'error': f'Python execution error: {str(e)}'}
+        # Use sandboxed execution with step context
+        return execute_sandboxed_python(
+            code=code,
+            extra_globals={
+                'context': self.context,
+                'step': step,
+                'params': step_params,
+                'log': log,
+            },
+            allow_requests=True  # Allow HTTP for custom step types
+        )
 
     def _execute_custom_webhook_type(self, step_type: Dict, step: Dict) -> Dict[str, Any]:
         """Execute a custom webhook step type"""

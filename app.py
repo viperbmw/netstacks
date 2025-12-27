@@ -12,6 +12,7 @@ import uuid
 import time
 import hashlib
 import secrets
+import bcrypt
 from datetime import datetime
 from netbox_client import NetboxClient
 from jinja2 import Template, TemplateSyntaxError
@@ -22,7 +23,19 @@ import auth_oidc
 from services.celery_device_service import celery_device_service
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'netstacks-secret-key')
+
+# Secret key for session management - MUST be set in production
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    import warnings
+    warnings.warn(
+        "SECRET_KEY environment variable not set! Using an auto-generated key. "
+        "Sessions will be invalidated on restart. Set SECRET_KEY in production.",
+        RuntimeWarning
+    )
+    # Generate a random key for development - sessions won't persist across restarts
+    _secret_key = secrets.token_hex(32)
+app.config['SECRET_KEY'] = _secret_key
 
 # Register API documentation blueprint
 try:
@@ -79,13 +92,30 @@ except Exception as e:
 
 # Authentication functions
 def hash_password(password):
-    """Hash a password using SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using bcrypt with automatic salt generation"""
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
 
 def verify_password(stored_hash, provided_password):
-    """Verify a password against a stored hash"""
-    return stored_hash == hash_password(provided_password)
+    """Verify a password against a stored bcrypt hash
+
+    Also handles legacy SHA256 hashes for backward compatibility during migration.
+    """
+    password_bytes = provided_password.encode('utf-8')
+    stored_hash_bytes = stored_hash.encode('utf-8')
+
+    # Check if it's a bcrypt hash (starts with $2b$ or $2a$)
+    if stored_hash.startswith('$2'):
+        try:
+            return bcrypt.checkpw(password_bytes, stored_hash_bytes)
+        except ValueError:
+            return False
+    else:
+        # Legacy SHA256 hash - verify and upgrade on next password change
+        legacy_hash = hashlib.sha256(password_bytes).hexdigest()
+        return stored_hash == legacy_hash
 
 
 def get_user(username):
@@ -266,6 +296,12 @@ def inject_menu_items():
 from services.device_service import get_devices as device_service_get_devices
 from services.device_service import get_cached_devices as device_service_get_cached
 from services.device_service import clear_device_cache as device_service_clear_cache
+
+# Local cache for network connections and other transient data
+# TODO: Migrate to Redis for multi-process consistency
+device_cache = {
+    'ttl': 300  # 5 minute cache TTL
+}
 
 
 # Task history management
@@ -840,13 +876,6 @@ def devices():
 
 @app.route('/mop')
 @login_required
-def mop():
-    """Method of Procedures (MOP) page"""
-    return render_template('mop.html')
-
-
-@app.route('/mop')
-@login_required
 def mops():
     """MOPs page (YAML-based MOP engine)"""
     return render_template('mop.html')
@@ -1178,13 +1207,16 @@ def proxy_api_call():
         if request_data:
             log.info(f"Request body: {json.dumps(request_data)}")
 
+        # Use verify_ssl setting from resource (defaults to True for security)
+        verify_ssl = resource.get('verify_ssl', True)
+
         response = requests.request(
             method=method,
             url=url,
             headers=headers,
             json=request_data if request_data else None,
             timeout=30,
-            verify=False  # Allow self-signed certs
+            verify=verify_ssl
         )
 
         # Return the response
@@ -5409,7 +5441,7 @@ def execute_setconfig_step(step, context=None, step_index=0):
 
                 results.append({
                     'device': device_name,
-                    'status': result.get('status', 'success'),
+                    'status': 'submitted' if task_id else 'error',
                     'task_id': task_id
                 })
 
@@ -5670,67 +5702,51 @@ def execute_api_step(step, mop_context=None, step_index=0):
         return {'status': 'error', 'error': str(e)}
 
 def execute_code_step(step, mop_context=None, step_index=0):
-    """Execute a code/script step for data processing
+    """Execute a code/script step for data processing in a sandboxed environment
 
     Args:
         step: Step configuration dict
         mop_context: Device-centric MOP context
         step_index: Index of the step in the MOP (0-based)
+
+    Security: Code is validated and executed with restricted builtins.
+              Dangerous operations (imports, file I/O, exec, eval) are blocked.
     """
     try:
+        from mop_engine import execute_sandboxed_python
+
         config = step['config']
         script = config.get('script', '')
 
         if not script:
             return {'status': 'error', 'error': 'No script provided'}
 
-        # Create a safe execution environment
-        # Pass mop_context as 'mop' for simpler access
-        safe_globals = {
-            'mop': mop_context or {},
-            'json': json,
-            're': __import__('re'),
-            '__builtins__': {
-                'len': len,
-                'str': str,
-                'int': int,
-                'float': float,
-                'bool': bool,
-                'list': list,
-                'dict': dict,
-                'set': set,
-                'tuple': tuple,
-                'range': range,
-                'enumerate': enumerate,
-                'zip': zip,
-                'map': map,
-                'filter': filter,
-                'sorted': sorted,
-                'sum': sum,
-                'min': min,
-                'max': max,
-                'any': any,
-                'all': all,
-                'print': print,
-            }
-        }
-
         log.info(f"Executing code step with {len(script)} characters of Python code")
 
-        # Execute the script
-        exec(script, safe_globals)
+        # Use sandboxed execution with mop context
+        result = execute_sandboxed_python(
+            code=script,
+            extra_globals={
+                'mop': mop_context or {},
+            },
+            allow_requests=False  # No HTTP in code steps
+        )
 
-        # Get the result - script should set 'result' variable or return value
-        result_output = safe_globals.get('result', {})
-
-        return {
-            'status': 'success',
-            'data': [{
-                'script': 'code_execution',
+        # Map result format for MOP step responses
+        if result.get('status') == 'success':
+            return {
                 'status': 'success',
-                'output': result_output
-            }]
-        }
+                'data': [{
+                    'script': 'code_execution',
+                    'status': 'success',
+                    'output': result.get('data', result.get('message', {}))
+                }]
+            }
+        else:
+            return {
+                'status': 'error',
+                'error': result.get('error', 'Unknown error')
+            }
 
     except Exception as e:
         log.error(f"Error executing code step: {e}")
@@ -6208,594 +6224,23 @@ def local_auth_priority():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ==================== Background Scheduler ====================
+# =============================================================================
+# Scheduled Operations
+# =============================================================================
+# NOTE: Scheduled operations are now handled by Celery Beat (see tasks.py)
+# The thread-based scheduler has been removed in favor of proper task queue
+# scheduling via celery_app.conf.beat_schedule
+#
+# To start the scheduler, run:
+#   celery -A tasks beat -l info --schedule=/data/celerybeat-schedule
+# =============================================================================
 
-import threading
-import time as time_module
-
-def run_scheduled_operations():
-    """Background thread to execute scheduled operations"""
-    print("SCHEDULER THREAD FUNCTION CALLED!", flush=True)
-    try:
-        from db import get_pending_scheduled_operations, update_scheduled_operation
-        from datetime import datetime as dt, timedelta
-
-        log.info("Starting scheduled operations background thread")
-        print("SCHEDULER THREAD AFTER LOG!", flush=True)
-        print("About to enter while loop...", flush=True)
-
-        while True:
-            try:
-                # Check for pending schedules every 60 seconds
-                print("In while loop - about to log and sleep...", flush=True)
-                log.info("Scheduler loop iteration - sleeping for 60 seconds...")
-                time_module.sleep(60)
-
-                log.info("Checking for pending scheduled operations...")
-                pending_schedules = get_pending_scheduled_operations()
-                log.info(f"Found {len(pending_schedules)} pending scheduled operations")
-
-                for schedule in pending_schedules:
-                    try:
-                        schedule_id = schedule['schedule_id']
-                        stack_id = schedule['stack_id']
-                        operation_type = schedule['operation_type']
-                        schedule_type = schedule['schedule_type']
-
-                        log.info(f"Executing scheduled operation: {operation_type} for stack/target {stack_id}")
-
-                        # Execute the operation
-                        if operation_type == 'deploy':
-                            # Deploy the stack directly (same logic as manual deployment)
-                            log.info(f"Deploying stack {stack_id} via scheduled operation")
-                            try:
-                                stack = get_service_stack(stack_id)
-                                if not stack:
-                                    log.error(f"Stack {stack_id} not found for scheduled deployment")
-                                    continue
-    
-                                if stack.get('state') == 'deploying':
-                                    log.warning(f"Stack {stack_id} is already being deployed, skipping")
-                                    continue
-    
-                                # Update stack state
-                                stack['state'] = 'deploying'
-                                from datetime import datetime
-                                stack['deploy_started_at'] = datetime.now().isoformat()
-                                stack['deployed_services'] = []
-    
-                                # Clear pending changes
-                                if 'has_pending_changes' in stack:
-                                    del stack['has_pending_changes']
-                                if 'pending_since' in stack:
-                                    del stack['pending_since']
-    
-                                save_service_stack(stack)
-                                log.info(f"Stack {stack_id} state set to deploying, will deploy {len(stack.get('services', []))} services")
-    
-                                # Sort services by order
-                                services = sorted(stack['services'], key=lambda s: s.get('order', 0))
-    
-                                deployed_service_ids = []
-                                failed_services = []
-    
-                                # Deploy services sequentially
-                                for service_def in services:
-                                    try:
-                                        log.info(f"Scheduled deployment: deploying service {service_def.get('name')}")
-                                        log.info(f"Service definition: {service_def}")
-    
-                                        # Merge shared variables with service-specific variables
-                                        variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
-    
-                                        template_name = service_def.get('template')
-                                        if not template_name:
-                                            raise Exception(f"Service '{service_def.get('name')}' has no template specified")
-    
-                                        # Strip .j2 extension if present
-                                        if template_name.endswith('.j2'):
-                                            template_name = template_name[:-3]
-    
-                                        # Get template metadata
-                                        template_metadata = get_template_metadata(template_name)
-    
-                                        # Deploy to each device - handle both 'device' (singular) and 'devices' (plural)
-                                        devices = service_def.get('devices', [])
-                                        if not devices and 'device' in service_def:
-                                            # Handle singular 'device' field
-                                            devices = [service_def['device']]
-    
-                                        log.info(f"Devices for service {service_def.get('name')}: {devices} (count: {len(devices)})")
-    
-                                        if not devices:
-                                            log.warning(f"No devices configured for service {service_def.get('name')}, skipping deployment")
-                                            continue
-    
-                                        for device_name in devices:
-                                            log.info(f"Scheduled deployment: deploying to device {device_name}")
-    
-                                            # Get device connection info (no credential override for scheduled jobs)
-                                            device_info = get_device_connection_info(device_name, None)
-                                            if not device_info:
-                                                raise Exception(f"Could not get connection info for device '{device_name}'")
-    
-                                            # Add default credentials from settings
-                                            settings = get_settings()
-                                            log.info(f"[DEPLOY] Settings keys: {list(settings.keys())}")
-                                            log.info(f"[DEPLOY] default_username exists: {settings.get('default_username') is not None}")
-                                            log.info(f"[DEPLOY] Connection args BEFORE creds: {device_info['connection_args']}")
-                                            if settings.get('default_username'):
-                                                device_info['connection_args']['username'] = settings['default_username']
-                                                device_info['connection_args']['password'] = settings.get('default_password', '')
-                                                log.info(f"[DEPLOY] Added credentials - username: {settings['default_username']}")
-                                            else:
-                                                log.warning(f"[DEPLOY] No default_username found in settings!")
-                                            log.info(f"[DEPLOY] Connection args AFTER creds: {device_info['connection_args']}")
-    
-                                            # Render template and deploy via Celery
-                                            rendered_config = render_j2_template(template_name, variables)
-                                            if not rendered_config:
-                                                raise Exception(f"Failed to render template '{template_name}'")
-
-                                            log.info(f"Sending deployment via Celery")
-
-                                            task_id = celery_device_service.execute_set_config(
-                                                connection_args=device_info['connection_args'],
-                                                config_lines=rendered_config.split('\n'),
-                                                save_config=True
-                                            )
-
-                                            if not task_id:
-                                                raise Exception(f"Failed to deploy to {device_name}: no task_id returned")
-    
-                                            # Save task to history
-                                            save_task_id(task_id, device_name=f"scheduled:{stack.get('name')}:{service_def['name']}:{device_name}")
-    
-                                            # Create service instance record
-                                            service_instance = {
-                                                'service_id': str(uuid.uuid4()),
-                                                'name': f"{service_def['name']} ({device_name})",
-                                                'template': template_name,
-                                                'validation_template': template_metadata.get('validation_template') if template_metadata else None,
-                                                'delete_template': template_metadata.get('delete_template') if template_metadata else None,
-                                                'device': device_name,
-                                                'variables': variables,
-                                                'pre_checks': service_def.get('pre_checks'),
-                                                'post_checks': service_def.get('post_checks'),
-                                                'state': 'deploying',
-                                                'task_id': task_id,
-                                                'stack_id': stack_id,
-                                                'stack_order': service_def.get('order', 0),
-                                                'created_at': datetime.now().isoformat()
-                                            }
-    
-                                            save_service_instance(service_instance)
-                                            deployed_service_ids.append(service_instance['service_id'])
-    
-                                    except Exception as svc_err:
-                                        log.error(f"Error deploying service {service_def.get('name')}: {svc_err}", exc_info=True)
-                                        failed_services.append(service_def.get('name'))
-    
-                                # Update final stack state
-                                stack['deployed_services'] = deployed_service_ids
-                                if failed_services:
-                                    stack['state'] = 'partial'
-                                    stack['deployment_errors'] = failed_services
-                                    log.warning(f"Stack {stack_id} deployment completed with errors: {failed_services}")
-                                else:
-                                    stack['state'] = 'deployed'
-                                    stack['deployment_errors'] = []
-                                    log.info(f"Stack {stack_id} deployment completed successfully")
-    
-                                stack['deploy_completed_at'] = datetime.now().isoformat()
-                                save_service_stack(stack)
-    
-                            except Exception as deploy_err:
-                                log.error(f"Error in scheduled stack deployment: {deploy_err}", exc_info=True)
-    
-                        elif operation_type == 'validate':
-                            # Validate the stack
-                            log.info(f"Validating stack {stack_id} via scheduled operation")
-                            try:
-                                stack = get_service_stack(stack_id)
-                                if not stack:
-                                    log.error(f"Stack {stack_id} not found for scheduled validation")
-                                    continue
-    
-                                # Validate each service definition in the stack
-                                services = stack.get('services', [])
-                                log.info(f"Stack {stack_id} has {len(services)} services to validate")
-    
-                                for service_def in services:
-                                    try:
-                                        log.info(f"Scheduled validation: validating service {service_def.get('name')}")
-    
-                                        # Get devices - handle both 'device' (singular) and 'devices' (plural)
-                                        devices = service_def.get('devices', [])
-                                        if not devices and 'device' in service_def:
-                                            devices = [service_def['device']]
-    
-                                        if not devices:
-                                            log.warning(f"No devices configured for service {service_def.get('name')}, skipping validation")
-                                            continue
-    
-                                        # Merge variables
-                                        variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
-                                        template_name = service_def.get('template')
-    
-                                        # For each device, run getconfig to validate
-                                        for device_name in devices:
-                                            log.info(f"Scheduled validation: validating device {device_name}")
-    
-                                            # Get device connection info
-                                            device_info = get_device_connection_info(device_name, None)
-                                            if not device_info:
-                                                log.error(f"Could not get connection info for device '{device_name}'")
-                                                continue
-    
-                                            # Add default credentials from settings
-                                            settings = get_settings()
-                                            if settings.get('default_username'):
-                                                device_info['connection_args']['username'] = settings['default_username']
-                                                device_info['connection_args']['password'] = settings.get('default_password', '')
-    
-                                            # Execute validation via Celery
-                                            log.info(f"Sending validation via Celery for {device_name}")
-
-                                            # Get expected patterns from template
-                                            rendered_config = render_j2_template(template_name, variables) if template_name else ""
-                                            patterns = [line.strip() for line in rendered_config.split('\n') if line.strip()][:10]
-
-                                            task_id = celery_device_service.execute_validate(
-                                                connection_args=device_info['connection_args'],
-                                                expected_patterns=patterns,
-                                                validation_command='show running-config'
-                                            )
-
-                                            if task_id:
-                                                log.info(f"Validation task created for {device_name}: {task_id}")
-                                                job_name = f"stack:VALIDATION:{stack.get('name')}:{service_def.get('name')}:{device_name}:{task_id}"
-                                                save_task_id(task_id, device_name=job_name)
-                                            else:
-                                                log.error(f"Validation failed for {device_name}: no task_id returned")
-    
-                                    except Exception as svc_err:
-                                        log.error(f"Error validating service {service_def.get('name')}: {svc_err}", exc_info=True)
-    
-                            except Exception as validate_err:
-                                log.error(f"Error in scheduled stack validation: {validate_err}", exc_info=True)
-    
-                        elif operation_type == 'delete':
-                            # Delete the stack
-                            log.info(f"Deleting stack {stack_id} via scheduled operation")
-                            try:
-                                stack = get_service_stack(stack_id)
-                                if not stack:
-                                    log.error(f"Stack {stack_id} not found for scheduled deletion")
-                                    continue
-    
-                                # Delete each service in reverse order (respects dependencies)
-                                services = stack.get('services', [])
-                                log.info(f"Stack {stack_id} has {len(services)} services to delete")
-    
-                                # Sort by order in reverse
-                                services_sorted = sorted(services, key=lambda s: s.get('order', 0), reverse=True)
-    
-                                for service_def in services_sorted:
-                                    try:
-                                        log.info(f"Scheduled deletion: deleting service {service_def.get('name')}")
-    
-                                        # Get devices - handle both 'device' (singular) and 'devices' (plural)
-                                        devices = service_def.get('devices', [])
-                                        if not devices and 'device' in service_def:
-                                            devices = [service_def['device']]
-    
-                                        if not devices:
-                                            log.warning(f"No devices configured for service {service_def.get('name')}, skipping deletion")
-                                            continue
-    
-                                        template_name = service_def.get('template')
-                                        if not template_name:
-                                            log.warning(f"Service {service_def.get('name')} has no template, skipping deletion")
-                                            continue
-    
-                                        # Get template metadata to check for delete template
-                                        template_metadata = get_template_metadata(template_name)
-                                        delete_template = template_metadata.get('delete_template')
-    
-                                        if not delete_template:
-                                            log.warning(f"No delete template configured for {template_name}, skipping deletion")
-                                            continue
-    
-                                        # Merge variables
-                                        variables = {**stack.get('shared_variables', {}), **service_def.get('variables', {})}
-    
-                                        # Deploy delete template to each device
-                                        for device_name in devices:
-                                            log.info(f"Scheduled deletion: deploying delete template to {device_name}")
-    
-                                            # Get device connection info
-                                            device_info = get_device_connection_info(device_name, None)
-                                            if not device_info:
-                                                log.error(f"Could not get connection info for device '{device_name}'")
-                                                continue
-    
-                                            # Add default credentials from settings
-                                            settings = get_settings()
-                                            if settings.get('default_username'):
-                                                device_info['connection_args']['username'] = settings['default_username']
-                                                device_info['connection_args']['password'] = settings.get('default_password', '')
-    
-                                            # Render delete template locally
-                                            rendered_config = render_j2_template(delete_template, variables)
-                                            if not rendered_config:
-                                                log.error(f"Failed to render delete template '{delete_template}' for {device_name}")
-                                                continue
-
-                                            # Deploy delete template using Celery
-                                            config_lines = [cmd.strip() for cmd in rendered_config.split('\n') if cmd.strip()]
-
-                                            task_id = celery_device_service.execute_set_config(
-                                                connection_args=device_info['connection_args'],
-                                                config_lines=config_lines,
-                                                save_config=True
-                                            )
-
-                                            if task_id:
-                                                log.info(f"Delete task created for {device_name}: {task_id}")
-                                                # Save task ID to history so it appears in Job Monitor with standardized format
-                                                # Format: stack:DELETE:{StackName}:{ServiceName}:{DeviceName}:{JobID}
-                                                job_name = f"stack:DELETE:{stack.get('name')}:{service_def.get('name')}:{device_name}:{task_id}"
-                                                save_task_id(task_id, device_name=job_name)
-                                            else:
-                                                log.error(f"Delete task creation failed for {device_name}")
-    
-                                    except Exception as svc_err:
-                                        log.error(f"Error deleting service {service_def.get('name')}: {svc_err}", exc_info=True)
-    
-                                # After all delete templates deployed, delete the stack record
-                                delete_service_stack(stack_id)
-                                log.info(f"Stack {stack_id} deleted successfully")
-    
-                            except Exception as delete_err:
-                                log.error(f"Error in scheduled stack deletion: {delete_err}", exc_info=True)
-                        elif operation_type == 'config_deploy':
-                            # Execute config deployment
-                            import json
-                            config_data_str = schedule.get('config_data')
-                            if config_data_str:
-                                config_data = json.loads(config_data_str)
-                                deploy_type = config_data.get('type')
-    
-                                log.info(f"Executing scheduled {deploy_type} deployment")
-    
-                                # Execute the deployment
-                                if deploy_type == 'setconfig':
-                                    devices = config_data.get('devices', [])
-                                    config_commands = config_data.get('config', '').split('\n')
-                                    config_commands = [cmd.strip() for cmd in config_commands if cmd.strip()]
-                                    username = config_data.get('username')
-                                    password = config_data.get('password')
-                                    dry_run = config_data.get('dry_run', False)
-    
-                                    log.info(f"Scheduled setconfig: {len(devices)} devices, {len(config_commands)} commands")
-    
-                                    # Deploy to each device
-                                    for device_name in devices:
-                                        try:
-                                            # Get device connection info from Netbox
-                                            netbox_client = get_netbox_client()
-                                            device = netbox_client.get_device_by_name(device_name)
-    
-                                            if not device:
-                                                log.error(f"Device {device_name} not found for scheduled deployment")
-                                                continue
-    
-                                            # Get device type
-                                            nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
-                                            if not nornir_platform:
-                                                platform = device.get('platform', {})
-                                                manufacturer = device.get('device_type', {}).get('manufacturer', {})
-                                                platform_name = platform.get('name') if isinstance(platform, dict) else None
-                                                manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
-                                                from netbox_client import get_netmiko_device_type
-                                                nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
-    
-                                            # Get IP address
-                                            primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
-                                            ip_address = None
-                                            if primary_ip:
-                                                ip_addr_full = primary_ip.get('address', '')
-                                                ip_address = ip_addr_full.split('/')[0] if ip_addr_full else None
-    
-                                            if not ip_address:
-                                                log.error(f"No IP address found for device {device_name}")
-                                                continue
-    
-                                            # Build connection args
-                                            connection_args = {
-                                                'device_type': nornir_platform or 'cisco_ios',
-                                                'host': ip_address,
-                                                'username': username,
-                                                'password': password,
-                                                'timeout': 10
-                                            }
-
-                                            # Deploy via Celery (dry_run not supported in Celery - skip if dry_run)
-                                            if dry_run:
-                                                log.info(f"Dry run mode - skipping actual deployment to {device_name}")
-                                                continue
-
-                                            task_id = celery_device_service.execute_set_config(
-                                                connection_args=connection_args,
-                                                config_lines=config_commands,
-                                                save_config=True
-                                            )
-
-                                            # Save task ID
-                                            if task_id:
-                                                save_task_id(task_id, device_name)
-                                                log.info(f"Scheduled setconfig deployed to {device_name}, task: {task_id}")
-    
-                                        except Exception as e:
-                                            log.error(f"Error deploying scheduled setconfig to {device_name}: {e}")
-    
-                                elif deploy_type == 'template':
-                                    devices = config_data.get('devices', [])
-                                    template_name = config_data.get('template_name')
-                                    variables = config_data.get('variables', {})
-                                    username = config_data.get('username')
-                                    password = config_data.get('password')
-                                    dry_run = config_data.get('dry_run', False)
-
-                                    log.info(f"Scheduled template deploy: {template_name} to {len(devices)} devices")
-
-                                    try:
-                                        # Render template locally
-                                        rendered_config = render_j2_template(template_name, variables)
-
-                                        if not rendered_config:
-                                            log.error(f"Failed to render template {template_name}")
-                                        else:
-                                            # Split into commands
-                                            config_commands = [cmd.strip() for cmd in rendered_config.split('\n') if cmd.strip()]
-
-                                            # Deploy to each device
-                                            for device_name in devices:
-                                                try:
-                                                    # Get device connection info from Netbox
-                                                    netbox_client = get_netbox_client()
-                                                    device = netbox_client.get_device_by_name(device_name)
-
-                                                    if not device:
-                                                        log.error(f"Device {device_name} not found for scheduled deployment")
-                                                        continue
-
-                                                    # Get device type
-                                                    nornir_platform = device.get('config_context', {}).get('nornir', {}).get('platform')
-                                                    if not nornir_platform:
-                                                        platform = device.get('platform', {})
-                                                        manufacturer = device.get('device_type', {}).get('manufacturer', {})
-                                                        platform_name = platform.get('name') if isinstance(platform, dict) else None
-                                                        manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
-                                                        from netbox_client import get_netmiko_device_type
-                                                        nornir_platform = get_netmiko_device_type(platform_name, manufacturer_name)
-
-                                                    # Get IP address
-                                                    primary_ip = device.get('primary_ip', {}) or device.get('primary_ip4', {})
-                                                    ip_address = None
-                                                    if primary_ip:
-                                                        ip_addr_full = primary_ip.get('address', '')
-                                                        ip_address = ip_addr_full.split('/')[0] if ip_addr_full else None
-
-                                                    if not ip_address:
-                                                        log.error(f"No IP address found for device {device_name}")
-                                                        continue
-
-                                                    # Skip if dry run mode
-                                                    if dry_run:
-                                                        log.info(f"Dry run mode - skipping actual deployment to {device_name}")
-                                                        continue
-
-                                                    # Build connection args
-                                                    connection_args = {
-                                                        'device_type': nornir_platform or 'cisco_ios',
-                                                        'host': ip_address,
-                                                        'username': username,
-                                                        'password': password,
-                                                        'timeout': 10
-                                                    }
-
-                                                    # Deploy via Celery
-                                                    task_id = celery_device_service.execute_set_config(
-                                                        connection_args=connection_args,
-                                                        config_lines=config_commands,
-                                                        save_config=True
-                                                    )
-
-                                                    # Save task ID
-                                                    if task_id:
-                                                        save_task_id(task_id, device_name)
-                                                        log.info(f"Scheduled template deployed to {device_name}, task: {task_id}")
-
-                                                except Exception as e:
-                                                    log.error(f"Error deploying scheduled template to {device_name}: {e}")
-
-                                    except Exception as e:
-                                        log.error(f"Error rendering template {template_name}: {e}")
-                            else:
-                                log.warning(f"No config_data for scheduled operation {schedule_id}")
-    
-                        # Update last_run and run_count
-                        now = dt.now()  # Use local time instead of UTC
-                        run_count = schedule.get('run_count', 0) + 1
-                        update_scheduled_operation(schedule_id, last_run=now.isoformat(), run_count=run_count)
-    
-                        # Calculate next_run for recurring schedules
-                        if schedule_type != 'once':
-                            time_parts = schedule['scheduled_time'].split(':')
-                            hour = int(time_parts[0])
-                            minute = int(time_parts[1])
-    
-                            if schedule_type == 'daily':
-                                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                                if next_run <= now:
-                                    next_run += timedelta(days=1)
-                            elif schedule_type == 'weekly':
-                                day_of_week = schedule['day_of_week']
-                                days_ahead = day_of_week - now.weekday()
-                                if days_ahead <= 0:
-                                    days_ahead += 7
-                                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days_ahead)
-                            elif schedule_type == 'monthly':
-                                day_of_month = schedule['day_of_month']
-                                next_run = now.replace(day=day_of_month, hour=hour, minute=minute, second=0, microsecond=0)
-                                if next_run <= now:
-                                    if now.month == 12:
-                                        next_run = next_run.replace(year=now.year + 1, month=1)
-                                    else:
-                                        next_run = next_run.replace(month=now.month + 1)
-    
-                            update_scheduled_operation(schedule_id, next_run=next_run.isoformat())
-                        else:
-                            # One-time schedule, disable it
-                            update_scheduled_operation(schedule_id, enabled=0)
-    
-                        log.info(f"Successfully executed scheduled operation: {schedule_id}")
-
-                    except Exception as e:
-                        log.error(f"Error executing scheduled operation {schedule.get('schedule_id')}: {e}", exc_info=True)
-
-            except Exception as e:
-                log.error(f"Error in scheduled operations thread loop: {e}", exc_info=True)
-                print(f"EXCEPTION IN SCHEDULER LOOP: {e}", flush=True)
-                import traceback
-                traceback.print_exc()
-    except Exception as e:
-        log.error(f"FATAL: Scheduler thread crashed before entering loop: {e}", exc_info=True)
-        print(f"FATAL SCHEDULER EXCEPTION: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-# Start scheduler thread only once (not in Flask reloader parent process)
-import os
-
-def test_thread():
-    print("TEST THREAD STARTED!", flush=True)
-    for i in range(5):
-        print(f"Test thread iteration {i}", flush=True)
-        time_module.sleep(1)
-
-# Always start scheduler thread
-print(f"App module loaded - WERKZEUG_RUN_MAIN={os.environ.get('WERKZEUG_RUN_MAIN')}", flush=True)
-print("Starting scheduler thread unconditionally...", flush=True)
-
-# Test thread first
-test_thread_obj = threading.Thread(target=test_thread, daemon=True)
-test_thread_obj.start()
-
-scheduler_thread = threading.Thread(target=run_scheduled_operations, daemon=True)
-scheduler_thread.start()
-log.info("Scheduler thread started")
+# Legacy reference - this function has been moved to tasks.py as Celery Beat tasks:
+# - tasks.check_scheduled_operations (runs every 60 seconds)
+# - tasks.execute_scheduled_deploy
+# - tasks.execute_scheduled_backup
+# - tasks.execute_scheduled_mop
+# - tasks.cleanup_old_backups (runs daily at 3 AM)
 
 
 if __name__ == '__main__':

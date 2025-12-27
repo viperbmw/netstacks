@@ -1,17 +1,32 @@
 """
 PostgreSQL Database Layer for NetStacks
 Uses SQLAlchemy for ORM-based database operations
+
+Datetime Handling:
+    All timestamps are stored in UTC for consistency.
+    Use utc_now() for current time.
 """
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from contextlib import contextmanager
 from typing import Dict, List, Any, Optional
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
+
+# Credential encryption utilities
+from credential_encryption import (
+    encrypt_credential,
+    decrypt_credential,
+    is_encrypted,
+    encrypt_if_needed
+)
+
+# Timezone utilities - use utc_now() for all timestamps
+from timezone_utils import utc_now, datetime_to_iso
 
 from models import (
     Base, Setting, User, Template, ServiceStack, ServiceInstance,
@@ -103,7 +118,7 @@ def set_setting(key: str, value: str):
         setting = session.query(Setting).filter(Setting.key == key).first()
         if setting:
             setting.value = value
-            setting.updated_at = datetime.utcnow()
+            setting.updated_at = utc_now()
         else:
             session.add(Setting(key=key, value=value))
 
@@ -219,7 +234,7 @@ def save_template(name: str, content: str, metadata: Dict = None):
                 template.validation_template = metadata.get('validation_template', template.validation_template)
                 template.delete_template = metadata.get('delete_template', template.delete_template)
                 template.description = metadata.get('description', template.description)
-            template.updated_at = datetime.utcnow()
+            template.updated_at = utc_now()
         else:
             session.add(Template(
                 name=name,
@@ -240,7 +255,7 @@ def save_template_metadata(name: str, metadata: Dict):
             template.validation_template = metadata.get('validation_template')
             template.delete_template = metadata.get('delete_template')
             template.description = metadata.get('description')
-            template.updated_at = datetime.utcnow()
+            template.updated_at = utc_now()
         else:
             session.add(Template(
                 name=name,
@@ -334,7 +349,7 @@ def save_service_stack(stack_data: Dict):
             stack.pending_since = _parse_datetime(stack_data.get('pending_since'))
             stack.deployed_services = stack_data.get('deployed_services', [])
             stack.deployment_errors = stack_data.get('deployment_errors', [])
-            stack.updated_at = datetime.utcnow()
+            stack.updated_at = utc_now()
             stack.deploy_started_at = _parse_datetime(stack_data.get('deploy_started_at'))
             stack.deploy_completed_at = _parse_datetime(stack_data.get('deploy_completed_at'))
             stack.last_validated = _parse_datetime(stack_data.get('last_validated'))
@@ -482,8 +497,8 @@ def get_manual_device(device_name: str) -> Optional[Dict]:
             'host': device.host,
             'port': device.port,
             'username': device.username,
-            'password': device.password,
-            'enable_password': device.enable_password,
+            'password': decrypt_credential(device.password) if device.password else None,
+            'enable_password': decrypt_credential(device.enable_password) if device.enable_password else None,
             'description': device.description,
             'manufacturer': device.manufacturer,
             'model': device.model,
@@ -496,24 +511,30 @@ def get_manual_device(device_name: str) -> Optional[Dict]:
 
 
 def save_manual_device(device_data: Dict):
-    """Save or update device"""
+    """Save or update device (encrypts passwords before storage)"""
     with get_db() as session:
         device_name = device_data.get('device_name') or device_data.get('name')
         device = session.query(Device).filter(Device.name == device_name).first()
+
+        # Encrypt passwords if provided
+        password = device_data.get('password')
+        enable_password = device_data.get('enable_password')
+        encrypted_password = encrypt_if_needed(password) if password else None
+        encrypted_enable_password = encrypt_if_needed(enable_password) if enable_password else None
 
         if device:
             device.device_type = device_data['device_type']
             device.host = device_data['host']
             device.port = device_data.get('port', 22)
             device.username = device_data.get('username')
-            device.password = device_data.get('password')
-            device.enable_password = device_data.get('enable_password')
+            device.password = encrypted_password
+            device.enable_password = encrypted_enable_password
             device.description = device_data.get('description', '')
             device.manufacturer = device_data.get('manufacturer', '')
             device.model = device_data.get('model', '')
             device.site = device_data.get('site', '')
             device.tags = device_data.get('tags', [])
-            device.updated_at = datetime.utcnow()
+            device.updated_at = utc_now()
         else:
             session.add(Device(
                 name=device_name,
@@ -521,8 +542,8 @@ def save_manual_device(device_data: Dict):
                 host=device_data['host'],
                 port=device_data.get('port', 22),
                 username=device_data.get('username'),
-                password=device_data.get('password'),
-                enable_password=device_data.get('enable_password'),
+                password=encrypted_password,
+                enable_password=encrypted_enable_password,
                 description=device_data.get('description', ''),
                 manufacturer=device_data.get('manufacturer', ''),
                 model=device_data.get('model', ''),
@@ -540,7 +561,7 @@ def delete_manual_device(device_name: str) -> bool:
 
 
 def get_all_manual_devices() -> List[Dict]:
-    """Get all devices"""
+    """Get all devices (decrypts passwords on retrieval)"""
     with get_db() as session:
         devices = session.query(Device).order_by(Device.name).all()
         return [
@@ -550,8 +571,8 @@ def get_all_manual_devices() -> List[Dict]:
                 'host': d.host,
                 'port': d.port,
                 'username': d.username,
-                'password': d.password,
-                'enable_password': d.enable_password,
+                'password': decrypt_credential(d.password) if d.password else None,
+                'enable_password': decrypt_credential(d.enable_password) if d.enable_password else None,
                 'description': d.description,
                 'manufacturer': d.manufacturer,
                 'model': d.model,
@@ -577,7 +598,7 @@ def save_auth_config(auth_type: str, config_data: Dict, is_enabled: bool = True,
             config.config_data = config_data
             config.is_enabled = is_enabled
             config.priority = priority
-            config.updated_at = datetime.utcnow()
+            config.updated_at = utc_now()
         else:
             session.add(AuthConfig(
                 auth_type=auth_type,
@@ -651,7 +672,7 @@ def toggle_auth_config(auth_type: str, enabled: bool) -> bool:
         config = session.query(AuthConfig).filter(AuthConfig.auth_type == auth_type).first()
         if config:
             config.is_enabled = enabled
-            config.updated_at = datetime.utcnow()
+            config.updated_at = utc_now()
             return True
         return False
 
@@ -685,7 +706,7 @@ def update_menu_order(menu_items: List[Dict]) -> bool:
             if menu:
                 menu.order_index = item['order_index']
                 menu.visible = item.get('visible', True)
-                menu.updated_at = datetime.utcnow()
+                menu.updated_at = utc_now()
         return True
 
 
@@ -700,7 +721,7 @@ def update_menu_item(item_id: str, label: str = None, icon: str = None, visible:
                 menu.icon = icon
             if visible is not None:
                 menu.visible = visible
-            menu.updated_at = datetime.utcnow()
+            menu.updated_at = utc_now()
             return True
         return False
 
@@ -766,7 +787,7 @@ def update_mop(mop_id: str, name: str = None, description: str = None, devices: 
                 mop.description = description
             if devices is not None:
                 mop.devices = devices
-            mop.updated_at = datetime.utcnow()
+            mop.updated_at = utc_now()
             return True
         return False
 
@@ -977,7 +998,7 @@ def save_stack_template(template_data: Dict) -> str:
             template.api_variables = template_data.get('api_variables', {})
             template.per_device_variables = template_data.get('per_device_variables', [])
             template.tags = template_data.get('tags', [])
-            template.updated_at = datetime.utcnow()
+            template.updated_at = utc_now()
         else:
             session.add(StackTemplate(
                 template_id=template_id,
@@ -1107,7 +1128,7 @@ def update_scheduled_operation(schedule_id: str, **kwargs) -> bool:
 def get_pending_scheduled_operations() -> List[Dict]:
     """Get all enabled scheduled operations that are due to run"""
     with get_db() as session:
-        now = datetime.utcnow()
+        now = utc_now()
         ops = session.query(ScheduledStackOperation).filter(
             ScheduledStackOperation.enabled == True,
             (ScheduledStackOperation.next_run == None) | (ScheduledStackOperation.next_run <= now)
@@ -1134,7 +1155,7 @@ def get_pending_scheduled_operations() -> List[Dict]:
 def create_api_resource(resource_id: str, name: str, description: str, base_url: str,
                         auth_type: str, auth_token: str, auth_username: str,
                         auth_password: str, custom_headers: Dict, created_by: str) -> str:
-    """Create a new API resource"""
+    """Create a new API resource (encrypts sensitive credentials)"""
     with get_db() as session:
         session.add(APIResource(
             resource_id=resource_id,
@@ -1142,9 +1163,9 @@ def create_api_resource(resource_id: str, name: str, description: str, base_url:
             description=description,
             base_url=base_url,
             auth_type=auth_type,
-            auth_token=auth_token,
+            auth_token=encrypt_if_needed(auth_token) if auth_token else None,
             auth_username=auth_username,
-            auth_password=auth_password,
+            auth_password=encrypt_if_needed(auth_password) if auth_password else None,
             custom_headers=custom_headers,
             created_by=created_by
         ))
@@ -1152,7 +1173,7 @@ def create_api_resource(resource_id: str, name: str, description: str, base_url:
 
 
 def get_api_resource(resource_id: str) -> Optional[Dict]:
-    """Get a specific API resource"""
+    """Get a specific API resource (decrypts sensitive credentials)"""
     with get_db() as session:
         r = session.query(APIResource).filter(APIResource.resource_id == resource_id).first()
         if r:
@@ -1162,10 +1183,11 @@ def get_api_resource(resource_id: str) -> Optional[Dict]:
                 'description': r.description,
                 'base_url': r.base_url,
                 'auth_type': r.auth_type,
-                'auth_token': r.auth_token,
+                'auth_token': decrypt_credential(r.auth_token) if r.auth_token else None,
                 'auth_username': r.auth_username,
-                'auth_password': r.auth_password,
+                'auth_password': decrypt_credential(r.auth_password) if r.auth_password else None,
                 'custom_headers': r.custom_headers,
+                'verify_ssl': r.verify_ssl if hasattr(r, 'verify_ssl') else True,
                 'created_at': r.created_at.isoformat() if r.created_at else None,
                 'updated_at': r.updated_at.isoformat() if r.updated_at else None,
                 'created_by': r.created_by
@@ -1174,7 +1196,7 @@ def get_api_resource(resource_id: str) -> Optional[Dict]:
 
 
 def get_all_api_resources() -> List[Dict]:
-    """Get all API resources"""
+    """Get all API resources (decrypts sensitive credentials)"""
     with get_db() as session:
         resources = session.query(APIResource).order_by(APIResource.name).all()
         return [
@@ -1184,10 +1206,11 @@ def get_all_api_resources() -> List[Dict]:
                 'description': r.description,
                 'base_url': r.base_url,
                 'auth_type': r.auth_type,
-                'auth_token': r.auth_token,
+                'auth_token': decrypt_credential(r.auth_token) if r.auth_token else None,
                 'auth_username': r.auth_username,
-                'auth_password': r.auth_password,
-                'custom_headers': r.custom_headers
+                'auth_password': decrypt_credential(r.auth_password) if r.auth_password else None,
+                'custom_headers': r.custom_headers,
+                'verify_ssl': r.verify_ssl if hasattr(r, 'verify_ssl') else True
             }
             for r in resources
         ]
@@ -1196,7 +1219,7 @@ def get_all_api_resources() -> List[Dict]:
 def update_api_resource(resource_id: str, name: str, description: str, base_url: str,
                         auth_type: str, auth_token: str, auth_username: str,
                         auth_password: str, custom_headers: Dict) -> bool:
-    """Update an API resource"""
+    """Update an API resource (encrypts sensitive credentials)"""
     with get_db() as session:
         r = session.query(APIResource).filter(APIResource.resource_id == resource_id).first()
         if r:
@@ -1204,11 +1227,11 @@ def update_api_resource(resource_id: str, name: str, description: str, base_url:
             r.description = description
             r.base_url = base_url
             r.auth_type = auth_type
-            r.auth_token = auth_token
+            r.auth_token = encrypt_if_needed(auth_token) if auth_token else None
             r.auth_username = auth_username
-            r.auth_password = auth_password
+            r.auth_password = encrypt_if_needed(auth_password) if auth_password else None
             r.custom_headers = custom_headers
-            r.updated_at = datetime.utcnow()
+            r.updated_at = utc_now()
             return True
         return False
 
@@ -1477,7 +1500,7 @@ def delete_old_backups(retention_days: int) -> int:
     from datetime import timedelta
 
     with get_db() as session:
-        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff_date = utc_now() - timedelta(days=retention_days)
 
         # Get all devices
         devices = session.query(ConfigBackup.device_name).distinct().all()
@@ -1627,7 +1650,7 @@ def get_devices_needing_backup() -> List[str]:
 
         # For each device, check if backup is needed
         interval_hours = schedule.get('interval_hours', 24)
-        cutoff = datetime.utcnow() - timedelta(hours=interval_hours)
+        cutoff = utc_now() - timedelta(hours=interval_hours)
 
         devices_needing_backup = []
         for name in device_names:
@@ -1660,7 +1683,7 @@ def get_devices_needing_backup() -> List[str]:
 # ============================================================================
 
 def get_device_override(device_name: str) -> Optional[Dict]:
-    """Get device-specific overrides for a device"""
+    """Get device-specific overrides for a device (decrypts credentials)"""
     with get_db() as session:
         override = session.query(DeviceOverride).filter(
             DeviceOverride.device_name == device_name
@@ -1675,8 +1698,8 @@ def get_device_override(device_name: str) -> Optional[Dict]:
             'host': override.host,
             'port': override.port,
             'username': override.username,
-            'password': override.password,
-            'secret': override.secret,
+            'password': decrypt_credential(override.password) if override.password else None,
+            'secret': decrypt_credential(override.secret) if override.secret else None,
             'timeout': override.timeout,
             'conn_timeout': override.conn_timeout,
             'auth_timeout': override.auth_timeout,
@@ -1689,7 +1712,7 @@ def get_device_override(device_name: str) -> Optional[Dict]:
 
 
 def save_device_override(data: Dict) -> bool:
-    """Save or update device-specific overrides"""
+    """Save or update device-specific overrides (encrypts credentials)"""
     device_name = data.get('device_name')
     if not device_name:
         return False
@@ -1713,9 +1736,13 @@ def save_device_override(data: Dict) -> bool:
         if 'username' in data:
             override.username = data['username'] or None
         if 'password' in data:
-            override.password = data['password'] or None
+            # Encrypt password before storing
+            password = data['password']
+            override.password = encrypt_if_needed(password) if password else None
         if 'secret' in data:
-            override.secret = data['secret'] or None
+            # Encrypt secret/enable password before storing
+            secret = data['secret']
+            override.secret = encrypt_if_needed(secret) if secret else None
         if 'timeout' in data:
             override.timeout = int(data['timeout']) if data['timeout'] else None
         if 'conn_timeout' in data:
@@ -1729,7 +1756,7 @@ def save_device_override(data: Dict) -> bool:
         if 'disabled' in data:
             override.disabled = bool(data['disabled'])
 
-        override.updated_at = datetime.utcnow()
+        override.updated_at = utc_now()
         session.commit()
         return True
 
@@ -2008,7 +2035,7 @@ def recalculate_snapshot_counts(snapshot_id: str) -> bool:
                         else:
                             snapshot.status = 'partial'
                         if not snapshot.completed_at:
-                            snapshot.completed_at = datetime.utcnow()
+                            snapshot.completed_at = utc_now()
 
                     session.commit()
                     log.info(f"Recalculated snapshot {snapshot_id}: {success_count} success, {failed_count} failed")

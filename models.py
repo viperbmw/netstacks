@@ -198,6 +198,7 @@ class APIResource(Base):
     auth_username = Column(String(255), nullable=True)
     auth_password = Column(String(255), nullable=True)
     custom_headers = Column(JSONB, nullable=True)
+    verify_ssl = Column(Boolean, default=True, nullable=False)  # TLS verification - default to secure
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = Column(String(255), nullable=True)
