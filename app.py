@@ -126,7 +126,7 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'username' not in session:
-            return redirect(url_for('login'))
+            return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -136,21 +136,7 @@ create_default_user()
 
 
 # Step types routes migrated to routes/mop.py
-
-# Template context processor to inject menu items
-@app.context_processor
-def inject_menu_items():
-    """Inject menu items into all templates"""
-    try:
-        if 'username' in session:  # Only load menu for logged-in users
-            menu_items = db.get_menu_items()
-            # Filter only visible items
-            menu_items = [item for item in menu_items if item.get('visible', 1)]
-            return {'menu_items': menu_items}
-    except Exception as e:
-        log.error(f"Error loading menu items: {e}")
-    return {'menu_items': []}
-
+# Menu items now hardcoded in base.html (removed database-driven menu)
 
 # Device cache is now managed by services/device_service.py
 # Import the device service functions for cache operations
@@ -1562,7 +1548,7 @@ def get_task(task_id):
 def get_workers():
     """Get Celery worker info"""
     try:
-        from tasks import celery_app
+        from workers.celery_app import celery_app
 
         # Get active workers from Celery
         inspect = celery_app.control.inspect()
@@ -1593,7 +1579,7 @@ def get_workers():
 def get_registered_tasks():
     """Get list of registered Celery tasks"""
     try:
-        from tasks import celery_app
+        from workers.celery_app import celery_app
 
         # Get registered tasks from Celery
         inspect = celery_app.control.inspect()
@@ -1779,6 +1765,15 @@ def create_template():
         data = request.json
         template_name = data.get('name')
         content = data.get('content')
+
+        # Support base64 encoded content from frontend
+        if not content and data.get('base64_payload'):
+            import base64
+            try:
+                content = base64.b64decode(data.get('base64_payload')).decode('utf-8')
+            except Exception as e:
+                log.error(f"Failed to decode base64 content: {e}")
+                return jsonify({'success': False, 'error': 'Invalid base64 content'}), 400
 
         if not template_name:
             return jsonify({'success': False, 'error': 'Missing template name'}), 400
@@ -3093,138 +3088,6 @@ def get_step_types_introspect_api():
         return jsonify({'success': True, 'step_types': result})
     except Exception as e:
         log.error(f"Error getting step types: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/custom-step-types', methods=['GET'])
-@login_required
-def get_custom_step_types_api():
-    """Get all custom step types"""
-    try:
-        step_types = db.get_all_step_types()
-        # Filter only custom types (non-builtin)
-        custom_types = [st for st in step_types if not st.get('is_builtin')]
-        return jsonify({'success': True, 'step_types': custom_types})
-    except Exception as e:
-        log.error(f"Error getting custom step types: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/custom-step-types', methods=['POST'])
-@login_required
-def create_custom_step_type_api():
-    """Create a new custom step type"""
-    try:
-        data = request.json
-
-        # Validate required fields
-        required_fields = ['step_type_id', 'name', 'custom_type']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
-
-        # Validate custom_type
-        if data['custom_type'] not in ['python', 'webhook']:
-            return jsonify({'success': False, 'error': 'custom_type must be "python" or "webhook"'}), 400
-
-        # Validate type-specific fields
-        if data['custom_type'] == 'python' and not data.get('custom_code'):
-            return jsonify({'success': False, 'error': 'custom_code is required for python type'}), 400
-
-        if data['custom_type'] == 'webhook' and not data.get('custom_webhook_url'):
-            return jsonify({'success': False, 'error': 'custom_webhook_url is required for webhook type'}), 400
-
-        # Create the step type
-        step_type_id = db.create_custom_step_type(
-            step_type_id=data['step_type_id'],
-            name=data['name'],
-            description=data.get('description', ''),
-            category=data.get('category', 'Custom'),
-            parameters_schema=data.get('parameters_schema', {}),
-            icon=data.get('icon', 'cog'),
-            custom_type=data['custom_type'],
-            custom_code=data.get('custom_code'),
-            custom_webhook_url=data.get('custom_webhook_url'),
-            custom_webhook_method=data.get('custom_webhook_method', 'POST'),
-            custom_webhook_headers=data.get('custom_webhook_headers')
-        )
-
-        return jsonify({'success': True, 'step_type_id': step_type_id})
-
-    except Exception as e:
-        log.error(f"Error creating custom step type: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/custom-step-types/<step_type_id>', methods=['GET'])
-@login_required
-def get_custom_step_type_api(step_type_id):
-    """Get a specific custom step type"""
-    try:
-        step_type = db.get_step_type(step_type_id)
-        if not step_type:
-            return jsonify({'success': False, 'error': 'Step type not found'}), 404
-
-        if not step_type.get('is_custom'):
-            return jsonify({'success': False, 'error': 'Not a custom step type'}), 400
-
-        return jsonify({'success': True, 'step_type': step_type})
-
-    except Exception as e:
-        log.error(f"Error getting custom step type: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/custom-step-types/<step_type_id>', methods=['PUT'])
-@login_required
-def update_custom_step_type_api(step_type_id):
-    """Update a custom step type"""
-    try:
-        data = request.json
-
-        # Validate custom_type if provided
-        if 'custom_type' in data and data['custom_type'] not in ['python', 'webhook']:
-            return jsonify({'success': False, 'error': 'custom_type must be "python" or "webhook"'}), 400
-
-        success = db.update_custom_step_type(
-            step_type_id=step_type_id,
-            name=data.get('name'),
-            description=data.get('description'),
-            category=data.get('category'),
-            parameters_schema=data.get('parameters_schema'),
-            icon=data.get('icon'),
-            custom_type=data.get('custom_type'),
-            custom_code=data.get('custom_code'),
-            custom_webhook_url=data.get('custom_webhook_url'),
-            custom_webhook_method=data.get('custom_webhook_method'),
-            custom_webhook_headers=data.get('custom_webhook_headers'),
-            enabled=data.get('enabled')
-        )
-
-        if success:
-            return jsonify({'success': True})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to update step type'}), 400
-
-    except Exception as e:
-        log.error(f"Error updating custom step type: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/custom-step-types/<step_type_id>', methods=['DELETE'])
-@login_required
-def delete_custom_step_type_api(step_type_id):
-    """Delete a custom step type"""
-    try:
-        success = db.delete_custom_step_type(step_type_id)
-
-        if success:
-            return jsonify({'success': True})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to delete step type or not a custom type'}), 400
-
-    except Exception as e:
-        log.error(f"Error deleting custom step type: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

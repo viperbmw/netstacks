@@ -538,13 +538,12 @@ function saveTemplate() {
                 data: JSON.stringify(metadataData)
             })
             .done(function(metadataResult) {
-                alert(`Template ${templateName} saved successfully`);
                 editorModal.hide();
                 loadTemplates(); // Reload the template list
             })
             .fail(function(xhr) {
                 console.warn('Metadata save failed:', xhr);
-                alert(`Template content saved, but metadata save failed. Template: ${templateName}`);
+                alert(`Template content saved, but metadata save failed: ${xhr.responseJSON?.error || 'Unknown error'}`);
                 editorModal.hide();
                 loadTemplates();
             });
@@ -578,7 +577,6 @@ function deleteTemplate(templateName) {
     })
     .done(function(data) {
         if (data.success) {
-            alert(`Template ${templateName} deleted successfully`);
             editorModal.hide();
             loadTemplates();
         } else {

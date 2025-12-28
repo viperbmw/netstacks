@@ -1,5 +1,113 @@
 services:
-  # NetStacks Web UI (Frontend + API)
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v2.11
+    container_name: netstacks-traefik
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - netstacks-network
+    restart: unless-stopped
+
+  # Auth Service (Microservice)
+  auth:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    container_name: netstacks-auth
+    environment:
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - TZ=${TZ:-America/New_York}
+    networks:
+      - netstacks-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8011/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+      # Disabled - Flask handles UI for now
+      # - "traefik.http.routers.auth.rule=PathPrefix(`/api/auth`) || PathPrefix(`/api/settings`)"
+      # - "traefik.http.routers.auth.entrypoints=web"
+      # - "traefik.http.services.auth.loadbalancer.server.port=8011"
+
+  # Devices Service (Microservice)
+  devices:
+    build:
+      context: .
+      dockerfile: services/devices/Dockerfile
+    container_name: netstacks-devices
+    environment:
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
+      - TZ=${TZ:-America/New_York}
+    networks:
+      - netstacks-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+      # Disabled - Flask handles UI for now
+      # - "traefik.http.routers.devices.rule=PathPrefix(`/api/devices`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`)"
+      # - "traefik.http.routers.devices.entrypoints=web"
+      # - "traefik.http.services.devices.loadbalancer.server.port=8004"
+
+  # Config Service (Microservice)
+  config:
+    build:
+      context: .
+      dockerfile: services/config/Dockerfile
+    container_name: netstacks-config
+    environment:
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
+      - TZ=${TZ:-America/New_York}
+    networks:
+      - netstacks-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+      # Disabled - Flask handles UI for now
+      # - "traefik.http.routers.config.rule=PathPrefix(`/api/templates`) || PathPrefix(`/api/service-stacks`) || PathPrefix(`/api/mops`) || PathPrefix(`/api/step-types`) || PathPrefix(`/api/scheduled-operations`)"
+      # - "traefik.http.routers.config.entrypoints=web"
+      # - "traefik.http.services.config.loadbalancer.server.port=8002"
+
+  # NetStacks Web UI (Frontend + API) - Legacy monolith
   netstacks:
     build:
       context: .
@@ -13,6 +121,10 @@ services:
       # Celery Configuration
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # Microservice URLs (for internal proxy)
+      - AUTH_SERVICE_URL=http://auth:8011
+      - DEVICES_SERVICE_URL=http://devices:8004
+      - CONFIG_SERVICE_URL=http://config:8002
       # Timezone Configuration
       - TZ=${TZ:-America/New_York}
     ports:
@@ -26,8 +138,53 @@ services:
       - redis
       - postgres
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      # Legacy monolith catches all remaining routes (lowest priority)
+      - "traefik.http.routers.netstacks.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.netstacks.entrypoints=web"
+      - "traefik.http.routers.netstacks.priority=1"
+      - "traefik.http.services.netstacks.loadbalancer.server.port=8088"
 
-  # Celery Worker for device operations
+  # Workers Service (Microservice) - Celery Worker
+  workers:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    container_name: netstacks-workers
+    command: celery -A celery_app worker -l info -Q device_tasks,celery -c ${CELERY_WORKERS:-10}
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - TZ=${TZ:-America/New_York}
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # Workers Service (Microservice) - Celery Beat
+  workers-beat:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    container_name: netstacks-workers-beat
+    command: celery -A celery_app beat -l info --schedule=/tmp/celerybeat-schedule
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - TZ=${TZ:-America/New_York}
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # Legacy Celery Worker (for monolith compatibility - to be deprecated)
   celery-worker:
     build:
       context: .
@@ -48,8 +205,10 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    profiles:
+      - legacy
 
-  # Celery Beat for scheduled tasks (Netbox sync, etc.)
+  # Legacy Celery Beat (for monolith compatibility - to be deprecated)
   celery-beat:
     build:
       context: .
@@ -68,6 +227,8 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    profiles:
+      - legacy
 
   # Redis (message broker for Celery)
   redis:

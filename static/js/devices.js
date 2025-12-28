@@ -648,7 +648,6 @@ function addManualDevice() {
     })
     .done(function(data) {
         if (data.success) {
-            alert('Device added successfully!');
             $('#add-device-form')[0].reset();
             $('#add-device-form-container').slideUp();
             clearCacheAndReload();
@@ -673,7 +672,6 @@ function deleteManualDevice(deviceName) {
     })
     .done(function(data) {
         if (data.success) {
-            alert('Device deleted successfully!');
             clearCacheAndReload();
         } else {
             alert('Error deleting device: ' + (data.error || 'Unknown error'));
@@ -849,7 +847,6 @@ $('#save-schedule-btn').click(function() {
     })
     .done(function(response) {
         if (response.success) {
-            alert('Schedule saved successfully');
             loadBackupSchedule();
         } else {
             alert('Error: ' + response.error);
@@ -870,7 +867,6 @@ $('#cleanup-backups-btn').click(function() {
     })
     .done(function(response) {
         if (response.success) {
-            alert(`Deleted ${response.deleted_count} old backups`);
             loadBackupSummary();
         } else {
             alert('Error: ' + response.error);
@@ -1293,8 +1289,11 @@ $('#close-tasks-card').click(function() {
 // Copy and download handlers
 $('#copy-config-btn').click(function() {
     const content = $('#view-config-content').val();
+    const btn = $(this);
+    const originalText = btn.html();
     navigator.clipboard.writeText(content).then(function() {
-        alert('Copied to clipboard!');
+        btn.html('<i class="fas fa-check"></i> Copied');
+        setTimeout(() => btn.html(originalText), 1500);
     });
 });
 

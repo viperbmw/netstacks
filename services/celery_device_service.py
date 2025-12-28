@@ -6,7 +6,12 @@ import logging
 from typing import Dict, List, Any, Optional
 from celery.result import AsyncResult
 
-from tasks import celery_app, get_config, set_config, run_commands, validate_config, backup_device_config, validate_config_from_backup
+from workers.celery_app import celery_app
+from workers.tasks import get_config, set_config, run_commands, validate_config, backup_device_config, test_connectivity
+
+# For backwards compatibility - validate_config_from_backup is not in workers yet
+# If needed, it can be added to workers/tasks/backup_tasks.py
+validate_config_from_backup = None  # Placeholder until migrated
 
 log = logging.getLogger(__name__)
 

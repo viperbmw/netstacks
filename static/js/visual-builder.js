@@ -430,8 +430,6 @@ $('#generate-yaml-btn').click(function() {
 
     // Switch to YAML tab
     $('#yaml-tab').tab('show');
-
-    alert('YAML generated! Review and edit if needed, then save.');
 });
 
 // Helper function
@@ -518,7 +516,6 @@ $('#load-from-yaml-btn').click(function() {
 
     if (loadYAMLIntoVisualBuilder(yamlText)) {
         $('#visual-tab').tab('show');
-        alert(`Loaded ${visualSteps.length} step(s) from YAML!`);
     } else {
         alert('Failed to parse YAML. Check console for details.');
     }

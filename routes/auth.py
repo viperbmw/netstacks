@@ -12,6 +12,7 @@ from datetime import datetime
 import logging
 
 from services.auth_service import AuthService, OIDCService, AuthConfigService
+from services.microservice_client import microservice_client
 from utils.responses import success_response, error_response
 from utils.decorators import handle_exceptions, require_json
 from utils.exceptions import ValidationError, AuthenticationError, NotFoundError
@@ -50,7 +51,7 @@ def login():
     if request.method == 'GET':
         # If already logged in, redirect to dashboard
         if 'username' in session:
-            return redirect(url_for('index'))
+            return redirect(url_for('pages.index'))
 
         # Check if OIDC is enabled for SSO button
         auth_configs = auth_config_service.get_enabled_configs()
@@ -89,16 +90,24 @@ def login():
     if user_info:
         session['user_info'] = user_info
 
+    # Get JWT token from auth microservice for API calls
+    jwt_success, jwt_user = microservice_client.login(username, password)
+    if jwt_success:
+        log.info(f"JWT token obtained for user {username}")
+    else:
+        log.warning(f"Failed to get JWT token for user {username}, API proxy may not work")
+
     log.info(f"User {username} logged in successfully via {auth_method}")
 
     # Redirect to dashboard
-    return redirect(url_for('index'))
+    return redirect(url_for('pages.index'))
 
 
 @auth_bp.route('/logout')
 def logout():
     """Logout and clear session."""
     username = session.get('username', 'unknown')
+    microservice_client.clear_tokens()
     session.clear()
     log.info(f"User {username} logged out")
     return redirect(url_for('auth.login'))
@@ -127,7 +136,7 @@ def login_oidc():
 
         # Store state in session for verification
         session['oidc_state'] = state
-        session['oidc_redirect'] = request.args.get('next', url_for('index'))
+        session['oidc_redirect'] = request.args.get('next', url_for('pages.index'))
 
         # Redirect to OIDC provider
         return redirect(auth_url)
@@ -202,7 +211,7 @@ def login_oidc_callback():
         log.info(f"User {username} logged in successfully via OIDC")
 
         # Redirect to original destination or dashboard
-        redirect_url = session.pop('oidc_redirect', url_for('index'))
+        redirect_url = session.pop('oidc_redirect', url_for('pages.index'))
         session.pop('oidc_state', None)
 
         return redirect(redirect_url)

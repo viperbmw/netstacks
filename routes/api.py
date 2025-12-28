@@ -8,6 +8,7 @@ import uuid
 
 from routes.auth import login_required
 import database as db
+from services.microservice_client import microservice_client
 from utils.responses import success_response, error_response
 from utils.decorators import handle_exceptions, require_json
 from utils.exceptions import ValidationError, NotFoundError
@@ -38,46 +39,6 @@ def api_docs():
 
 
 # ============================================================================
-# Menu Items API
-# ============================================================================
-
-@api_bp.route('/api/menu-items', methods=['GET'])
-@login_required
-@handle_exceptions
-def get_menu_items():
-    """Get all menu items."""
-    menu_items = db.get_menu_items()
-    return success_response(data={'menu_items': menu_items})
-
-
-@api_bp.route('/api/menu-items', methods=['POST'])
-@login_required
-@handle_exceptions
-@require_json
-def update_menu_items():
-    """
-    Update menu items order and visibility.
-
-    Expected JSON body:
-    {
-        "menu_items": [
-            {"id": "dashboard", "order": 1, "visible": true},
-            ...
-        ]
-    }
-    """
-    data = request.get_json()
-    menu_items = data.get('menu_items', [])
-
-    if not menu_items:
-        raise ValidationError('No menu items provided')
-
-    db.update_menu_order(menu_items)
-    log.info("Menu items updated successfully")
-    return success_response(message='Menu items updated successfully')
-
-
-# ============================================================================
 # API Resources CRUD
 # ============================================================================
 
@@ -87,7 +48,8 @@ def update_menu_items():
 def get_api_resources():
     """Get all API resources."""
     resources = db.get_all_api_resources()
-    return success_response(data={'resources': resources})
+    # Return resources at top level for frontend compatibility
+    return jsonify({'success': True, 'resources': resources})
 
 
 @api_bp.route('/api/api-resources', methods=['POST'])
@@ -352,6 +314,39 @@ def cleanup_old_backups():
     return success_response(data={
         'deleted_count': deleted_count,
         'retention_days': retention_days
+    })
+
+
+# ============================================================================
+# Platform Health API
+# ============================================================================
+
+@api_bp.route('/api/platform/health', methods=['GET'])
+@login_required
+@handle_exceptions
+def get_platform_health():
+    """
+    Get health status of all platform services.
+
+    Returns status of:
+    - Auth microservice
+    - Devices microservice
+    - Config microservice
+    - Redis
+    - PostgreSQL
+    - Celery workers
+    """
+    health = microservice_client.check_all_services_health()
+
+    # Determine overall status
+    all_healthy = all(
+        s.get('status') == 'healthy'
+        for s in health.values()
+    )
+
+    return success_response(data={
+        'overall_status': 'healthy' if all_healthy else 'degraded',
+        'services': health
     })
 
 

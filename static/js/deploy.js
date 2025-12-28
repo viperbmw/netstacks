@@ -865,7 +865,6 @@ $(document).on('click', '#confirm-schedule-deploy-btn', function() {
     .done(function(data) {
         if (data.success) {
             bootstrap.Modal.getInstance(document.getElementById('scheduleDeployModal')).hide();
-            alert('Deployment scheduled successfully!');
         } else {
             alert('Error: ' + (data.error || 'Failed to schedule deployment'));
         }

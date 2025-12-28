@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+
+{% block title %}Platform Health - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h3><i class="fas fa-heartbeat text-primary"></i> Platform Health</h3>
+            <div>
+                <span class="badge bg-secondary me-2" id="last-refresh">Never</span>
+                <button class="btn btn-outline-primary btn-sm" onclick="refreshHealth()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overall Status -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card" id="overall-status-card">
+            <div class="card-body text-center py-4">
+                <h4 id="overall-status-icon"><i class="fas fa-spinner fa-spin"></i></h4>
+                <h5 id="overall-status-text">Checking...</h5>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Microservices -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h5 class="text-muted mb-3"><i class="fas fa-cubes"></i> Microservices</h5>
+    </div>
+    <div class="col-md-4">
+        <div class="card service-card" id="auth-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-1"><i class="fas fa-key"></i> Auth Service</h6>
+                        <small class="text-muted">Port 8011 - Authentication & Users</small>
+                    </div>
+                    <span class="badge bg-secondary" id="auth-status">...</span>
+                </div>
+                <div class="mt-2 small text-muted" id="auth-details"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card service-card" id="devices-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-1"><i class="fas fa-server"></i> Devices Service</h6>
+                        <small class="text-muted">Port 8004 - Device Management</small>
+                    </div>
+                    <span class="badge bg-secondary" id="devices-status">...</span>
+                </div>
+                <div class="mt-2 small text-muted" id="devices-details"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card service-card" id="config-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-1"><i class="fas fa-file-code"></i> Config Service</h6>
+                        <small class="text-muted">Port 8002 - Templates & MOPs</small>
+                    </div>
+                    <span class="badge bg-secondary" id="config-status">...</span>
+                </div>
+                <div class="mt-2 small text-muted" id="config-details"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Infrastructure -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h5 class="text-muted mb-3"><i class="fas fa-database"></i> Infrastructure</h5>
+    </div>
+    <div class="col-md-4">
+        <div class="card service-card" id="postgres-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-1"><i class="fas fa-database"></i> PostgreSQL</h6>
+                        <small class="text-muted">Database</small>
+                    </div>
+                    <span class="badge bg-secondary" id="postgres-status">...</span>
+                </div>
+                <div class="mt-2 small text-muted" id="postgres-details"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card service-card" id="redis-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-1"><i class="fas fa-memory"></i> Redis</h6>
+                        <small class="text-muted">Message Broker</small>
+                    </div>
+                    <span class="badge bg-secondary" id="redis-status">...</span>
+                </div>
+                <div class="mt-2 small text-muted" id="redis-details"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card service-card" id="workers-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-1"><i class="fas fa-tasks"></i> Celery Workers</h6>
+                        <small class="text-muted">Background Tasks</small>
+                    </div>
+                    <span class="badge bg-secondary" id="workers-status">...</span>
+                </div>
+                <div class="mt-2 small text-muted" id="workers-details"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Architecture Diagram -->
+<div class="row">
+    <div class="col-12">
+        <h5 class="text-muted mb-3"><i class="fas fa-project-diagram"></i> Architecture</h5>
+        <div class="card">
+            <div class="card-body">
+                <pre class="mb-0 text-light" style="font-family: monospace; font-size: 0.85rem;">
+                         ┌──────────────────────────────────────────────────────┐
+                         │                    Traefik                           │
+                         │            (Reverse Proxy - Port 80)                 │
+                         └─────────────────────┬────────────────────────────────┘
+                                               │
+               ┌───────────────────────────────┼───────────────────────────────┐
+               │                               │                               │
+               ▼                               ▼                               ▼
+    ┌──────────────────┐          ┌──────────────────┐          ┌──────────────────┐
+    │   Auth Service   │          │ Devices Service  │          │  Config Service  │
+    │    (Port 8011)   │          │   (Port 8004)    │          │   (Port 8002)    │
+    │                  │          │                  │          │                  │
+    │  - Login/JWT     │          │  - Device CRUD   │          │  - Templates     │
+    │  - Users         │          │  - Credentials   │          │  - Stacks        │
+    │  - Settings      │          │  - NetBox Sync   │          │  - MOPs          │
+    └────────┬─────────┘          └────────┬─────────┘          └────────┬─────────┘
+             │                             │                             │
+             └─────────────────────────────┼─────────────────────────────┘
+                                           │
+                                           ▼
+                           ┌───────────────────────────────┐
+                           │       Shared Database         │
+                           │      PostgreSQL:5432          │
+                           └───────────────────────────────┘
+
+    ┌──────────────────┐          ┌──────────────────┐
+    │  Celery Workers  │◄────────►│       Redis      │
+    │   (Background)   │          │   (Port 6379)    │
+    └──────────────────┘          └──────────────────┘
+                </pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.service-card {
+    transition: border-color 0.3s ease;
+}
+.service-card.healthy {
+    border-color: #28a745;
+}
+.service-card.unhealthy {
+    border-color: #dc3545;
+}
+.service-card.unknown {
+    border-color: #6c757d;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateServiceCard(serviceName, data) {
+    const card = document.getElementById(`${serviceName}-card`);
+    const statusBadge = document.getElementById(`${serviceName}-status`);
+    const detailsDiv = document.getElementById(`${serviceName}-details`);
+
+    // Remove old classes
+    card.classList.remove('healthy', 'unhealthy', 'unknown');
+
+    if (data.status === 'healthy') {
+        card.classList.add('healthy');
+        statusBadge.className = 'badge bg-success';
+        statusBadge.textContent = 'Healthy';
+
+        let details = [];
+        if (data.response_ms !== undefined) {
+            details.push(`Response: ${data.response_ms}ms`);
+        }
+        if (data.workers !== undefined) {
+            details.push(`Workers: ${data.workers}`);
+        }
+        if (data.active_tasks !== undefined) {
+            details.push(`Active tasks: ${data.active_tasks}`);
+        }
+        detailsDiv.textContent = details.join(' | ') || '';
+    } else if (data.status === 'unhealthy') {
+        card.classList.add('unhealthy');
+        statusBadge.className = 'badge bg-danger';
+        statusBadge.textContent = 'Unhealthy';
+        detailsDiv.textContent = data.error || 'Connection failed';
+    } else {
+        card.classList.add('unknown');
+        statusBadge.className = 'badge bg-secondary';
+        statusBadge.textContent = 'Unknown';
+        detailsDiv.textContent = data.error || '';
+    }
+}
+
+function updateOverallStatus(status) {
+    const card = document.getElementById('overall-status-card');
+    const icon = document.getElementById('overall-status-icon');
+    const text = document.getElementById('overall-status-text');
+
+    if (status === 'healthy') {
+        card.className = 'card bg-success bg-opacity-25';
+        icon.innerHTML = '<i class="fas fa-check-circle fa-3x text-success"></i>';
+        text.textContent = 'All Systems Operational';
+        text.className = 'mb-0 text-success';
+    } else {
+        card.className = 'card bg-warning bg-opacity-25';
+        icon.innerHTML = '<i class="fas fa-exclamation-triangle fa-3x text-warning"></i>';
+        text.textContent = 'Some Services Degraded';
+        text.className = 'mb-0 text-warning';
+    }
+}
+
+function refreshHealth() {
+    // Reset all to loading state
+    ['auth', 'devices', 'config', 'postgres', 'redis', 'workers'].forEach(service => {
+        const statusBadge = document.getElementById(`${service}-status`);
+        statusBadge.className = 'badge bg-secondary';
+        statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    });
+
+    document.getElementById('overall-status-icon').innerHTML = '<i class="fas fa-spinner fa-spin fa-3x"></i>';
+    document.getElementById('overall-status-text').textContent = 'Checking...';
+
+    $.ajax({
+        url: '/api/platform/health',
+        method: 'GET',
+        success: function(response) {
+            if (response.success && response.data) {
+                const services = response.data.services;
+
+                // Update each service
+                Object.keys(services).forEach(service => {
+                    updateServiceCard(service, services[service]);
+                });
+
+                // Update overall status
+                updateOverallStatus(response.data.overall_status);
+
+                // Update last refresh time
+                const now = new Date();
+                document.getElementById('last-refresh').textContent =
+                    'Last refresh: ' + now.toLocaleTimeString();
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error fetching health:', error);
+            ['auth', 'devices', 'config', 'postgres', 'redis', 'workers'].forEach(service => {
+                updateServiceCard(service, { status: 'unknown', error: 'API Error' });
+            });
+            updateOverallStatus('degraded');
+        }
+    });
+}
+
+// Initial load
+$(document).ready(function() {
+    refreshHealth();
+
+    // Auto-refresh every 30 seconds
+    setInterval(refreshHealth, 30000);
+});
+</script>
+{% endblock %}

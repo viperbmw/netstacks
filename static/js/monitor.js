@@ -395,8 +395,6 @@ function cancelMopExecution(executionId) {
     $.post('/api/mop-executions/' + executionId + '/cancel')
         .done(function(data) {
             if (data.success) {
-                // Show success message
-                alert('MOP execution cancelled successfully');
                 // Reload MOP executions to reflect the change
                 loadMopExecutions();
             } else {
@@ -509,8 +507,11 @@ function showMopExecutionDetails(executionId) {
 // Copy MOP execution log to clipboard
 $('#copy-mop-details').on('click', function() {
     const log = $('#mop-detail-log').text();
+    const btn = $(this);
+    const originalText = btn.html();
     navigator.clipboard.writeText(log).then(function() {
-        alert('Log copied to clipboard!');
+        btn.html('<i class="fas fa-check"></i> Copied');
+        setTimeout(() => btn.html(originalText), 1500);
     }, function(err) {
         alert('Failed to copy log: ' + err);
     });

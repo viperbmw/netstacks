@@ -1,18 +1,15 @@
 """
 Device Routes
 Device management, Netbox sync, manual devices, device overrides
+
+Device routes proxy to devices microservice (devices:8004)
 """
 
 from flask import Blueprint, jsonify, request, render_template
 import logging
 
 from routes.auth import login_required
-import database as db
-from services.device_service import (
-    get_devices as device_service_get_devices,
-    get_cached_devices as device_service_get_cached,
-    clear_device_cache as device_service_clear_cache
-)
+from services.proxy import proxy_devices_request
 from utils.responses import success_response, error_response
 from utils.decorators import handle_exceptions, require_json
 from utils.exceptions import ValidationError, NotFoundError, ConflictError
@@ -34,276 +31,256 @@ def devices_page():
 
 
 # ============================================================================
-# Device List API
+# Device List API - Proxied to Devices Microservice
 # ============================================================================
 
-@devices_bp.route('/api/devices', methods=['GET', 'POST'])
+@devices_bp.route('/api/devices', methods=['GET'])
 @login_required
-@handle_exceptions
 def get_devices():
     """
-    Get device list from manual devices and Netbox (if configured).
-    Uses centralized device cache from device_service.
-
-    GET: Returns all devices
-    POST: Accepts filters in request body
+    Get device list from devices microservice.
+    Proxied to devices:8004/api/devices
     """
-    # Get filters from request if provided (POST body)
-    filters = []
-    if request.method == 'POST' and request.json:
-        filter_list = request.json.get('filters', [])
-        for f in filter_list:
-            if 'key' in f and 'value' in f:
-                filters.append({'key': f['key'], 'value': f['value']})
+    return proxy_devices_request('/api/devices')
 
-    # Use device service to get devices (handles caching internally)
-    result = device_service_get_devices(filters=filters)
-    return jsonify(result)
+
+@devices_bp.route('/api/devices', methods=['POST'])
+@login_required
+def create_or_filter_devices():
+    """
+    Handle POST to /api/devices.
+
+    If request body contains 'filters', this is a device list request (legacy dashboard).
+    Otherwise, it's a device creation request which gets proxied.
+    """
+    data = request.get_json() or {}
+
+    # Check if this is a filter request (from dashboard)
+    if 'filters' in data:
+        # Use local device service to get devices with filters
+        from services.device_service import get_devices as device_service_get_devices
+        filters = data.get('filters', [])
+        result = device_service_get_devices(filters=filters)
+        return jsonify({
+            'success': result.get('success', True),
+            'devices': result.get('devices', []),
+            'cached': result.get('cached', False),
+            'sources': result.get('sources', [])
+        })
+
+    # Otherwise, proxy to devices microservice for device creation
+    return proxy_devices_request('/api/devices')
 
 
 @devices_bp.route('/api/devices/clear-cache', methods=['POST'])
 @login_required
-@handle_exceptions
 def clear_device_cache():
-    """Clear the device cache."""
-    device_service_clear_cache()
-    return success_response(message='Cache cleared successfully')
+    """
+    Clear the device cache.
+    Proxied to devices:8004/api/devices/clear-cache
+    """
+    return proxy_devices_request('/api/devices/clear-cache')
 
 
 @devices_bp.route('/api/devices/cached', methods=['GET'])
 @login_required
-@handle_exceptions
 def get_cached_devices():
     """
     Get devices from cache only - does NOT call NetBox.
-    Uses centralized device cache from device_service.
+    Proxied to devices:8004/api/devices/cached
     """
-    devices = device_service_get_cached()
-    return success_response(data={
-        'devices': devices,
-        'from_cache': True,
-        'count': len(devices)
-    })
+    return proxy_devices_request('/api/devices/cached')
+
+
+@devices_bp.route('/api/devices/<device_name>', methods=['GET'])
+@login_required
+def get_device(device_name):
+    """
+    Get a single device by name.
+    Proxied to devices:8004/api/devices/{device_name}
+    """
+    return proxy_devices_request('/api/devices/{device_name}', device_name=device_name)
+
+
+@devices_bp.route('/api/devices/<device_name>', methods=['PUT'])
+@login_required
+def update_device(device_name):
+    """
+    Update a device.
+    Proxied to devices:8004/api/devices/{device_name}
+    """
+    return proxy_devices_request('/api/devices/{device_name}', device_name=device_name)
+
+
+@devices_bp.route('/api/devices/<device_name>', methods=['DELETE'])
+@login_required
+def delete_device(device_name):
+    """
+    Delete a device.
+    Proxied to devices:8004/api/devices/{device_name}
+    """
+    return proxy_devices_request('/api/devices/{device_name}', device_name=device_name)
+
+
+@devices_bp.route('/api/devices/<device_name>/test', methods=['POST'])
+@login_required
+def test_device(device_name):
+    """
+    Test device connectivity.
+    Proxied to devices:8004/api/devices/{device_name}/test
+    """
+    return proxy_devices_request('/api/devices/{device_name}/test', device_name=device_name)
 
 
 # ============================================================================
-# Manual Device Management API
+# Manual Device Management API - Aliases for backward compatibility
+# These routes map to the same devices microservice endpoints
 # ============================================================================
 
 @devices_bp.route('/api/manual-devices', methods=['GET'])
 @login_required
-@handle_exceptions
 def get_manual_devices():
-    """Get all manual devices."""
-    devices = db.get_all_manual_devices()
-    return success_response(data={'devices': devices})
+    """
+    Get all manual devices.
+    Proxied to devices:8004/api/devices?source=manual
+    """
+    return proxy_devices_request('/api/devices?source=manual')
 
 
 @devices_bp.route('/api/manual-devices', methods=['POST'])
 @login_required
-@handle_exceptions
-@require_json
 def add_manual_device():
     """
     Add a new manual device.
-
-    Expected JSON body:
-    {
-        "device_name": "router1",
-        "device_type": "cisco_ios",
-        "host": "192.168.1.1",
-        "port": 22,
-        "username": "admin",
-        "password": "secret"
-    }
+    Proxied to devices:8004/api/devices
     """
-    data = request.get_json()
-    device_name = data.get('device_name', '').strip()
-    device_type = data.get('device_type', '').strip()
-    host = data.get('host', '').strip()
-    port = data.get('port', 22)
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-
-    # Validation
-    errors = {}
-    if not device_name:
-        errors['device_name'] = ['Device name is required']
-    if not device_type:
-        errors['device_type'] = ['Device type is required']
-    if not host:
-        errors['host'] = ['Host/IP is required']
-
-    if errors:
-        raise ValidationError('Validation failed', field_errors=errors)
-
-    # Check if device already exists
-    existing = db.get_manual_device(device_name)
-    if existing:
-        raise ConflictError(
-            f'Device {device_name} already exists',
-            conflicting_field='device_name'
-        )
-
-    # Add device
-    device_data = {
-        'device_name': device_name,
-        'device_type': device_type,
-        'host': host,
-        'port': port,
-        'username': username,
-        'password': password
-    }
-    db.save_manual_device(device_data)
-
-    log.info(f"Manual device added: {device_name}")
-    return success_response(message=f'Device {device_name} added successfully')
+    return proxy_devices_request('/api/devices')
 
 
 @devices_bp.route('/api/manual-devices/<device_name>', methods=['GET'])
 @login_required
-@handle_exceptions
 def get_manual_device(device_name):
     """Get a single manual device by name."""
-    device = db.get_manual_device(device_name)
-    if not device:
-        raise NotFoundError(
-            f'Device not found: {device_name}',
-            resource_type='ManualDevice',
-            resource_id=device_name
-        )
-    return success_response(data={'device': device})
+    return proxy_devices_request('/api/devices/{device_name}', device_name=device_name)
 
 
 @devices_bp.route('/api/manual-devices/<device_name>', methods=['PUT'])
 @login_required
-@handle_exceptions
-@require_json
 def update_manual_device(device_name):
     """Update a manual device."""
-    data = request.get_json()
-
-    # Get existing device
-    existing = db.get_manual_device(device_name)
-    if not existing:
-        raise NotFoundError(
-            f'Device not found: {device_name}',
-            resource_type='ManualDevice',
-            resource_id=device_name
-        )
-
-    # Update fields
-    device_data = {
-        'device_name': device_name,
-        'device_type': data.get('device_type', existing['device_type']).strip(),
-        'host': data.get('host', existing['host']).strip(),
-        'port': data.get('port', existing['port']),
-        'username': data.get('username', existing.get('username', '')).strip(),
-        'password': data.get('password', existing.get('password', ''))
-    }
-
-    # Validation
-    errors = {}
-    if not device_data['device_type']:
-        errors['device_type'] = ['Device type is required']
-    if not device_data['host']:
-        errors['host'] = ['Host/IP is required']
-
-    if errors:
-        raise ValidationError('Validation failed', field_errors=errors)
-
-    db.save_manual_device(device_data)
-
-    log.info(f"Manual device updated: {device_name}")
-    return success_response(message=f'Device {device_name} updated successfully')
+    return proxy_devices_request('/api/devices/{device_name}', device_name=device_name)
 
 
 @devices_bp.route('/api/manual-devices/<device_name>', methods=['DELETE'])
 @login_required
-@handle_exceptions
 def delete_manual_device(device_name):
     """Delete a manual device."""
-    if db.delete_manual_device(device_name):
-        log.info(f"Manual device deleted: {device_name}")
-        return success_response(message=f'Device {device_name} deleted successfully')
-    else:
-        raise NotFoundError(
-            f'Device not found: {device_name}',
-            resource_type='ManualDevice',
-            resource_id=device_name
-        )
+    return proxy_devices_request('/api/devices/{device_name}', device_name=device_name)
 
 
 # ============================================================================
-# Device Override API
+# Device Override API - Proxied to Devices Microservice
 # ============================================================================
 
 @devices_bp.route('/api/device-overrides', methods=['GET'])
 @login_required
-@handle_exceptions
 def get_all_device_overrides():
-    """Get all device overrides."""
-    overrides = db.get_all_device_overrides()
-    return success_response(data={'overrides': overrides})
+    """
+    Get all device overrides.
+    Proxied to devices:8004/api/device-overrides
+    """
+    return proxy_devices_request('/api/device-overrides')
 
 
 @devices_bp.route('/api/device-overrides/<device_name>', methods=['GET'])
 @login_required
-@handle_exceptions
 def get_device_override(device_name):
-    """Get device-specific overrides for a device."""
-    override = db.get_device_override(device_name)
-    if not override:
-        return success_response(
-            data={'override': None},
-            message='No override found for this device'
-        )
-    return success_response(data={'override': override})
+    """
+    Get device-specific overrides for a device.
+    Proxied to devices:8004/api/device-overrides/{device_name}
+    """
+    return proxy_devices_request('/api/device-overrides/{device_name}', device_name=device_name)
 
 
 @devices_bp.route('/api/device-overrides/<device_name>', methods=['PUT'])
 @login_required
-@handle_exceptions
-@require_json
 def save_device_override(device_name):
-    """Save or update device-specific overrides."""
-    data = request.get_json()
-    data['device_name'] = device_name
-
-    # Don't store empty strings - convert to None
-    for key in ['device_type', 'host', 'username', 'password', 'secret', 'notes']:
-        if key in data and data[key] == '':
-            data[key] = None
-
-    # Convert numeric fields
-    for key in ['port', 'timeout', 'conn_timeout', 'auth_timeout', 'banner_timeout']:
-        if key in data and data[key] is not None:
-            if data[key] == '' or data[key] == 0:
-                data[key] = None
-            else:
-                try:
-                    data[key] = int(data[key])
-                except (ValueError, TypeError):
-                    data[key] = None
-
-    if db.save_device_override(data):
-        log.info(f"Device override saved for: {device_name}")
-        return success_response(message=f'Override saved for {device_name}')
-    else:
-        raise ValidationError('Failed to save override')
+    """
+    Save or update device-specific overrides.
+    Proxied to devices:8004/api/device-overrides/{device_name}
+    """
+    return proxy_devices_request('/api/device-overrides/{device_name}', device_name=device_name)
 
 
 @devices_bp.route('/api/device-overrides/<device_name>', methods=['DELETE'])
 @login_required
-@handle_exceptions
 def delete_device_override(device_name):
-    """Delete device-specific overrides."""
-    if db.delete_device_override(device_name):
-        log.info(f"Device override deleted: {device_name}")
-        return success_response(message=f'Override deleted for {device_name}')
-    else:
-        raise NotFoundError(
-            f'Override not found for: {device_name}',
-            resource_type='DeviceOverride',
-            resource_id=device_name
-        )
+    """
+    Delete device-specific overrides.
+    Proxied to devices:8004/api/device-overrides/{device_name}
+    """
+    return proxy_devices_request('/api/device-overrides/{device_name}', device_name=device_name)
+
+
+# ============================================================================
+# Credentials API - Proxied to Devices Microservice
+# ============================================================================
+
+@devices_bp.route('/api/credentials', methods=['GET'])
+@login_required
+def get_credentials():
+    """
+    Get all credentials (masked).
+    Proxied to devices:8004/api/credentials
+    """
+    return proxy_devices_request('/api/credentials')
+
+
+@devices_bp.route('/api/credentials', methods=['POST'])
+@login_required
+def create_credential():
+    """
+    Create a new credential.
+    Proxied to devices:8004/api/credentials
+    """
+    return proxy_devices_request('/api/credentials')
+
+
+@devices_bp.route('/api/credentials/<credential_id>', methods=['GET'])
+@login_required
+def get_credential(credential_id):
+    """
+    Get a single credential.
+    Proxied to devices:8004/api/credentials/{credential_id}
+    """
+    return proxy_devices_request('/api/credentials/{credential_id}', credential_id=credential_id)
+
+
+@devices_bp.route('/api/credentials/<credential_id>', methods=['PUT'])
+@login_required
+def update_credential(credential_id):
+    """
+    Update a credential.
+    Proxied to devices:8004/api/credentials/{credential_id}
+    """
+    return proxy_devices_request('/api/credentials/{credential_id}', credential_id=credential_id)
+
+
+@devices_bp.route('/api/credentials/<credential_id>', methods=['DELETE'])
+@login_required
+def delete_credential(credential_id):
+    """
+    Delete a credential.
+    Proxied to devices:8004/api/credentials/{credential_id}
+    """
+    return proxy_devices_request('/api/credentials/{credential_id}', credential_id=credential_id)
+
+
+@devices_bp.route('/api/credentials/<credential_id>/default', methods=['POST'])
+@login_required
+def set_default_credential(credential_id):
+    """
+    Set a credential as default.
+    Proxied to devices:8004/api/credentials/{credential_id}/default
+    """
+    return proxy_devices_request('/api/credentials/{credential_id}/default', credential_id=credential_id)

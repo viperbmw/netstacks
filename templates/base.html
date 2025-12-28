@@ -22,20 +22,51 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
-                    {% for item in menu_items %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ item.url }}">
-                            <i class="fas fa-{{ item.icon }}"></i> {{ item.label }}
+                    <!-- Operations Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-play-circle"></i> Operations
                         </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/deploy"><i class="fas fa-rocket"></i> Deploy Config</a></li>
+                            <li><a class="dropdown-item" href="/monitor"><i class="fas fa-chart-line"></i> Monitor Jobs</a></li>
+                            <li><a class="dropdown-item" href="/mop"><i class="fas fa-list-check"></i> Procedures (MOP)</a></li>
+                        </ul>
                     </li>
-                    {% endfor %}
+                    <!-- Configuration Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cogs"></i> Configuration
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/devices"><i class="fas fa-server"></i> Devices</a></li>
+                            <li><a class="dropdown-item" href="/templates"><i class="fas fa-file-code"></i> Templates</a></li>
+                            <li><a class="dropdown-item" href="/service-stacks"><i class="fas fa-layer-group"></i> Service Stacks</a></li>
+                            <li><a class="dropdown-item" href="/snapshots"><i class="fas fa-camera"></i> Snapshots</a></li>
+                        </ul>
+                    </li>
+                    <!-- AI Menu (Future) -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-brain"></i> AI
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/agents"><i class="fas fa-robot"></i> Agents</a></li>
+                            <li><a class="dropdown-item" href="/incidents"><i class="fas fa-exclamation-triangle"></i> Incidents</a></li>
+                            <li><a class="dropdown-item" href="/knowledge"><i class="fas fa-book-open"></i> Knowledge</a></li>
+                            <li><a class="dropdown-item" href="/tools"><i class="fas fa-wrench"></i> Tools</a></li>
+                        </ul>
+                    </li>
+                    <!-- Settings Menu -->
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-cog"></i> Settings
                         </a>
                         <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="/admin"><i class="fas fa-users-cog"></i> Users & Auth</a></li>
+                            <li><a class="dropdown-item" href="/credentials"><i class="fas fa-key"></i> Credentials</a></li>
                             <li><a class="dropdown-item" href="/settings"><i class="fas fa-sliders-h"></i> System Settings</a></li>
+                            <li><a class="dropdown-item" href="/platform"><i class="fas fa-heartbeat"></i> Platform Health</a></li>
                             <li><a class="dropdown-item" href="/step-types"><i class="fas fa-puzzle-piece"></i> MOP Step Types</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="/docs" target="_blank"><i class="fas fa-book"></i> NetStacks API</a></li>

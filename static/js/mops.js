@@ -582,8 +582,11 @@ $('#copy-execution-log').on('click', function() {
     const logElement = $('#execution-details-content pre');
     if (logElement.length > 0) {
         const logText = logElement.text();
+        const btn = $(this);
+        const originalText = btn.html();
         navigator.clipboard.writeText(logText).then(function() {
-            alert('Log copied to clipboard!');
+            btn.html('<i class="fas fa-check"></i> Copied');
+            setTimeout(() => btn.html(originalText), 1500);
         }, function(err) {
             alert('Failed to copy log: ' + err);
         });
@@ -600,11 +603,10 @@ function escapeHtml(text) {
 }
 
 function showSuccess(message) {
-    // TODO: Implement toast notification
-    alert(message);
+    // Silent success - no popup needed for simple saves
+    console.log('Success:', message);
 }
 
 function showError(message) {
-    // TODO: Implement toast notification
     alert(message);
 }
