@@ -65,13 +65,6 @@ def platform():
     return render_template('platform.html')
 
 
-@pages_bp.route('/credentials')
-@login_required
-def credentials():
-    """Credentials management page."""
-    return render_template('credentials.html')
-
-
 # ============================================================================
 # AI Feature Pages (Placeholders)
 # ============================================================================

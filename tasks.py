@@ -50,13 +50,18 @@ celery_app.conf.update(
 )
 
 # Per-device routing for serial execution
+# Task names must match workers/celery_app.py for proper routing
 celery_app.conf.task_routes = {
-    'tasks.get_config': {'queue': 'device_tasks'},
-    'tasks.set_config': {'queue': 'device_tasks'},
-    'tasks.run_commands': {'queue': 'device_tasks'},
-    'tasks.validate_config': {'queue': 'device_tasks'},
-    'tasks.backup_device_config': {'queue': 'device_tasks'},
-    'tasks.validate_config_from_backup': {'queue': 'default'},
+    'tasks.device_tasks.get_config': {'queue': 'device_tasks'},
+    'tasks.device_tasks.set_config': {'queue': 'device_tasks'},
+    'tasks.device_tasks.run_commands': {'queue': 'device_tasks'},
+    'tasks.device_tasks.validate_config': {'queue': 'device_tasks'},
+    'tasks.device_tasks.test_connectivity': {'queue': 'device_tasks'},
+    'tasks.backup_tasks.backup_device_config': {'queue': 'device_tasks'},
+    'tasks.backup_tasks.validate_config_from_backup': {'queue': 'celery'},
+    'tasks.backup_tasks.create_snapshot': {'queue': 'celery'},
+    'tasks.backup_tasks.cleanup_old_backups': {'queue': 'celery'},
+    'tasks.scheduled_tasks.*': {'queue': 'celery'},
 }
 
 
@@ -212,7 +217,7 @@ def render_jinja2_template(template_content: str, variables: Dict) -> str:
     return template.render(**variables)
 
 
-@celery_app.task(bind=True, name='tasks.get_config')
+@celery_app.task(bind=True, name='tasks.device_tasks.get_config')
 def get_config(self, connection_args: Dict, command: str,
                use_textfsm: bool = False, use_genie: bool = False,
                use_ttp: bool = False, ttp_template: str = None) -> Dict:
@@ -290,7 +295,7 @@ def get_config(self, connection_args: Dict, command: str,
     return result
 
 
-@celery_app.task(bind=True, name='tasks.set_config')
+@celery_app.task(bind=True, name='tasks.device_tasks.set_config')
 def set_config(self, connection_args: Dict, config_lines: List[str] = None,
                template_content: str = None, variables: Dict = None,
                save_config: bool = True) -> Dict:
@@ -355,7 +360,7 @@ def set_config(self, connection_args: Dict, config_lines: List[str] = None,
     return result
 
 
-@celery_app.task(bind=True, name='tasks.run_commands')
+@celery_app.task(bind=True, name='tasks.device_tasks.run_commands')
 def run_commands(self, connection_args: Dict, commands: List[str],
                  use_textfsm: bool = False) -> Dict:
     """
@@ -409,7 +414,7 @@ def run_commands(self, connection_args: Dict, commands: List[str],
     return result
 
 
-@celery_app.task(bind=True, name='tasks.validate_config')
+@celery_app.task(bind=True, name='tasks.device_tasks.validate_config')
 def validate_config(self, connection_args: Dict, expected_patterns: List[str],
                     validation_command: str = 'show running-config') -> Dict:
     """
@@ -456,6 +461,51 @@ def validate_config(self, connection_args: Dict, expected_patterns: List[str],
         result['status'] = 'failed'
         result['error'] = str(e)
         result['all_passed'] = False
+
+    return result
+
+
+@celery_app.task(bind=True, name='tasks.device_tasks.test_connectivity')
+def test_connectivity(self, connection_args: Dict) -> Dict:
+    """
+    Test connectivity to a device.
+
+    Args:
+        connection_args: Dict with device_type, host, username, password, etc.
+
+    Returns:
+        Dict with connection test results
+    """
+    result = {
+        'status': 'started',
+        'host': connection_args.get('host'),
+        'device_type': connection_args.get('device_type'),
+    }
+
+    try:
+        log.info(f"Testing connectivity to {connection_args.get('host')}")
+
+        with ConnectHandler(**connection_args) as conn:
+            # Try to get prompt to verify connection
+            prompt = conn.find_prompt()
+            result['status'] = 'success'
+            result['prompt'] = prompt
+            result['message'] = 'Connection successful'
+
+    except NetmikoTimeoutException as e:
+        log.error(f"Timeout connecting to {connection_args.get('host')}: {e}")
+        result['status'] = 'failed'
+        result['error'] = f"Connection timeout: {str(e)}"
+
+    except NetmikoAuthenticationException as e:
+        log.error(f"Authentication failed for {connection_args.get('host')}: {e}")
+        result['status'] = 'failed'
+        result['error'] = f"Authentication failed: {str(e)}"
+
+    except Exception as e:
+        log.error(f"Error connecting to {connection_args.get('host')}: {e}", exc_info=True)
+        result['status'] = 'failed'
+        result['error'] = str(e)
 
     return result
 
@@ -527,7 +577,7 @@ def sync_netbox_devices(self, netbox_url: str, netbox_token: str,
     return result
 
 
-@celery_app.task(bind=True, name='tasks.backup_device_config')
+@celery_app.task(bind=True, name='tasks.backup_tasks.backup_device_config')
 def backup_device_config(self, connection_args: Dict, device_name: str,
                          device_platform: str = None, juniper_set_format: bool = True,
                          snapshot_id: str = None, created_by: str = None) -> Dict:
@@ -729,7 +779,7 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
                 log.error(f"CRITICAL: Retry also failed for {snapshot_id}/{device_name}: {e2}")
 
 
-@celery_app.task(bind=True, name='tasks.validate_config_from_backup')
+@celery_app.task(bind=True, name='tasks.backup_tasks.validate_config_from_backup')
 def validate_config_from_backup(self, config_content: str, expected_patterns: List[str]) -> Dict:
     """
     Validate configuration patterns against a backed-up config (no device connection)
@@ -807,7 +857,7 @@ celery_app.conf.beat_schedule = {
 }
 
 
-@celery_app.task(bind=True, name='tasks.check_scheduled_operations')
+@celery_app.task(bind=True, name='tasks.scheduled_tasks.check_scheduled_operations')
 def check_scheduled_operations(self):
     """
     Celery Beat periodic task to check and execute scheduled operations.
@@ -865,7 +915,7 @@ def check_scheduled_operations(self):
     return {'checked': True}
 
 
-@celery_app.task(bind=True, name='tasks.execute_scheduled_deploy')
+@celery_app.task(bind=True, name='tasks.scheduled_tasks.execute_scheduled_deploy')
 def execute_scheduled_deploy(self, schedule_id: str, stack_id: str):
     """Execute a scheduled stack deployment"""
     from datetime import datetime as dt, timedelta
@@ -971,7 +1021,7 @@ def execute_scheduled_deploy(self, schedule_id: str, stack_id: str):
         return {'status': 'failed', 'error': str(e)}
 
 
-@celery_app.task(bind=True, name='tasks.execute_scheduled_backup')
+@celery_app.task(bind=True, name='tasks.scheduled_tasks.execute_scheduled_backup')
 def execute_scheduled_backup(self, schedule_id: str, target_id: str):
     """Execute a scheduled backup operation"""
     from datetime import datetime as dt
@@ -1024,7 +1074,7 @@ def execute_scheduled_backup(self, schedule_id: str, target_id: str):
         return {'status': 'failed', 'error': str(e)}
 
 
-@celery_app.task(bind=True, name='tasks.execute_scheduled_mop')
+@celery_app.task(bind=True, name='tasks.scheduled_tasks.execute_scheduled_mop')
 def execute_scheduled_mop(self, schedule_id: str, mop_id: str):
     """Execute a scheduled MOP"""
     from datetime import datetime as dt
@@ -1076,7 +1126,7 @@ def execute_scheduled_mop(self, schedule_id: str, mop_id: str):
         return {'status': 'failed', 'error': str(e)}
 
 
-@celery_app.task(bind=True, name='tasks.cleanup_old_backups')
+@celery_app.task(bind=True, name='tasks.backup_tasks.cleanup_old_backups')
 def cleanup_old_backups(self):
     """Celery Beat task to clean up old backup files based on retention policy"""
     from datetime import datetime as dt, timedelta

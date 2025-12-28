@@ -1548,7 +1548,7 @@ def get_task(task_id):
 def get_workers():
     """Get Celery worker info"""
     try:
-        from workers.celery_app import celery_app
+        from tasks import celery_app
 
         # Get active workers from Celery
         inspect = celery_app.control.inspect()
@@ -1579,7 +1579,7 @@ def get_workers():
 def get_registered_tasks():
     """Get list of registered Celery tasks"""
     try:
-        from workers.celery_app import celery_app
+        from tasks import celery_app
 
         # Get registered tasks from Celery
         inspect = celery_app.control.inspect()

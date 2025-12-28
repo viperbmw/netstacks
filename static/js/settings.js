@@ -86,23 +86,28 @@ function loadSettings() {
         url: '/api/settings',
         method: 'GET'
     })
-    .done(function(data) {
-        if (data.success) {
+    .done(function(response) {
+        if (response.success && response.data) {
+            const backendSettings = response.data;
             // Get user preferences from localStorage
             const localSettings = getSettings();
 
             // Merge backend settings with local preferences
             const settings = {
                 ...localSettings,
-                netbox_url: data.settings.netbox_url || localSettings.netbox_url,
-                netbox_verify_ssl: data.settings.verify_ssl !== undefined ? data.settings.verify_ssl : localSettings.netbox_verify_ssl,
-                celery_workers: data.settings.celery_workers || localSettings.celery_workers || 20
+                netbox_url: backendSettings.netbox_url || localSettings.netbox_url,
+                netbox_verify_ssl: backendSettings.verify_ssl !== undefined ? backendSettings.verify_ssl : localSettings.netbox_verify_ssl,
+                celery_workers: backendSettings.celery_workers || localSettings.celery_workers || 20,
+                // Device credentials from backend (for SSH/Netmiko connections)
+                default_username: backendSettings.default_username || localSettings.default_username || '',
+                default_password: backendSettings.default_password !== '****' ? backendSettings.default_password : localSettings.default_password || '',
+                system_timezone: backendSettings.system_timezone || localSettings.system_timezone || 'UTC',
             };
 
             // Note: tokens are masked in API response, so we keep them from localStorage
             // unless localStorage is empty (first time)
-            if (!localSettings.netbox_token && data.settings.netbox_token !== '****') {
-                settings.netbox_token = data.settings.netbox_token;
+            if (!localSettings.netbox_token && backendSettings.netbox_token !== '****') {
+                settings.netbox_token = backendSettings.netbox_token;
             }
 
             populateForm(settings);

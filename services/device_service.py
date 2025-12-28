@@ -170,19 +170,24 @@ def get_device_connection_info(device_name: str, credential_override: Dict = Non
         else:
             device_type = nornir_platform
 
-    # Get IP/hostname
-    host = device.get('host')
+    # Get IP/hostname - prefer IP address from primary_ip4 over hostname
+    host = device.get('host')  # Already set from ip_address if available
+    host_source = 'cached host' if host else None
+
     if not host:
-        primary_ip = device.get('primary_ip') or device.get('primary_ip4')
+        primary_ip = device.get('primary_ip') or device.get('primary_ip4') or device.get('ip_address')
         if primary_ip:
             # Handle both string (manual devices) and dict (NetBox) formats
             if isinstance(primary_ip, str):
                 host = primary_ip.split('/')[0] if primary_ip else None
+                host_source = 'primary_ip (string)'
             elif isinstance(primary_ip, dict):
                 ip_addr_full = primary_ip.get('address', '')
                 host = ip_addr_full.split('/')[0] if ip_addr_full else None
+                host_source = 'primary_ip (dict)'
         if not host:
             host = device_name
+            host_source = 'hostname fallback'
 
     # Build connection args
     connection_args = {
@@ -191,7 +196,7 @@ def get_device_connection_info(device_name: str, credential_override: Dict = Non
         'timeout': 30,
         'port': device.get('port', 22),
     }
-    log.info(f"Built connection_args for {device_name}: device_type={connection_args['device_type']}, host={connection_args['host']}, port={connection_args['port']}")
+    log.info(f"Built connection_args for {device_name}: device_type={connection_args['device_type']}, host={connection_args['host']} ({host_source}), port={connection_args['port']}")
 
     # Apply device overrides from database (edited via UI)
     device_override = db.get_device_override(device_name)
@@ -302,6 +307,10 @@ def get_devices(filters: List[Dict] = None, force_refresh: bool = False) -> Dict
                 netbox_devices = netbox.get_devices_with_details(filters=filters)
                 for device in netbox_devices:
                     device['source'] = 'netbox'
+                    # Use primary_ip4 as host for connectivity (not hostname)
+                    if device.get('ip_address'):
+                        device['host'] = device['ip_address']
+                        log.debug(f"Device {device.get('name')} using IP {device['host']} for connectivity")
                 all_devices.extend(netbox_devices)
                 log.info(f"Found {len(netbox_devices)} Netbox devices")
                 if len(netbox_devices) > 0:

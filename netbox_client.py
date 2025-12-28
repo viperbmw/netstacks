@@ -221,6 +221,15 @@ class NetboxClient:
             manufacturer_name = manufacturer.get('name') if isinstance(manufacturer, dict) else None
             device_type = get_netmiko_device_type(platform_name, manufacturer_name)
 
+            # Extract primary IPv4 address for connectivity
+            primary_ip4 = device.get('primary_ip4')
+            ip_address = None
+            if primary_ip4 and isinstance(primary_ip4, dict):
+                # primary_ip4 contains address like "10.0.0.1/24"
+                address = primary_ip4.get('address', '')
+                # Strip the CIDR notation to get just the IP
+                ip_address = address.split('/')[0] if address else None
+
             device_list.append({
                 'name': device_name,
                 'id': device.get('id'),
@@ -228,7 +237,9 @@ class NetboxClient:
                 'url': device.get('url', ''),
                 'device_type': device_type,
                 'platform': platform_name,
-                'manufacturer': manufacturer_name
+                'manufacturer': manufacturer_name,
+                'ip_address': ip_address,  # Primary IPv4 for connectivity
+                'primary_ip4': ip_address,  # Alias for clarity
             })
 
         # Remove duplicates and sort by name
