@@ -2,6 +2,6 @@
 Config Service Routes
 """
 
-from . import templates, stacks, mops, schedules, step_types
+from . import templates, stacks, stack_templates, mops, schedules, step_types
 
-__all__ = ['templates', 'stacks', 'mops', 'schedules', 'step_types']
+__all__ = ['templates', 'stacks', 'stack_templates', 'mops', 'schedules', 'step_types']

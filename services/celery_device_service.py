@@ -220,6 +220,23 @@ class CeleryDeviceService:
         log.info(f"Dispatched validate_config_from_backup task {task.id}")
         return task.id
 
+    def execute_test_connectivity(self, connection_args: Dict) -> str:
+        """
+        Test connectivity to a device asynchronously.
+
+        Args:
+            connection_args: Device connection parameters (device_type, host, username, password, etc.)
+
+        Returns:
+            Task ID for polling results
+        """
+        clean_args = {k: v for k, v in connection_args.items() if v is not None}
+
+        task = test_connectivity.delay(connection_args=clean_args)
+
+        log.info(f"Dispatched test_connectivity task {task.id} to {clean_args.get('host')}")
+        return task.id
+
 
 # Global instance
 celery_device_service = CeleryDeviceService()

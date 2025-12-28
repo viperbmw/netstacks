@@ -4,19 +4,200 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col">
-        <h2><i class="fas fa-{{ page_icon }}"></i> {{ page_title }}</h2>
-        <p class="text-muted">{{ page_description }}</p>
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h3><i class="fas fa-{{ page_icon }} text-primary"></i> {{ page_title }}</h3>
+            <span class="badge bg-info fs-6"><i class="fas fa-flask"></i> AI Feature - Coming Soon</span>
+        </div>
+        <p class="text-muted mb-0">{{ page_description }}</p>
     </div>
 </div>
 
-<div class="card">
-    <div class="card-body text-center py-5">
-        <i class="fas fa-{{ page_icon }} fa-4x text-muted mb-4"></i>
-        <h4 class="text-muted">Coming Soon</h4>
-        <p class="text-muted mb-0">
-            This feature is part of the AI-powered automation module currently under development.
-        </p>
+<!-- Feature Preview Card -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-info">
+            <div class="card-header bg-info bg-opacity-10">
+                <h5 class="mb-0"><i class="fas fa-info-circle text-info"></i> Feature Preview</h5>
+            </div>
+            <div class="card-body">
+                {% if page_title == 'AI Agents' %}
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-robot fa-3x text-primary mb-3"></i>
+                            <h6>Autonomous Agents</h6>
+                            <p class="text-muted small mb-0">AI agents that monitor and respond to network events automatically</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-cogs fa-3x text-success mb-3"></i>
+                            <h6>Auto-Remediation</h6>
+                            <p class="text-muted small mb-0">Automatically fix common issues using predefined runbooks</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-brain fa-3x text-warning mb-3"></i>
+                            <h6>LLM Integration</h6>
+                            <p class="text-muted small mb-0">Connect to OpenAI, Anthropic, or local LLMs for intelligent decision making</p>
+                        </div>
+                    </div>
+                </div>
+                {% elif page_title == 'Incidents' %}
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-bell fa-3x text-danger mb-3"></i>
+                            <h6>Alert Ingestion</h6>
+                            <p class="text-muted small mb-0">Receive alerts from monitoring systems via webhooks</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-layer-group fa-3x text-info mb-3"></i>
+                            <h6>Alert Correlation</h6>
+                            <p class="text-muted small mb-0">Group related alerts into incidents automatically</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-history fa-3x text-success mb-3"></i>
+                            <h6>Incident Timeline</h6>
+                            <p class="text-muted small mb-0">Track incident lifecycle from detection to resolution</p>
+                        </div>
+                    </div>
+                </div>
+                {% elif page_title == 'Knowledge Base' %}
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-file-alt fa-3x text-primary mb-3"></i>
+                            <h6>Runbooks</h6>
+                            <p class="text-muted small mb-0">Store troubleshooting procedures and best practices</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-search fa-3x text-info mb-3"></i>
+                            <h6>Vector Search</h6>
+                            <p class="text-muted small mb-0">AI-powered semantic search across documentation</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-link fa-3x text-warning mb-3"></i>
+                            <h6>RAG Integration</h6>
+                            <p class="text-muted small mb-0">Provide context to AI agents for better decisions</p>
+                        </div>
+                    </div>
+                </div>
+                {% elif page_title == 'Tools' %}
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-terminal fa-3x text-success mb-3"></i>
+                            <h6>Built-in Tools</h6>
+                            <p class="text-muted small mb-0">SSH commands, API calls, config management</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-puzzle-piece fa-3x text-primary mb-3"></i>
+                            <h6>Custom Tools</h6>
+                            <p class="text-muted small mb-0">Define custom tools with Python or shell scripts</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3">
+                            <i class="fas fa-plug fa-3x text-info mb-3"></i>
+                            <h6>MCP Servers</h6>
+                            <p class="text-muted small mb-0">Connect external tool servers via Model Context Protocol</p>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-{{ page_icon }} fa-4x text-muted mb-3"></i>
+                    <p class="text-muted">This feature is part of the AI-powered automation module.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Backend Status -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-server"></i> Backend Status</h6>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr>
+                        <td><i class="fas fa-database text-muted"></i> Database Models</td>
+                        <td><span class="badge bg-success">Ready</span></td>
+                    </tr>
+                    <tr>
+                        <td><i class="fas fa-code text-muted"></i> API Endpoints</td>
+                        <td><span class="badge bg-warning">Stub</span></td>
+                    </tr>
+                    <tr>
+                        <td><i class="fas fa-brain text-muted"></i> LLM Integration</td>
+                        <td><span class="badge bg-secondary">Pending</span></td>
+                    </tr>
+                    <tr>
+                        <td><i class="fas fa-cogs text-muted"></i> Agent Engine</td>
+                        <td><span class="badge bg-secondary">Pending</span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-list-check"></i> Implementation Checklist</h6>
+            </div>
+            <div class="card-body">
+                {% if page_title == 'AI Agents' %}
+                <ul class="list-unstyled mb-0">
+                    <li><i class="fas fa-check text-success"></i> Agent database model</li>
+                    <li><i class="fas fa-check text-success"></i> CRUD API endpoints</li>
+                    <li><i class="fas fa-times text-danger"></i> LLM provider configuration</li>
+                    <li><i class="fas fa-times text-danger"></i> Agent execution engine</li>
+                    <li><i class="fas fa-times text-danger"></i> Tool execution framework</li>
+                </ul>
+                {% elif page_title == 'Incidents' %}
+                <ul class="list-unstyled mb-0">
+                    <li><i class="fas fa-check text-success"></i> Incident database model</li>
+                    <li><i class="fas fa-check text-success"></i> Alert database model</li>
+                    <li><i class="fas fa-times text-danger"></i> Webhook ingestion</li>
+                    <li><i class="fas fa-times text-danger"></i> Alert correlation logic</li>
+                    <li><i class="fas fa-times text-danger"></i> Notification system</li>
+                </ul>
+                {% elif page_title == 'Knowledge Base' %}
+                <ul class="list-unstyled mb-0">
+                    <li><i class="fas fa-check text-success"></i> Document database model</li>
+                    <li><i class="fas fa-times text-danger"></i> Document upload/parsing</li>
+                    <li><i class="fas fa-times text-danger"></i> Vector embeddings</li>
+                    <li><i class="fas fa-times text-danger"></i> Semantic search</li>
+                    <li><i class="fas fa-times text-danger"></i> RAG pipeline</li>
+                </ul>
+                {% elif page_title == 'Tools' %}
+                <ul class="list-unstyled mb-0">
+                    <li><i class="fas fa-check text-success"></i> Tool database models</li>
+                    <li><i class="fas fa-check text-success"></i> Built-in tool definitions</li>
+                    <li><i class="fas fa-times text-danger"></i> Custom tool execution</li>
+                    <li><i class="fas fa-times text-danger"></i> MCP server connections</li>
+                    <li><i class="fas fa-times text-danger"></i> Tool permission system</li>
+                </ul>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

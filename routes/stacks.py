@@ -169,6 +169,16 @@ def create_stack_template():
     return proxy_config_request('/api/stack-templates')
 
 
+@stacks_bp.route('/api/stack-templates/<template_id>', methods=['PUT'])
+@login_required
+def update_stack_template(template_id):
+    """
+    Update a stack template.
+    Proxied to config:8002/api/stack-templates/{template_id}
+    """
+    return proxy_config_request('/api/stack-templates/{template_id}', template_id=template_id)
+
+
 @stacks_bp.route('/api/stack-templates/<template_id>', methods=['DELETE'])
 @login_required
 def delete_stack_template(template_id):

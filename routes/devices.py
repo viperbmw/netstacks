@@ -126,10 +126,42 @@ def delete_device(device_name):
 @login_required
 def test_device(device_name):
     """
-    Test device connectivity.
-    Proxied to devices:8004/api/devices/{device_name}/test
+    Test device connectivity via Celery task.
+
+    This dispatches a real Netmiko connection test to the Celery workers.
+    Returns a task_id that can be polled for results.
     """
-    return proxy_devices_request('/api/devices/{device_name}/test', device_name=device_name)
+    from services.device_service import get_device_connection_info
+    from services.celery_device_service import celery_device_service
+
+    # Get connection info for device (includes credentials)
+    conn_info = get_device_connection_info(device_name)
+
+    if not conn_info:
+        return error_response(f"Device not found: {device_name}", status_code=404)
+
+    connection_args = conn_info['connection_args']
+
+    # Check if credentials are configured
+    if not connection_args.get('username') or not connection_args.get('password'):
+        return error_response(
+            "Device credentials not configured. Set default credentials in Settings or add device-specific credentials.",
+            status_code=400
+        )
+
+    # Dispatch connectivity test task
+    task_id = celery_device_service.execute_test_connectivity(connection_args)
+
+    return success_response(
+        data={
+            'task_id': task_id,
+            'device': device_name,
+            'host': connection_args.get('host'),
+            'device_type': connection_args.get('device_type'),
+            'status': 'pending',
+            'message': 'Connectivity test started'
+        }
+    )
 
 
 # ============================================================================

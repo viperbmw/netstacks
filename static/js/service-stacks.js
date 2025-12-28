@@ -54,10 +54,6 @@ $(document).ready(function() {
     //     addServiceToStack();
     // });
 
-    $('#add-shared-var-btn').click(function() {
-        addSharedVariable();
-    });
-
     // Search handlers
     $('#search-templates').on('input', function() {
         filterStackTemplates($(this).val());
@@ -75,7 +71,6 @@ $(document).ready(function() {
     // Use event delegation for save button to ensure it always works
     $(document).on('click', '#save-stack-template-btn', function(e) {
         e.preventDefault();
-        console.log('Save stack template button clicked');
         saveStackTemplate();
     });
 
@@ -86,6 +81,15 @@ $(document).ready(function() {
     // Sync states button handler (manual sync)
     $('#sync-states-btn').click(function() {
         syncServiceStates(true); // true = show UI feedback
+    });
+
+    // Edit Stack modal handlers
+    $('#add-edit-shared-var-btn').click(function() {
+        addEditSharedVariable('', '');
+    });
+
+    $('#save-edit-stack-btn').click(function() {
+        saveEditedStack();
     });
 });
 
@@ -197,7 +201,6 @@ function loadDevices() {
     .done(function(data) {
         if (data.success && data.devices) {
             allDevices = data.devices;
-            console.log('Loaded ' + allDevices.length + ' devices');
         }
     })
     .fail(function() {
@@ -229,13 +232,16 @@ function loadServiceStacks() {
 
     $.get('/api/service-stacks')
         .done(function(data) {
-            if (data.success && data.stacks) {
-                renderServiceStacks(data.stacks);
+            // Handle both direct and nested response formats
+            const stacks = data.stacks || (data.data && data.data.stacks);
+            if (data.success && stacks) {
+                renderServiceStacks(stacks);
             } else {
                 container.html('<div class="alert alert-warning">No service stacks found</div>');
             }
         })
-        .fail(function() {
+        .fail(function(xhr) {
+            console.error('Service stacks API failed:', xhr);
             container.html('<div class="alert alert-danger">Failed to load service stacks</div>');
         });
 }
@@ -480,8 +486,9 @@ function validateStack(stackId) {
 function editStack(stackId) {
     $.get('/api/service-stacks/' + encodeURIComponent(stackId))
         .done(function(data) {
-            if (data.success && data.stack) {
-                openStackModal(data.stack);
+            const stack = data.stack || (data.data && data.data.stack);
+            if (data.success && stack) {
+                openEditStackModal(stack);
             } else {
                 alert('Failed to load stack: ' + (data.error || 'Unknown error'));
             }
@@ -493,237 +500,369 @@ function editStack(stackId) {
 }
 
 /**
- * Add a shared variable key-value pair
+ * Open modal to edit an existing stack
  */
-function addSharedVariable(key, value) {
-    $('#no-shared-vars-msg').remove();
+function openEditStackModal(stack) {
+    $('#edit-stack-id').val(stack.stack_id);
+    $('#edit-stack-name').val(stack.name);
+    $('#edit-stack-description').val(stack.description || '');
 
-    const varHtml = `
-        <div class="shared-var-item mb-2 d-flex gap-2">
-            <input type="text" class="form-control form-control-sm shared-var-key" placeholder="Variable name" value="${key || ''}" style="flex: 1;">
-            <input type="text" class="form-control form-control-sm shared-var-value" placeholder="Variable value" value="${value || ''}" style="flex: 2;">
-            <button type="button" class="btn btn-sm btn-danger remove-shared-var-btn">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-    `;
-
-    $('#shared-vars-list').append(varHtml);
-
-    // Attach remove handler
-    $('#shared-vars-list').find('.shared-var-item').last().find('.remove-shared-var-btn').click(function() {
-        $(this).closest('.shared-var-item').remove();
-
-        if ($('#shared-vars-list .shared-var-item').length === 0) {
-            $('#shared-vars-list').html('<p class="text-muted text-center mb-0" id="no-shared-vars-msg"><small>No shared variables. Click "Add Variable" to add one.</small></p>');
-        }
-    });
-}
-
-/**
- * Open modal to create new stack
- */
-function openStackModal(stackData) {
-    serviceCounter = 0;
-
-    $('#stackModalTitle').text(stackData ? 'Edit Service Stack' : 'Create Service Stack');
-    $('#stack-form')[0].reset();
-    $('#services-list').html('<p class="text-muted text-center mb-0" id="no-services-msg">No services added yet. Click "Add Service" to begin.</p>');
-    $('#shared-vars-list').html('<p class="text-muted text-center mb-0" id="no-shared-vars-msg"><small>No shared variables. Click "Add Variable" to add one.</small></p>');
-
-    if (stackData) {
-        $('#stack-id').val(stackData.stack_id);
-        $('#stack-name').val(stackData.name);
-        $('#stack-description').val(stackData.description || '');
-
-        // Load shared variables
-        if (stackData.shared_variables && Object.keys(stackData.shared_variables).length > 0) {
-            Object.entries(stackData.shared_variables).forEach(([key, value]) => {
-                addSharedVariable(key, value);
+    // Group services by name+template to consolidate devices
+    // Each service in the stack is actually one device instance
+    const serviceGroups = {};
+    if (stack.services && stack.services.length > 0) {
+        stack.services.forEach((service) => {
+            const key = `${service.name}|${service.template}`;
+            if (!serviceGroups[key]) {
+                serviceGroups[key] = {
+                    name: service.name,
+                    template: service.template,
+                    order: service.order || 0,
+                    devices: []
+                };
+            }
+            serviceGroups[key].devices.push({
+                name: service.device,
+                variables: service.variables || {}
             });
-        }
-
-        // Load services
-        if (stackData.services && stackData.services.length > 0) {
-            stackData.services.forEach(function(service) {
-                addServiceToStack(service);
-            });
-        }
+        });
     }
 
-    const modal = new bootstrap.Modal(document.getElementById('stackModal'));
+    // Populate services with devices
+    const $servicesContainer = $('#edit-services-container');
+    $servicesContainer.empty();
+
+    const groupedServices = Object.values(serviceGroups);
+    if (groupedServices.length > 0) {
+        groupedServices.forEach((service, index) => {
+            addEditServiceItem(service, index);
+        });
+    } else {
+        $servicesContainer.html('<p class="text-muted text-center mb-0">No services defined.</p>');
+    }
+
+    // Clear and populate shared variables (non-deletable)
+    $('#edit-shared-vars-list').empty();
+
+    if (stack.shared_variables && Object.keys(stack.shared_variables).length > 0) {
+        Object.entries(stack.shared_variables).forEach(([key, value]) => {
+            addEditSharedVariable(key, value, false); // false = not deletable
+        });
+    } else {
+        $('#edit-shared-vars-list').html('<p class="text-muted text-center mb-0" id="no-edit-shared-vars-msg"><small>No shared variables.</small></p>');
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('editStackModal'));
     modal.show();
 }
 
 /**
- * Add a service to the stack
+ * Add a service item to the edit modal
  */
-function addServiceToStack(serviceData) {
-    serviceCounter++;
-    const serviceId = serviceData ? serviceData.order : serviceCounter;
+function addEditServiceItem(service, index) {
+    const $container = $('#edit-services-container');
+    const serviceId = `edit-service-${index}`;
 
-    $('#no-services-msg').remove();
+    // devices is now an array of {name, variables} objects
+    const devices = service.devices || [];
 
+    // Get all unique variable names from all devices
+    const allVarNames = new Set();
+    devices.forEach(device => {
+        if (device.variables) {
+            Object.keys(device.variables).forEach(k => allVarNames.add(k));
+        }
+    });
+    const varNames = Array.from(allVarNames).sort();
+
+    const deviceListHtml = devices.map((device, deviceIndex) => {
+        const isFirst = deviceIndex === 0;
+        const deviceName = typeof device === 'string' ? device : device.name;
+        const deviceVars = typeof device === 'object' ? (device.variables || {}) : {};
+
+        // Build per-device variable inputs
+        let varsHtml = '';
+        if (varNames.length > 0) {
+            varsHtml = varNames.map(varName => {
+                const value = deviceVars[varName] || '';
+                return `
+                    <div class="flex-fill" style="min-width: 120px;">
+                        <label class="form-label small mb-1">${escapeHtml(varName)}</label>
+                        <input type="text" class="form-control form-control-sm edit-per-device-var"
+                               data-var-name="${escapeHtml(varName)}"
+                               value="${escapeHtml(value)}"
+                               placeholder="${escapeHtml(varName)}">
+                    </div>
+                `;
+            }).join('');
+        }
+
+        return `
+            <div class="edit-device-item border rounded p-2 mb-2" data-device-index="${deviceIndex}">
+                <div class="d-flex gap-2 align-items-start flex-wrap">
+                    <div style="min-width: 180px; flex: 1 1 180px;">
+                        <label class="form-label small mb-1">Device</label>
+                        <select class="form-select form-select-sm edit-service-device" required>
+                            <option value="">Select device...</option>
+                            ${allDevices.map(d => `<option value="${d.name}" ${deviceName === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    ${varsHtml}
+                    ${!isFirst ? '<div class="d-flex align-items-end"><button type="button" class="btn btn-sm btn-outline-danger remove-edit-device-btn" style="height: 31px; margin-top: 24px;"><i class="fas fa-times"></i></button></div>' : '<div style="width: 38px;"></div>'}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Store variable names for adding new devices
     const serviceHtml = `
-        <div class="service-item border rounded p-3 mb-3" data-service-id="${serviceId}">
-            <div class="d-flex justify-content-between align-items-start mb-2">
-                <h6>Service #${serviceId}</h6>
-                <button type="button" class="btn btn-sm btn-danger remove-service-btn">
-                    <i class="fas fa-times"></i>
+        <div class="edit-service-item border rounded p-3 mb-3" data-service-index="${index}" data-var-names="${escapeHtml(varNames.join(','))}" id="${serviceId}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <strong>${escapeHtml(service.name)}</strong>
+                    <span class="badge bg-secondary ms-2">${escapeHtml(service.template || 'No template')}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary add-edit-device-btn" data-service-index="${index}">
+                    <i class="fas fa-plus"></i> Add Device
                 </button>
             </div>
-
-            <div class="row">
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Service Name *</label>
-                    <input type="text" class="form-control service-name" placeholder="e.g., PE Router Config" value="${serviceData ? serviceData.name : ''}" required>
-                </div>
-
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Order</label>
-                    <input type="number" class="form-control service-order" value="${serviceId}" min="1" required>
-                </div>
+            <div class="edit-devices-list" data-service-index="${index}">
+                ${deviceListHtml || '<p class="text-muted text-center mb-0">No devices assigned.</p>'}
             </div>
+        </div>
+    `;
 
-            <div class="row">
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Template Stack *</label>
-                    <select class="form-select service-template" required>
-                        <option value="">Select template stack...</option>
-                        ${allTemplates.filter(t => {
-                            // Only show complete template stacks (those with delete templates)
-                            return t.delete_template;
-                        }).map(t => {
-                            const templateName = typeof t === 'string' ? t : t.name;
-                            const templateDisplay = templateName.replace('.j2', '');
-                            const isSelected = serviceData && serviceData.template === templateName;
-                            const hasValidation = t.validation_template ? ' (Full Stack)' : ' (Manual Validation)';
-                            return `<option value="${templateName}" ${isSelected ? 'selected' : ''}>${templateDisplay}${hasValidation}</option>`;
-                        }).join('')}
+    $container.append(serviceHtml);
+
+    // Attach event handlers for this service
+    const $serviceItem = $(`#${serviceId}`);
+
+    // Add device button
+    $serviceItem.find('.add-edit-device-btn').click(function() {
+        addEditDeviceToService(index, varNames);
+    });
+
+    // Remove device buttons
+    $serviceItem.find('.remove-edit-device-btn').click(function() {
+        $(this).closest('.edit-device-item').remove();
+    });
+}
+
+/**
+ * Add a device dropdown to a service in edit modal
+ */
+function addEditDeviceToService(serviceIndex, varNames) {
+    const $devicesList = $(`.edit-devices-list[data-service-index="${serviceIndex}"]`);
+    const deviceIndex = $devicesList.find('.edit-device-item').length;
+
+    // If varNames not provided, get from data attribute
+    if (!varNames) {
+        const varNamesStr = $(`.edit-service-item[data-service-index="${serviceIndex}"]`).data('var-names') || '';
+        varNames = varNamesStr ? varNamesStr.split(',') : [];
+    }
+
+    // Build per-device variable inputs
+    let varsHtml = '';
+    if (varNames && varNames.length > 0) {
+        varsHtml = varNames.map(varName => {
+            return `
+                <div class="flex-fill" style="min-width: 120px;">
+                    <label class="form-label small mb-1">${escapeHtml(varName)}</label>
+                    <input type="text" class="form-control form-control-sm edit-per-device-var"
+                           data-var-name="${escapeHtml(varName)}"
+                           value=""
+                           placeholder="${escapeHtml(varName)}">
+                </div>
+            `;
+        }).join('');
+    }
+
+    const deviceHtml = `
+        <div class="edit-device-item border rounded p-2 mb-2" data-device-index="${deviceIndex}">
+            <div class="d-flex gap-2 align-items-start flex-wrap">
+                <div style="min-width: 180px; flex: 1 1 180px;">
+                    <label class="form-label small mb-1">Device</label>
+                    <select class="form-select form-select-sm edit-service-device" required>
+                        <option value="">Select device...</option>
+                        ${allDevices.map(d => `<option value="${d.name}">${d.display || d.name}</option>`).join('')}
                     </select>
                 </div>
-
-                <div class="col-md-6 mb-2">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <label class="form-label mb-0">Devices *</label>
-                        <button type="button" class="btn btn-sm btn-outline-primary add-device-btn">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
-                    <div class="devices-list">
-                        <!-- Device dropdowns will be added here -->
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-12 mb-2">
-                    <label class="form-label">Service Variables</label>
-                    <div class="service-variables-container p-2 border rounded">
-                        <div class="text-center text-muted">
-                            <small>Select a template to load variables...</small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-12 mb-2">
-                    <label class="form-label">Dependencies (comma-separated service names)</label>
-                    <input type="text" class="form-control service-dependencies" placeholder="e.g., CE Router Config, VLAN Setup" value="${serviceData && serviceData.depends_on ? serviceData.depends_on.join(', ') : ''}">
-                    <small class="form-text text-muted">This service will wait for these services to complete first</small>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-12 mb-2">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="enable-checks-${serviceId}" ${serviceData && (serviceData.pre_checks || serviceData.post_checks) ? 'checked' : ''}>
-                        <label class="form-check-label" for="enable-checks-${serviceId}">
-                            Enable Pre/Post Deployment Checks
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row checks-container" style="display: ${serviceData && (serviceData.pre_checks || serviceData.post_checks) ? 'flex' : 'none'};">
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Pre-Check Command</label>
-                    <input type="text" class="form-control pre-check-command" placeholder="show run | i hostname" value="${serviceData && serviceData.pre_checks && serviceData.pre_checks[0] ? serviceData.pre_checks[0].get_config_args.command : ''}">
-                    <small class="form-text text-muted">Command to run before deployment</small>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Pre-Check Expected Output</label>
-                    <input type="text" class="form-control pre-check-match" placeholder="hostname cat" value="${serviceData && serviceData.pre_checks && serviceData.pre_checks[0] ? serviceData.pre_checks[0].match_str.join(', ') : ''}">
-                    <small class="form-text text-muted">Text that must be in output</small>
-                </div>
-            </div>
-
-            <div class="row checks-container" style="display: ${serviceData && (serviceData.pre_checks || serviceData.post_checks) ? 'flex' : 'none'};">
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Post-Check Command</label>
-                    <input type="text" class="form-control post-check-command" placeholder="show run | i hostname" value="${serviceData && serviceData.post_checks && serviceData.post_checks[0] ? serviceData.post_checks[0].get_config_args.command : ''}">
-                    <small class="form-text text-muted">Command to run after deployment</small>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="form-label">Post-Check Expected Output</label>
-                    <input type="text" class="form-control post-check-match" placeholder="hostname dog" value="${serviceData && serviceData.post_checks && serviceData.post_checks[0] ? serviceData.post_checks[0].match_str.join(', ') : ''}">
-                    <small class="form-text text-muted">Text that must be in output</small>
+                ${varsHtml}
+                <div class="d-flex align-items-end">
+                    <button type="button" class="btn btn-sm btn-outline-danger remove-edit-device-btn" style="height: 31px; margin-top: 24px;">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
             </div>
         </div>
     `;
 
-    $('#services-list').append(serviceHtml);
-
-    const $serviceItem = $('#services-list').find('.service-item').last();
-
-    // Initialize with at least one device dropdown
-    if (serviceData && serviceData.devices) {
-        // Load existing devices
-        serviceData.devices.forEach(device => {
-            addDeviceDropdown($serviceItem, device);
-        });
-    } else {
-        // Add first empty device dropdown
-        addDeviceDropdown($serviceItem, null);
-    }
-
-    // If we have service data with variables, populate them
-    if (serviceData && serviceData.template) {
-        loadTemplateVariablesForService($serviceItem, serviceData.template, serviceData.variables);
-    }
-
-    // Attach add device button handler
-    $serviceItem.find('.add-device-btn').click(function() {
-        addDeviceDropdown($serviceItem, null);
-    });
-
-    // Attach template change handler
-    $serviceItem.find('.service-template').change(function() {
-        const template = $(this).val();
-        if (template) {
-            loadTemplateVariablesForService($serviceItem, template);
-        }
-    });
+    $devicesList.append(deviceHtml);
 
     // Attach remove handler
-    $serviceItem.find('.remove-service-btn').click(function() {
-        $(this).closest('.service-item').remove();
+    $devicesList.find('.edit-device-item').last().find('.remove-edit-device-btn').click(function() {
+        $(this).closest('.edit-device-item').remove();
+    });
+}
 
-        if ($('#services-list .service-item').length === 0) {
-            $('#services-list').html('<p class="text-muted text-center mb-0" id="no-services-msg">No services added yet. Click "Add Service" to begin.</p>');
+/**
+ * Add a shared variable to the edit modal
+ * @param {string} key - Variable name
+ * @param {string} value - Variable value
+ * @param {boolean} isDeletable - Whether the variable can be deleted (default: true for new variables)
+ */
+function addEditSharedVariable(key, value, isDeletable = true) {
+    $('#no-edit-shared-vars-msg').remove();
+
+    // Existing variables are not deletable (key is read-only), only value can be edited
+    // New variables added via the Add button are deletable
+    const varHtml = `
+        <div class="edit-shared-var-item mb-2 d-flex gap-2">
+            <input type="text" class="form-control form-control-sm edit-shared-var-key"
+                   placeholder="Variable name"
+                   value="${escapeHtml(key || '')}"
+                   style="flex: 1;"
+                   ${!isDeletable ? 'readonly' : ''}>
+            <input type="text" class="form-control form-control-sm edit-shared-var-value"
+                   placeholder="Variable value"
+                   value="${escapeHtml(value || '')}"
+                   style="flex: 2;">
+            ${isDeletable ? `
+                <button type="button" class="btn btn-sm btn-danger remove-edit-shared-var-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            ` : '<div style="width: 38px;"></div>'}
+        </div>
+    `;
+
+    $('#edit-shared-vars-list').append(varHtml);
+
+    // Attach remove handler only for deletable variables
+    if (isDeletable) {
+        $('#edit-shared-vars-list').find('.edit-shared-var-item').last().find('.remove-edit-shared-var-btn').click(function() {
+            $(this).closest('.edit-shared-var-item').remove();
+
+            if ($('#edit-shared-vars-list .edit-shared-var-item').length === 0) {
+                $('#edit-shared-vars-list').html('<p class="text-muted text-center mb-0" id="no-edit-shared-vars-msg"><small>No shared variables.</small></p>');
+            }
+        });
+    }
+}
+
+/**
+ * Save edited stack
+ */
+function saveEditedStack() {
+    const stackId = $('#edit-stack-id').val();
+    const name = $('#edit-stack-name').val().trim();
+    const description = $('#edit-stack-description').val().trim();
+
+    if (!name) {
+        alert('Please enter a stack name');
+        return;
+    }
+
+    // Collect services with devices and per-device variables
+    // Each device becomes its own service instance with its variables
+    const services = [];
+    let hasValidationError = false;
+
+    $('#edit-services-container .edit-service-item').each(function() {
+        const $serviceItem = $(this);
+        const serviceIndex = $serviceItem.data('service-index');
+
+        // Get service name and template from the display
+        const serviceName = $serviceItem.find('strong').text().trim();
+        const serviceTemplate = $serviceItem.find('.badge').text().trim();
+
+        // Collect devices with their per-device variables
+        const $deviceItems = $serviceItem.find('.edit-device-item');
+
+        if ($deviceItems.length === 0) {
+            hasValidationError = true;
+            alert(`Service "${serviceName}" must have at least one device assigned.`);
+            return false; // break the loop
+        }
+
+        let hasDevice = false;
+        $deviceItems.each(function() {
+            const $deviceItem = $(this);
+            const device = $deviceItem.find('.edit-service-device').val();
+
+            if (device) {
+                hasDevice = true;
+
+                // Collect per-device variables for this device
+                const deviceVariables = {};
+                $deviceItem.find('.edit-per-device-var').each(function() {
+                    const varName = $(this).data('var-name');
+                    const varValue = $(this).val().trim();
+                    if (varName) {
+                        deviceVariables[varName] = varValue;
+                    }
+                });
+
+                // Create one service entry per device (this is how deployed stacks store data)
+                services.push({
+                    name: serviceName,
+                    template: serviceTemplate !== 'No template' ? serviceTemplate : null,
+                    device: device,
+                    variables: deviceVariables,
+                    order: serviceIndex
+                });
+            }
+        });
+
+        // Validate at least one device was selected
+        if (!hasDevice) {
+            hasValidationError = true;
+            alert(`Service "${serviceName}" must have at least one device assigned.`);
+            return false; // break the loop
         }
     });
 
-    // Attach enable checks toggle handler
-    $serviceItem.find(`#enable-checks-${serviceId}`).change(function() {
-        const $checks = $(this).closest('.service-item').find('.checks-container');
-        if ($(this).is(':checked')) {
-            $checks.show();
-        } else {
-            $checks.hide();
+    if (hasValidationError) {
+        return;
+    }
+
+    // Collect shared variables
+    const sharedVariables = {};
+    $('#edit-shared-vars-list .edit-shared-var-item').each(function() {
+        const key = $(this).find('.edit-shared-var-key').val().trim();
+        const value = $(this).find('.edit-shared-var-value').val().trim();
+        if (key) {
+            sharedVariables[key] = value;
         }
+    });
+
+    const payload = {
+        name: name,
+        description: description,
+        services: services,
+        shared_variables: sharedVariables
+    };
+
+    $.ajax({
+        url: '/api/service-stacks/' + encodeURIComponent(stackId),
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify(payload)
+    })
+    .done(function(data) {
+        if (data.success) {
+            const modalElement = document.getElementById('editStackModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            loadServiceStacks();
+        } else {
+            alert('Failed to update stack: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .fail(function(xhr) {
+        const error = xhr.responseJSON ? xhr.responseJSON.error : 'Unknown error';
+        alert('Failed to update stack: ' + error);
     });
 }
 
@@ -1020,8 +1159,9 @@ function viewStackDetails(stackId) {
 
     $.get('/api/service-stacks/' + encodeURIComponent(stackId))
         .done(function(data) {
-            if (data.success && data.stack) {
-                renderStackDetails(data.stack);
+            const stack = data.stack || (data.data && data.data.stack);
+            if (data.success && stack) {
+                renderStackDetails(stack);
             } else {
                 body.html('<div class="alert alert-danger">Failed to load stack details</div>');
             }
@@ -1813,7 +1953,6 @@ function deleteStack(stackId) {
                 const settings = JSON.parse(localStorage.getItem('netstacks_settings') || '{}');
                 username = settings.default_username;
                 password = settings.default_password;
-                console.log('Delete stack - using credentials from settings:', { username, hasPassword: !!password });
             } catch (e) {
                 console.error('Error reading credentials from settings:', e);
             }
@@ -1908,11 +2047,13 @@ function showStatus(type, data) {
 function loadStackTemplates() {
     $.get('/api/stack-templates')
         .done(function(data) {
-            if (data.success) {
-                displayStackTemplates(data.templates);
+            const templates = data.templates || (data.data && data.data.templates);
+            if (data.success && templates) {
+                displayStackTemplates(templates);
             }
         })
         .fail(function(xhr) {
+            console.error('Stack templates API failed:', xhr);
             $('#stack-templates-container').html(`
                 <div class="alert alert-danger">
                     <i class="fas fa-exclamation-triangle"></i> Failed to load stack templates: ${xhr.responseJSON?.error || 'Unknown error'}
@@ -2117,13 +2258,9 @@ function addServiceToTemplate() {
  * Save stack template
  */
 function saveStackTemplate() {
-    console.log('saveStackTemplate function called');
-
     const templateId = $('#stack-template-id').val();
     const name = $('#stack-template-name').val().trim();
     const description = $('#stack-template-description').val().trim();
-
-    console.log('Template data:', { templateId, name, description });
 
     if (!name) {
         alert('Please enter a template name');
@@ -2177,16 +2314,10 @@ function saveStackTemplate() {
         }
     });
 
-    console.log('Collected services:', services);
-
     if (services.length === 0) {
         alert('Please add at least one service to the template');
         return;
     }
-
-    // Use the API variables configured via the popup modals
-    console.log('API variables:', apiVariableConfigs);
-    console.log('Per-device variables:', perDeviceVariables);
 
     const payload = {
         name: name,
@@ -2196,25 +2327,19 @@ function saveStackTemplate() {
         per_device_variables: perDeviceVariables
     };
 
-    // Include template_id if editing existing template
-    if (templateId) {
-        payload.template_id = templateId;
-    }
-
-    console.log('Sending payload to API:', payload);
+    // Use PUT if editing existing template, POST for new
+    const isEditing = !!templateId;
+    const url = isEditing ? `/api/stack-templates/${templateId}` : '/api/stack-templates';
+    const method = isEditing ? 'PUT' : 'POST';
 
     $.ajax({
-        url: '/api/stack-templates',
-        method: 'POST',
+        url: url,
+        method: method,
         contentType: 'application/json',
         data: JSON.stringify(payload)
     })
     .done(function(data) {
-        console.log('API response:', data);
         if (data.success) {
-            // Show success message (using alert for now since showToast doesn't exist)
-            const message = templateId ? 'Stack template updated successfully' : 'Stack template created successfully';
-            console.log(message);
 
             // Close modal with proper cleanup
             const modalElement = document.getElementById('stackTemplateModal');
@@ -2257,75 +2382,17 @@ function openDeployFromTemplateModal(templateId) {
     $.get(`/api/stack-templates/${templateId}`)
         .done(function(data) {
             if (data.success) {
-                const template = data.template;
+                const template = data.template || (data.data && data.data.template);
 
                 $('#deploy-template-id').val(templateId);
                 $('#deploy-stack-name').val('');
                 $('#deploy-stack-description').val('');
 
-                // Display required variables with API variable support
+                // Show loading state for variables
                 const varsContainer = $('#deploy-variables-container');
-                const apiVariables = template.api_variables || {};
-                const hasApiVars = Object.keys(apiVariables).length > 0;
+                varsContainer.html('<div class="text-center"><span class="spinner-border spinner-border-sm"></span> <span class="text-muted">Loading variables from templates...</span></div>');
 
-                // Separate variables into shared and per-device based on template configuration
-                const sharedVars = [];
-                const perDeviceVars = [];
-                const perDeviceVarList = template.per_device_variables || [];
-
-                if (template.required_variables && template.required_variables.length > 0) {
-                    template.required_variables.forEach(varName => {
-                        // Check if variable is marked as per-device in template
-                        if (perDeviceVarList.includes(varName)) {
-                            perDeviceVars.push(varName);
-                        } else {
-                            sharedVars.push(varName);
-                        }
-                    });
-                }
-
-                // Display shared variables with API fetch support
-                if (sharedVars.length > 0) {
-                    let varsHtml = '<div class="row">';
-                    sharedVars.forEach(varName => {
-                        const hasApi = apiVariables.hasOwnProperty(varName);
-                        varsHtml += `
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label small d-flex justify-content-between align-items-center">
-                                    <span>${varName}</span>
-                                    ${hasApi ? '<i class="fas fa-cloud-download-alt text-success ms-1" title="API fetch available"></i>' : ''}
-                                </label>
-                                <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control template-variable-shared"
-                                           data-var-name="${varName}"
-                                           placeholder="Enter ${varName}"
-                                           ${hasApi ? 'data-api-var="true"' : ''}>
-                                    ${hasApi ? `<button class="btn btn-outline-primary fetch-shared-api-var-btn" type="button"
-                                                       data-var-name="${varName}"
-                                                       title="Fetch from API">
-                                                   <i class="fas fa-sync-alt"></i>
-                                               </button>` : ''}
-                                </div>
-                                <div class="api-fetch-status-shared" data-var-name="${varName}" style="display:none; font-size: 0.75rem; margin-top: 0.25rem;"></div>
-                            </div>
-                        `;
-                    });
-                    varsHtml += '</div>';
-                    varsContainer.html(varsHtml);
-
-                    // Attach event handlers for API fetch buttons on shared variables
-                    $('.fetch-shared-api-var-btn').off('click').on('click', function() {
-                        const varName = $(this).data('var-name');
-                        const apiConfig = apiVariables[varName];
-                        fetchApiVariableShared(varName, apiConfig);
-                    });
-                } else if (perDeviceVars.length > 0) {
-                    varsContainer.html('<p class="text-muted small"><i class="fas fa-info-circle"></i> All variables are device-specific and will appear next to each device below.</p>');
-                } else {
-                    varsContainer.html('<p class="text-muted small">No variables required</p>');
-                }
-
-                // Display services with device selection (compact layout)
+                // Display services with device selection first (compact layout)
                 const servicesContainer = $('#deploy-services-preview');
                 let servicesHtml = '';
                 template.services.forEach((service, index) => {
@@ -2348,15 +2415,109 @@ function openDeployFromTemplateModal(templateId) {
                 });
                 servicesContainer.html(servicesHtml);
 
-                // Store template data for per-device variable handling
-                $('#deployFromTemplateModal').data('template-api-vars', template.api_variables || {});
-                $('#deployFromTemplateModal').data('template-per-device-vars', perDeviceVars);
-                $('#deployFromTemplateModal').data('template-required-vars', template.required_variables || []);
+                // Fetch variables from all config templates in this stack template
+                const configTemplateNames = template.services.map(s => {
+                    const name = s.template || '';
+                    return name.endsWith('.j2') ? name.slice(0, -3) : name;
+                }).filter(name => name);
 
-                // Initialize each service with one device dropdown
-                template.services.forEach((service, index) => {
-                    addDeployDeviceDropdown(index, null);
+                const apiVariables = template.api_variables || {};
+                const perDeviceVarList = template.per_device_variables || [];
+
+                // Fetch variables from each config template
+                const variablePromises = configTemplateNames.map(templateName => {
+                    return $.get(`/api/templates/${encodeURIComponent(templateName)}/variables`)
+                        .catch(() => ({ success: false, variables: [] }));
                 });
+
+                Promise.all(variablePromises)
+                    .then(responses => {
+                        // Collect all unique variables from all config templates
+                        const allVariables = new Set();
+                        responses.forEach(response => {
+                            if (response.success && response.variables) {
+                                response.variables.forEach(v => allVariables.add(v));
+                            }
+                        });
+
+                        const uniqueVars = Array.from(allVariables).sort();
+
+                        // Separate variables into shared and per-device based on template configuration
+                        const sharedVars = [];
+                        const perDeviceVars = [];
+
+                        uniqueVars.forEach(varName => {
+                            if (perDeviceVarList.includes(varName)) {
+                                perDeviceVars.push(varName);
+                            } else {
+                                sharedVars.push(varName);
+                            }
+                        });
+
+                        // Display shared variables with API fetch support
+                        if (sharedVars.length > 0) {
+                            let varsHtml = '<div class="row">';
+                            sharedVars.forEach(varName => {
+                                const hasApi = apiVariables.hasOwnProperty(varName);
+                                varsHtml += `
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label small d-flex justify-content-between align-items-center">
+                                            <span>${varName}</span>
+                                            ${hasApi ? '<i class="fas fa-cloud-download-alt text-success ms-1" title="API fetch available"></i>' : ''}
+                                        </label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" class="form-control template-variable-shared"
+                                                   data-var-name="${varName}"
+                                                   placeholder="Enter ${varName}"
+                                                   ${hasApi ? 'data-api-var="true"' : ''}>
+                                            ${hasApi ? `<button class="btn btn-outline-primary fetch-shared-api-var-btn" type="button"
+                                                               data-var-name="${varName}"
+                                                               title="Fetch from API">
+                                                           <i class="fas fa-sync-alt"></i>
+                                                       </button>` : ''}
+                                        </div>
+                                        <div class="api-fetch-status-shared" data-var-name="${varName}" style="display:none; font-size: 0.75rem; margin-top: 0.25rem;"></div>
+                                    </div>
+                                `;
+                            });
+                            varsHtml += '</div>';
+                            varsContainer.html(varsHtml);
+
+                            // Attach event handlers for API fetch buttons on shared variables
+                            $('.fetch-shared-api-var-btn').off('click').on('click', function() {
+                                const varName = $(this).data('var-name');
+                                const apiConfig = apiVariables[varName];
+                                fetchApiVariableShared(varName, apiConfig);
+                            });
+                        } else if (perDeviceVars.length > 0) {
+                            varsContainer.html('<p class="text-muted small"><i class="fas fa-info-circle"></i> All variables are device-specific and will appear next to each device below.</p>');
+                        } else {
+                            varsContainer.html('<p class="text-muted small">No variables required</p>');
+                        }
+
+                        // Store template data for per-device variable handling
+                        $('#deployFromTemplateModal').data('template-api-vars', apiVariables);
+                        $('#deployFromTemplateModal').data('template-per-device-vars', perDeviceVars);
+                        $('#deployFromTemplateModal').data('template-required-vars', uniqueVars);
+
+                        // Initialize each service with one device dropdown (now that perDeviceVars is ready)
+                        template.services.forEach((service, index) => {
+                            addDeployDeviceDropdown(index, null);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error fetching template variables:', error);
+                        varsContainer.html('<p class="text-warning small"><i class="fas fa-exclamation-triangle"></i> Failed to load variables from templates</p>');
+
+                        // Still allow proceeding without variables
+                        $('#deployFromTemplateModal').data('template-api-vars', apiVariables);
+                        $('#deployFromTemplateModal').data('template-per-device-vars', []);
+                        $('#deployFromTemplateModal').data('template-required-vars', []);
+
+                        template.services.forEach((service, index) => {
+                            addDeployDeviceDropdown(index, null);
+                        });
+                    });
 
                 // Attach add device button handlers
                 $('.add-deploy-device-btn').click(function() {
@@ -2449,8 +2610,6 @@ function addDeployDeviceDropdown(serviceIndex, selectedDevice) {
         const instanceId = $(this).data('device-instance');
 
         if (selectedDevice) {
-            console.log('Device selected:', selectedDevice, '- Auto-fetching API variables for instance:', instanceId);
-
             // Get stored API variable configs
             const apiVariables = $('#deployFromTemplateModal').data('template-api-vars') || {};
 
@@ -2546,8 +2705,6 @@ function deployFromTemplate(template) {
             }
         });
 
-        console.log(`Device ${deviceName} variables:`, deviceVariables);
-
         if (!deviceInstances[serviceIndex]) {
             deviceInstances[serviceIndex] = [];
         }
@@ -2593,10 +2750,6 @@ function deployFromTemplate(template) {
         shared_variables: sharedVariables
     };
 
-    console.log('=== Deploying Stack from Template ===');
-    console.log('Shared variables:', sharedVariables);
-    console.log('Services with per-device variables:', services);
-
     $.ajax({
         url: '/api/service-stacks',
         method: 'POST',
@@ -2605,7 +2758,6 @@ function deployFromTemplate(template) {
     })
     .done(function(data) {
         if (data.success) {
-            console.log('Stack created from template successfully');
             const modalElement = document.getElementById('deployFromTemplateModal');
             const modalInstance = bootstrap.Modal.getInstance(modalElement);
             if (modalInstance) {
@@ -2628,7 +2780,7 @@ function editStackTemplate(templateId) {
     $.get(`/api/stack-templates/${templateId}`)
         .done(function(data) {
             if (data.success) {
-                const template = data.template;
+                const template = data.template || (data.data && data.data.template);
 
                 // Populate the template modal for editing
                 $('#stack-template-id').val(template.template_id);
@@ -2638,8 +2790,6 @@ function editStackTemplate(templateId) {
                 // Load API variable configurations and per-device variables
                 apiVariableConfigs = template.api_variables || {};
                 perDeviceVariables = template.per_device_variables || [];
-                console.log('Loaded API variable configs:', apiVariableConfigs);
-                console.log('Loaded per-device variables:', perDeviceVariables);
 
                 // Clear and populate services
                 $('#template-services-container').empty();
@@ -2722,7 +2872,6 @@ function deleteStackTemplate(templateId) {
     })
     .done(function(data) {
         if (data.success) {
-            console.log('Stack template deleted successfully');
             loadStackTemplates();
         }
     })
@@ -2923,9 +3072,7 @@ function renderSchedulesList(schedules) {
 
         let scheduleDetails = '';
         if (schedule.schedule_type === 'once') {
-            console.log('DEBUG: schedule.scheduled_time =', schedule.scheduled_time);
             scheduleDetails = formatDate(schedule.scheduled_time);
-            console.log('DEBUG: scheduleDetails after formatDate =', scheduleDetails);
         } else if (schedule.schedule_type === 'daily') {
             scheduleDetails = `Every day at ${schedule.scheduled_time}`;
         } else if (schedule.schedule_type === 'weekly') {
@@ -2934,9 +3081,7 @@ function renderSchedulesList(schedules) {
             scheduleDetails = `Day ${schedule.day_of_month} of each month at ${schedule.scheduled_time}`;
         }
 
-        console.log('DEBUG: schedule.next_run =', schedule.next_run);
         const nextRun = schedule.next_run ? formatDate(schedule.next_run) : 'Not scheduled';
-        console.log('DEBUG: nextRun after formatDate =', nextRun);
 
         html += `
             <div class="list-group-item">
@@ -3116,11 +3261,6 @@ function fetchApiVariable(varName, apiConfig) {
     const cleanEndpoint = apiConfig.endpoint.startsWith('/') ? apiConfig.endpoint : '/' + apiConfig.endpoint;
     const url = baseUrl + cleanEndpoint;
 
-    // Make the request via backend proxy (bypasses CORS)
-    console.log('Fetching API variable:', varName);
-    console.log('API config:', apiConfig);
-    console.log('Variables for substitution:', variables);
-
     $.ajax({
         url: '/api/proxy-api-call',
         method: 'POST',
@@ -3134,20 +3274,16 @@ function fetchApiVariable(varName, apiConfig) {
         })
     })
     .done(function(response) {
-        console.log('API response:', response);
         if (!response.success) {
             throw new Error(response.error || 'API call failed');
         }
 
         const data = response.data;
-        console.log('Response data structure:', data);
 
         // Extract value using JSONPath
         let value;
         if (apiConfig.json_path) {
-            console.log('Extracting with JSONPath:', apiConfig.json_path);
             value = extractJsonPath(data, apiConfig.json_path);
-            console.log('Extracted value:', value);
         } else {
             // If no JSONPath, assume the response is the value
             value = data;
@@ -3162,13 +3298,11 @@ function fetchApiVariable(varName, apiConfig) {
                 $status.fadeOut();
             }, 3000);
         } else {
-            console.error('Failed to extract value. Data structure:', JSON.stringify(data, null, 2));
             throw new Error('Could not extract value from API response using JSONPath: ' + apiConfig.json_path);
         }
     })
     .fail(function(xhr) {
         const errorMsg = xhr.responseJSON ? xhr.responseJSON.error : 'API call failed';
-        console.error('API fetch error:', errorMsg);
         $status.html(`<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error: ${errorMsg}</span>`);
     })
     .always(function() {
@@ -3247,11 +3381,6 @@ function fetchApiVariablePerDevice(varName, apiConfig, deviceInstanceId, deviceN
         return;
     }
 
-    // Make the request via backend proxy (bypasses CORS)
-    console.log(`Fetching API variable '${varName}' for device '${deviceName}' (instance: ${deviceInstanceId})`);
-    console.log('API config:', apiConfig);
-    console.log('Variables for substitution:', variables);
-
     $.ajax({
         url: '/api/proxy-api-call',
         method: 'POST',
@@ -3265,20 +3394,16 @@ function fetchApiVariablePerDevice(varName, apiConfig, deviceInstanceId, deviceN
         })
     })
     .done(function(response) {
-        console.log('API response:', response);
         if (!response.success) {
             throw new Error(response.error || 'API call failed');
         }
 
         const data = response.data;
-        console.log('Response data structure:', data);
 
         // Extract value using JSONPath
         let value;
         if (apiConfig.json_path) {
-            console.log('Extracting with JSONPath:', apiConfig.json_path);
             value = extractJsonPath(data, apiConfig.json_path);
-            console.log('Extracted value:', value);
         } else {
             // If no JSONPath, assume the response is the value
             value = data;
@@ -3419,11 +3544,6 @@ function fetchApiVariableShared(varName, apiConfig) {
         return;
     }
 
-    // Make the request via backend proxy (bypasses CORS)
-    console.log(`Fetching shared API variable '${varName}'`);
-    console.log('API config:', apiConfig);
-    console.log('Variables for substitution:', variables);
-
     $.ajax({
         url: '/api/proxy-api-call',
         method: 'POST',
@@ -3437,20 +3557,16 @@ function fetchApiVariableShared(varName, apiConfig) {
         })
     })
     .done(function(response) {
-        console.log('API response:', response);
         if (!response.success) {
             throw new Error(response.error || 'API call failed');
         }
 
         const data = response.data;
-        console.log('Response data structure:', data);
 
         // Extract value using JSONPath (same logic as per-device)
         let value;
         if (apiConfig.json_path) {
-            console.log('Extracting with JSONPath:', apiConfig.json_path);
             value = extractJsonPath(data, apiConfig.json_path);
-            console.log('Extracted value:', value);
         } else {
             // If no JSONPath, assume the response is the value
             value = data;
@@ -3658,13 +3774,9 @@ function displayDetectedVariables(variables) {
     const container = $('#detected-variables-container');
     container.empty();
 
-    console.log('displayDetectedVariables called with:', variables);
-    console.log('Current perDeviceVariables:', perDeviceVariables);
-
     const html = variables.map(varName => {
         const hasApiConfig = apiVariableConfigs.hasOwnProperty(varName);
         const isPerDevice = perDeviceVariables.includes(varName);
-        console.log(`Variable ${varName}: isPerDevice=${isPerDevice}`);
 
         // Determine display badge and type
         let variableType = 'Shared';

@@ -159,6 +159,21 @@ class StackService:
         if not template:
             return None
 
+        return self._template_to_dict(template)
+
+    def get_template_by_name(self, name: str) -> Optional[Dict]:
+        """Get a stack template by name."""
+        template = self.session.query(StackTemplate).filter(
+            StackTemplate.name == name
+        ).first()
+
+        if not template:
+            return None
+
+        return self._template_to_dict(template)
+
+    def _template_to_dict(self, template: StackTemplate) -> Dict:
+        """Convert template model to dict."""
         return {
             'template_id': template.template_id,
             'name': template.name,
@@ -172,6 +187,51 @@ class StackService:
             'updated_at': template.updated_at.isoformat() if template.updated_at else None,
             'created_by': template.created_by,
         }
+
+    def create_template(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        services: Optional[List[Dict]] = None,
+        api_variables: Optional[Dict] = None,
+        per_device_variables: Optional[List[str]] = None,
+    ) -> str:
+        """Create a new stack template."""
+        template_id = str(uuid.uuid4())
+
+        template = StackTemplate(
+            template_id=template_id,
+            name=name,
+            description=description,
+            services=services or [],
+            api_variables=api_variables or {},
+            per_device_variables=per_device_variables or [],
+        )
+
+        self.session.add(template)
+        self.session.commit()
+
+        log.info(f"Stack template created: {name} ({template_id})")
+        return template_id
+
+    def update_template(self, template_id: str, data: Dict) -> Optional[Dict]:
+        """Update a stack template."""
+        template = self.session.query(StackTemplate).filter(
+            StackTemplate.template_id == template_id
+        ).first()
+
+        if not template:
+            return None
+
+        for field, value in data.items():
+            if hasattr(template, field):
+                setattr(template, field, value)
+
+        template.updated_at = datetime.utcnow()
+        self.session.commit()
+
+        log.info(f"Stack template updated: {template_id}")
+        return self.get_template(template_id)
 
     def delete_template(self, template_id: str) -> bool:
         """Delete a stack template."""

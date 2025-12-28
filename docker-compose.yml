@@ -184,52 +184,6 @@ services:
       - postgres
     restart: unless-stopped
 
-  # Legacy Celery Worker (for monolith compatibility - to be deprecated)
-  celery-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: netstacks-celery-worker
-    command: celery -A tasks worker -l info -Q device_tasks,celery -c ${CELERY_WORKERS:-20}
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DB_FILE=/data/netstacks.db
-      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
-      - TZ=${TZ:-America/New_York}
-    volumes:
-      - netstacks-data:/data
-      - /etc/localtime:/etc/localtime:ro
-    networks:
-      - netstacks-network
-    depends_on:
-      - redis
-    restart: unless-stopped
-    profiles:
-      - legacy
-
-  # Legacy Celery Beat (for monolith compatibility - to be deprecated)
-  celery-beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: netstacks-celery-beat
-    command: celery -A tasks beat -l info --schedule=/data/celerybeat-schedule
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DB_FILE=/data/netstacks.db
-      - TZ=${TZ:-America/New_York}
-    volumes:
-      - netstacks-data:/data
-    networks:
-      - netstacks-network
-    depends_on:
-      - redis
-    restart: unless-stopped
-    profiles:
-      - legacy
-
   # Redis (message broker for Celery)
   redis:
     image: redis:7-alpine

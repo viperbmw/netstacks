@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from netstacks_core.db import init_db, seed_defaults, get_session
 
 from app.config import settings
-from app.routes import templates, stacks, mops, schedules, step_types
+from app.routes import templates, stacks, stack_templates, mops, schedules, step_types
 
 # Configure logging
 logging.basicConfig(
@@ -72,6 +72,7 @@ async def health_check():
 # Include routers
 app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
 app.include_router(stacks.router, prefix="/api/service-stacks", tags=["Service Stacks"])
+app.include_router(stack_templates.router, prefix="/api/stack-templates", tags=["Stack Templates"])
 app.include_router(mops.router, prefix="/api/mops", tags=["MOPs"])
 app.include_router(schedules.router, prefix="/api/scheduled-operations", tags=["Schedules"])
 app.include_router(step_types.router, prefix="/api/step-types", tags=["Step Types"])
