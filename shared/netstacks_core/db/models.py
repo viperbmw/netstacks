@@ -15,11 +15,12 @@ from sqlalchemy import (
     Text,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
 )
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 
 Base = declarative_base()
 
@@ -442,6 +443,352 @@ class DeviceOverride(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# =============================================================================
+# AI AGENT MODELS
+# =============================================================================
+
+
+class LLMProvider(Base):
+    """LLM provider configuration (Anthropic, OpenRouter)"""
+    __tablename__ = 'llm_providers'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), unique=True, nullable=False)  # 'anthropic', 'openrouter'
+    display_name = Column(String(100), nullable=True)
+    api_key = Column(String(500), nullable=False)  # Encrypted
+    api_base_url = Column(String(255), nullable=True)
+    default_model = Column(String(100), nullable=True)
+    available_models = Column(JSONB, default=list)  # List of model options
+    is_enabled = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+    config = Column(JSONB, default=dict)  # Additional config (rate limits, etc.)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Agent(Base):
+    """AI Agent configuration"""
+    __tablename__ = 'agents'
+
+    agent_id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False)
+    agent_type = Column(String(50), nullable=False)  # 'triage', 'bgp', 'ospf', 'isis', 'custom'
+    description = Column(Text, nullable=True)
+    system_prompt = Column(Text, nullable=True)  # Custom system prompt override
+    is_enabled = Column(Boolean, default=True)
+    is_persistent = Column(Boolean, default=False)  # Runs continuously watching for issues
+    is_default = Column(Boolean, default=False)  # Default agent for this type
+    llm_provider = Column(String(50), default='anthropic')
+    llm_model = Column(String(100), nullable=True)
+    temperature = Column(Float, default=0.1)
+    max_tokens = Column(Integer, default=4096)
+    max_iterations = Column(Integer, default=10)  # Max ReAct loop iterations
+    allowed_tools = Column(JSONB, default=list)  # Tool names this agent can use
+    allowed_devices = Column(JSONB, default=list)  # Device name patterns/filters
+    autonomy_level = Column(String(20), default='diagnose')  # 'diagnose', 'recommend', 'execute'
+    config = Column(JSONB, default=dict)  # Additional configuration
+    stats = Column(JSONB, default=dict)  # Usage statistics
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String(255), nullable=True)
+
+    sessions = relationship("AgentSession", back_populates="agent", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_agents_type', 'agent_type'),
+        Index('idx_agents_enabled', 'is_enabled'),
+    )
+
+
+class AgentSession(Base):
+    """Agent conversation session"""
+    __tablename__ = 'agent_sessions'
+
+    session_id = Column(String(36), primary_key=True)
+    agent_id = Column(String(36), ForeignKey('agents.agent_id', ondelete='CASCADE'), nullable=False)
+    trigger_type = Column(String(20), nullable=False)  # 'user', 'alert', 'mop', 'scheduled', 'handoff'
+    trigger_id = Column(String(36), nullable=True)  # Alert ID, MOP execution ID, etc.
+    parent_session_id = Column(String(36), nullable=True)  # For handoff tracking
+    status = Column(String(20), default='active')  # 'active', 'completed', 'failed', 'waiting_approval', 'paused'
+    initial_prompt = Column(Text, nullable=True)
+    context = Column(JSONB, default=dict)  # Devices, incident context, handoff data
+    summary = Column(Text, nullable=True)  # Final summary/resolution
+    resolution_status = Column(String(20), nullable=True)  # 'resolved', 'escalated', 'unresolved'
+    token_count = Column(Integer, default=0)  # Total tokens used
+    tool_call_count = Column(Integer, default=0)
+    iteration_count = Column(Integer, default=0)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    started_by = Column(String(255), nullable=True)
+
+    agent = relationship("Agent", back_populates="sessions")
+    actions = relationship("AgentAction", back_populates="session", cascade="all, delete-orphan")
+    messages = relationship("AgentMessage", back_populates="session", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_agent_sessions_agent', 'agent_id'),
+        Index('idx_agent_sessions_status', 'status'),
+        Index('idx_agent_sessions_trigger', 'trigger_type', 'trigger_id'),
+    )
+
+
+class AgentMessage(Base):
+    """Chat messages in agent session"""
+    __tablename__ = 'agent_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(36), ForeignKey('agent_sessions.session_id', ondelete='CASCADE'), nullable=False)
+    role = Column(String(20), nullable=False)  # 'user', 'assistant', 'system', 'tool'
+    content = Column(Text, nullable=False)
+    tool_call_id = Column(String(100), nullable=True)  # For tool response messages
+    message_data = Column(JSONB, default=dict)  # Attachments, tool info, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("AgentSession", back_populates="messages")
+
+    __table_args__ = (
+        Index('idx_agent_messages_session', 'session_id'),
+    )
+
+
+class AgentAction(Base):
+    """Agent thought/action/observation audit log"""
+    __tablename__ = 'agent_actions'
+
+    action_id = Column(String(36), primary_key=True)
+    session_id = Column(String(36), ForeignKey('agent_sessions.session_id', ondelete='CASCADE'), nullable=False)
+    sequence = Column(Integer, nullable=False)  # Order within session
+    action_type = Column(String(20), nullable=False)  # 'thought', 'tool_call', 'tool_result', 'handoff', 'approval_request', 'error'
+    content = Column(Text, nullable=True)  # Thought text, error message, etc.
+    tool_name = Column(String(100), nullable=True)
+    tool_input = Column(JSONB, default=dict)
+    tool_output = Column(JSONB, default=dict)
+    risk_level = Column(String(20), nullable=True)  # 'low', 'medium', 'high', 'critical'
+    status = Column(String(20), default='pending')  # 'pending', 'completed', 'failed', 'waiting_approval', 'approved', 'rejected'
+    error = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("AgentSession", back_populates="actions")
+
+    __table_args__ = (
+        Index('idx_agent_actions_session', 'session_id'),
+        Index('idx_agent_actions_type', 'action_type'),
+    )
+
+
+class AgentTool(Base):
+    """Tool definitions for agents"""
+    __tablename__ = 'agent_tools'
+
+    tool_id = Column(String(50), primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text, nullable=False)
+    category = Column(String(50), nullable=False)  # 'device', 'knowledge', 'workflow', 'integration'
+    is_builtin = Column(Boolean, default=True)
+    is_enabled = Column(Boolean, default=True)
+    risk_level = Column(String(20), default='low')  # 'low', 'medium', 'high', 'critical'
+    requires_approval = Column(Boolean, default=False)
+    input_schema = Column(JSONB, default=dict)  # JSON Schema for inputs
+    output_schema = Column(JSONB, default=dict)  # JSON Schema for outputs
+    config = Column(JSONB, default=dict)  # Tool-specific configuration
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_agent_tools_category', 'category'),
+    )
+
+
+class KnowledgeCollection(Base):
+    """Logical groupings for knowledge documents"""
+    __tablename__ = 'knowledge_collections'
+
+    collection_id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    doc_type = Column(String(50), nullable=False)  # 'runbook', 'vendor', 'protocol', 'incident', 'custom'
+    is_enabled = Column(Boolean, default=True)
+    config = Column(JSONB, default=dict)  # Collection-specific settings
+    document_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String(255), nullable=True)
+
+    documents = relationship("KnowledgeDocument", back_populates="collection", cascade="all, delete-orphan")
+
+
+class KnowledgeDocument(Base):
+    """Knowledge base documents for RAG"""
+    __tablename__ = 'knowledge_documents'
+
+    doc_id = Column(String(36), primary_key=True)
+    collection_id = Column(String(36), ForeignKey('knowledge_collections.collection_id', ondelete='CASCADE'), nullable=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    doc_type = Column(String(50), nullable=False)  # 'runbook', 'vendor', 'protocol', 'incident', 'custom'
+    source_url = Column(String(500), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    file_type = Column(String(20), nullable=True)  # 'pdf', 'md', 'txt', 'html'
+    doc_metadata = Column(JSONB, default=dict)  # Tags, author, version, etc.
+    is_indexed = Column(Boolean, default=False)
+    chunk_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String(255), nullable=True)
+
+    collection = relationship("KnowledgeCollection", back_populates="documents")
+    embeddings = relationship("KnowledgeEmbedding", back_populates="document", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_knowledge_documents_type', 'doc_type'),
+        Index('idx_knowledge_documents_collection', 'collection_id'),
+    )
+
+
+class KnowledgeEmbedding(Base):
+    """Vector embeddings for RAG search (pgvector)"""
+    __tablename__ = 'knowledge_embeddings'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    doc_id = Column(String(36), ForeignKey('knowledge_documents.doc_id', ondelete='CASCADE'), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    chunk_text = Column(Text, nullable=False)
+    # Note: embedding column uses pgvector type, defined in migration as vector(1536)
+    embedding = Column(ARRAY(Float), nullable=True)  # Fallback for non-pgvector; migration uses vector type
+    token_count = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    document = relationship("KnowledgeDocument", back_populates="embeddings")
+
+    __table_args__ = (
+        Index('idx_knowledge_embeddings_doc', 'doc_id'),
+    )
+
+
+class AlertSource(Base):
+    """Alert source configurations (webhooks, polling)"""
+    __tablename__ = 'alert_sources'
+
+    source_id = Column(String(36), primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)
+    source_type = Column(String(20), nullable=False)  # 'webhook', 'polling'
+    system_type = Column(String(50), nullable=False)  # 'prometheus', 'solarwinds', 'generic', 'pagerduty'
+    is_enabled = Column(Boolean, default=True)
+    config = Column(JSONB, default=dict)  # Polling URL, auth, field mappings
+    webhook_secret = Column(String(255), nullable=True)  # For webhook validation
+    polling_interval_seconds = Column(Integer, nullable=True)
+    last_poll_at = Column(DateTime, nullable=True)
+    alert_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Alert(Base):
+    """Incoming alerts from monitoring systems"""
+    __tablename__ = 'alerts'
+
+    alert_id = Column(String(36), primary_key=True)
+    source = Column(String(50), nullable=False)  # 'solarwinds', 'prometheus', 'webhook', 'manual'
+    source_id = Column(String(36), nullable=True)  # FK to alert_sources
+    external_id = Column(String(255), nullable=True)  # ID from source system
+    severity = Column(String(20), nullable=False)  # 'critical', 'warning', 'info'
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    device_name = Column(String(255), nullable=True)
+    device_ip = Column(String(50), nullable=True)
+    alert_type = Column(String(100), nullable=True)  # 'bgp_down', 'interface_down', etc.
+    raw_data = Column(JSONB, default=dict)  # Original alert payload
+    normalized_data = Column(JSONB, default=dict)  # Normalized fields
+    status = Column(String(20), default='new')  # 'new', 'assigned', 'investigating', 'resolved', 'closed', 'suppressed'
+    assigned_agent_id = Column(String(36), nullable=True)
+    assigned_session_id = Column(String(36), nullable=True)
+    incident_id = Column(String(36), ForeignKey('incidents.incident_id', ondelete='SET NULL'), nullable=True)
+    auto_triage = Column(Boolean, default=True)  # Whether to auto-trigger triage agent
+    created_at = Column(DateTime, default=datetime.utcnow)
+    acknowledged_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    acknowledged_by = Column(String(255), nullable=True)
+    resolution_notes = Column(Text, nullable=True)
+
+    incident = relationship("Incident", back_populates="alerts")
+
+    __table_args__ = (
+        Index('idx_alerts_status', 'status'),
+        Index('idx_alerts_device', 'device_name'),
+        Index('idx_alerts_severity', 'severity'),
+        Index('idx_alerts_created', 'created_at'),
+        Index('idx_alerts_incident', 'incident_id'),
+    )
+
+
+class Incident(Base):
+    """Correlated incidents grouping alerts"""
+    __tablename__ = 'incidents'
+
+    incident_id = Column(String(36), primary_key=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    severity = Column(String(20), nullable=False)  # 'critical', 'major', 'minor', 'warning'
+    priority = Column(String(20), default='medium')  # 'critical', 'high', 'medium', 'low'
+    status = Column(String(20), default='open')  # 'open', 'investigating', 'identified', 'resolved', 'closed'
+    incident_type = Column(String(100), nullable=True)  # 'network', 'bgp', 'ospf', 'isis', 'layer2'
+    affected_devices = Column(JSONB, default=list)
+    affected_services = Column(JSONB, default=list)
+    root_cause = Column(Text, nullable=True)
+    resolution = Column(Text, nullable=True)
+    timeline = Column(JSONB, default=list)  # Timeline events [{timestamp, event, actor}]
+    metrics = Column(JSONB, default=dict)  # MTTR, time to detect, etc.
+    assigned_to = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    identified_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    created_by = Column(String(255), nullable=True)
+
+    alerts = relationship("Alert", back_populates="incident")
+
+    __table_args__ = (
+        Index('idx_incidents_status', 'status'),
+        Index('idx_incidents_severity', 'severity'),
+        Index('idx_incidents_created', 'created_at'),
+    )
+
+
+class PendingApproval(Base):
+    """Approval requests for high-risk agent actions"""
+    __tablename__ = 'pending_approvals'
+
+    approval_id = Column(String(36), primary_key=True)
+    session_id = Column(String(36), ForeignKey('agent_sessions.session_id', ondelete='CASCADE'), nullable=False)
+    action_id = Column(String(36), nullable=False)  # Reference to agent_actions
+    action_type = Column(String(50), nullable=False)  # 'device_config', 'execute_mop', 'clear_bgp', etc.
+    description = Column(Text, nullable=False)
+    risk_level = Column(String(20), nullable=False)  # 'medium', 'high', 'critical'
+    target_device = Column(String(255), nullable=True)
+    proposed_action = Column(JSONB, default=dict)  # What will be executed
+    context = Column(JSONB, default=dict)  # Additional context
+    status = Column(String(20), default='pending')  # 'pending', 'approved', 'rejected', 'expired', 'cancelled'
+    requires_count = Column(Integer, default=1)  # Number of approvals needed
+    approved_count = Column(Integer, default=0)
+    approvers = Column(JSONB, default=list)  # [{user, decision, timestamp, reason}]
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    decided_by = Column(String(255), nullable=True)
+    decision_reason = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('idx_pending_approvals_status', 'status'),
+        Index('idx_pending_approvals_session', 'session_id'),
+    )
+
+
+# =============================================================================
+# DEFAULT DATA
+# =============================================================================
+
+
 # Default step types for seeding
 DEFAULT_STEP_TYPES = [
     {
@@ -766,6 +1113,210 @@ DEFAULT_STEP_TYPES = [
                 'default': False
             }
         }
+    },
+]
+
+# Default agent tools for seeding
+DEFAULT_AGENT_TOOLS = [
+    {
+        'tool_id': 'device_show',
+        'name': 'device_show',
+        'description': 'Execute show commands on network devices and optionally parse output with TextFSM/Genie',
+        'category': 'device',
+        'is_builtin': True,
+        'risk_level': 'low',
+        'requires_approval': False,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'device_name': {'type': 'string', 'description': 'Name of the device'},
+                'command': {'type': 'string', 'description': 'Show command to execute'},
+                'parse': {'type': 'boolean', 'description': 'Parse output with TextFSM/Genie', 'default': True}
+            },
+            'required': ['device_name', 'command']
+        }
+    },
+    {
+        'tool_id': 'device_config',
+        'name': 'device_config',
+        'description': 'Push configuration commands to network devices. Requires approval for production.',
+        'category': 'device',
+        'is_builtin': True,
+        'risk_level': 'high',
+        'requires_approval': True,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'device_name': {'type': 'string', 'description': 'Name of the device'},
+                'config_lines': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Configuration commands'},
+                'save_config': {'type': 'boolean', 'description': 'Save config after push', 'default': True}
+            },
+            'required': ['device_name', 'config_lines']
+        }
+    },
+    {
+        'tool_id': 'knowledge_search',
+        'name': 'knowledge_search',
+        'description': 'Search the knowledge base for runbooks, documentation, and troubleshooting guides',
+        'category': 'knowledge',
+        'is_builtin': True,
+        'risk_level': 'low',
+        'requires_approval': False,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'query': {'type': 'string', 'description': 'Search query'},
+                'doc_type': {'type': 'string', 'enum': ['runbook', 'vendor', 'protocol', 'incident', 'all'], 'default': 'all'},
+                'limit': {'type': 'integer', 'description': 'Maximum results', 'default': 5}
+            },
+            'required': ['query']
+        }
+    },
+    {
+        'tool_id': 'execute_mop',
+        'name': 'execute_mop',
+        'description': 'Execute a Method of Procedure (MOP) workflow. Requires approval.',
+        'category': 'workflow',
+        'is_builtin': True,
+        'risk_level': 'high',
+        'requires_approval': True,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'mop_name': {'type': 'string', 'description': 'Name of the MOP'},
+                'devices': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Override devices'},
+                'variables': {'type': 'object', 'description': 'Variables for the MOP'}
+            },
+            'required': ['mop_name']
+        }
+    },
+    {
+        'tool_id': 'handoff',
+        'name': 'handoff',
+        'description': 'Transfer the conversation to a specialist agent (BGP, OSPF, ISIS)',
+        'category': 'workflow',
+        'is_builtin': True,
+        'risk_level': 'low',
+        'requires_approval': False,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'target_agent_type': {'type': 'string', 'enum': ['bgp', 'ospf', 'isis', 'triage'], 'description': 'Specialist type'},
+                'reason': {'type': 'string', 'description': 'Reason for handoff'},
+                'context': {'type': 'object', 'description': 'Context to pass'}
+            },
+            'required': ['target_agent_type', 'reason']
+        }
+    },
+    {
+        'tool_id': 'escalate',
+        'name': 'escalate',
+        'description': 'Escalate to human operator when agent cannot resolve the issue',
+        'category': 'workflow',
+        'is_builtin': True,
+        'risk_level': 'low',
+        'requires_approval': False,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'reason': {'type': 'string', 'description': 'Reason for escalation'},
+                'severity': {'type': 'string', 'enum': ['low', 'medium', 'high', 'critical'], 'default': 'medium'},
+                'findings': {'type': 'object', 'description': 'Diagnostic findings so far'}
+            },
+            'required': ['reason']
+        }
+    },
+    {
+        'tool_id': 'create_incident',
+        'name': 'create_incident',
+        'description': 'Create or update an incident ticket',
+        'category': 'workflow',
+        'is_builtin': True,
+        'risk_level': 'medium',
+        'requires_approval': False,
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'title': {'type': 'string', 'description': 'Incident title'},
+                'description': {'type': 'string', 'description': 'Incident description'},
+                'severity': {'type': 'string', 'enum': ['critical', 'major', 'minor', 'warning']},
+                'affected_devices': {'type': 'array', 'items': {'type': 'string'}}
+            },
+            'required': ['title', 'severity']
+        }
+    },
+]
+
+# Default LLM providers for seeding
+DEFAULT_LLM_PROVIDERS = [
+    {
+        'name': 'anthropic',
+        'display_name': 'Anthropic Claude',
+        'api_key': '',  # Must be configured
+        'api_base_url': 'https://api.anthropic.com',
+        'default_model': 'claude-sonnet-4-20250514',
+        'available_models': [
+            {'id': 'claude-sonnet-4-20250514', 'name': 'Claude Sonnet 4'},
+            {'id': 'claude-opus-4-20250514', 'name': 'Claude Opus 4'},
+            {'id': 'claude-3-5-sonnet-20241022', 'name': 'Claude 3.5 Sonnet'},
+        ],
+        'is_enabled': False,  # Disabled until API key configured
+        'is_default': True,
+    },
+    {
+        'name': 'openrouter',
+        'display_name': 'OpenRouter',
+        'api_key': '',  # Must be configured
+        'api_base_url': 'https://openrouter.ai/api/v1',
+        'default_model': 'anthropic/claude-3.5-sonnet',
+        'available_models': [
+            {'id': 'anthropic/claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet'},
+            {'id': 'anthropic/claude-3-opus', 'name': 'Claude 3 Opus'},
+            {'id': 'openai/gpt-4-turbo', 'name': 'GPT-4 Turbo'},
+            {'id': 'meta-llama/llama-3.1-70b-instruct', 'name': 'Llama 3.1 70B'},
+        ],
+        'is_enabled': False,  # Disabled until API key configured
+        'is_default': False,
+    },
+]
+
+# Default agents for seeding
+DEFAULT_AGENTS = [
+    {
+        'name': 'Triage Agent',
+        'agent_type': 'triage',
+        'description': 'Initial triage agent that analyzes alerts and routes to specialist agents',
+        'is_enabled': True,
+        'is_default': True,
+        'autonomy_level': 'diagnose',
+        'allowed_tools': ['device_show', 'knowledge_search', 'handoff', 'escalate', 'create_incident'],
+    },
+    {
+        'name': 'BGP Specialist',
+        'agent_type': 'bgp',
+        'description': 'BGP troubleshooting specialist for neighbor, route, and policy issues',
+        'is_enabled': True,
+        'is_default': True,
+        'autonomy_level': 'diagnose',
+        'allowed_tools': ['device_show', 'knowledge_search', 'handoff', 'escalate'],
+    },
+    {
+        'name': 'OSPF Specialist',
+        'agent_type': 'ospf',
+        'description': 'OSPF troubleshooting specialist for adjacency, LSA, and routing issues',
+        'is_enabled': True,
+        'is_default': True,
+        'autonomy_level': 'diagnose',
+        'allowed_tools': ['device_show', 'knowledge_search', 'handoff', 'escalate'],
+    },
+    {
+        'name': 'ISIS Specialist',
+        'agent_type': 'isis',
+        'description': 'IS-IS troubleshooting specialist for adjacency and LSP issues',
+        'is_enabled': True,
+        'is_default': True,
+        'autonomy_level': 'diagnose',
+        'allowed_tools': ['device_show', 'knowledge_search', 'handoff', 'escalate'],
     },
 ]
 

@@ -1,0 +1,853 @@
+{% extends "base.html" %}
+
+{% block title %}AI Agents - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-robot"></i> AI Agents
+        </h1>
+        <p class="text-muted">Manage and monitor AI agents for network operations</p>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Active Agents</h6>
+                        <h2 id="active-agents-count">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-circle-check fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Total Agents</h6>
+                        <h2 id="total-agents-count">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-robot fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Sessions Today</h6>
+                        <h2 id="sessions-today">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-comments fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Pending Approvals</h6>
+                        <h2 id="pending-approvals">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-clock fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Agent Panel (collapsible) -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <h6 class="mb-0">
+            <i class="fas fa-plus-circle"></i> Create New Agent
+        </h6>
+        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#create-agent-panel">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse" id="create-agent-panel">
+        <div class="card-body py-2">
+            <form id="create-agent-form">
+                <div class="row">
+                    <div class="col-md-2">
+                        <label for="agent-name" class="form-label small mb-1">Agent Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="agent-name" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="agent-type" class="form-label small mb-1">Agent Type <span class="text-danger">*</span></label>
+                        <select class="form-control form-control-sm" id="agent-type" required>
+                            <option value="">Select type...</option>
+                            <option value="triage">Triage</option>
+                            <option value="bgp">BGP Specialist</option>
+                            <option value="ospf">OSPF Specialist</option>
+                            <option value="isis">IS-IS Specialist</option>
+                            <option value="general">General</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="llm-provider" class="form-label small mb-1">LLM Provider</label>
+                        <select class="form-control form-control-sm" id="llm-provider">
+                            <option value="anthropic">Anthropic</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="openai">OpenAI</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="llm-model" class="form-label small mb-1">Model</label>
+                        <input type="text" class="form-control form-control-sm" id="llm-model" placeholder="claude-3-5-sonnet-20241022">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="agent-description" class="form-label small mb-1">Description</label>
+                        <input type="text" class="form-control form-control-sm" id="agent-description" placeholder="Optional description">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="submit" class="btn btn-sm btn-success w-100">
+                            <i class="fas fa-save"></i> Create
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Agent List -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5><i class="fas fa-list"></i> Agent List</h5>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary" id="refresh-agents-btn" title="Refresh agent list">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+            <input type="text" id="agent-search" class="form-control form-control-sm" placeholder="Search agents..." style="width: 200px;">
+        </div>
+    </div>
+    <div class="card-body">
+        <div id="agents-loading" class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+        <div id="agents-container" style="display: none;">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped table-sm">
+                    <thead class="sticky-top bg-light">
+                        <tr>
+                            <th>Status</th>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>LLM Provider</th>
+                            <th>Model</th>
+                            <th>Sessions</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="agents-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="agents-empty" class="text-center text-muted py-4" style="display: none;">
+            <i class="fas fa-robot fa-3x mb-3"></i>
+            <p>No agents configured. Create one to get started!</p>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Agent Modal -->
+<div class="modal fade" id="editAgentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Agent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-agent-form">
+                    <input type="hidden" id="edit-agent-id">
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="edit-agent-name" class="form-label">Agent Name</label>
+                            <input type="text" class="form-control" id="edit-agent-name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit-agent-type" class="form-label">Agent Type</label>
+                            <select class="form-control" id="edit-agent-type" required>
+                                <option value="triage">Triage</option>
+                                <option value="bgp">BGP Specialist</option>
+                                <option value="ospf">OSPF Specialist</option>
+                                <option value="isis">IS-IS Specialist</option>
+                                <option value="general">General</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="edit-llm-provider" class="form-label">LLM Provider</label>
+                            <select class="form-control" id="edit-llm-provider">
+                                <option value="anthropic">Anthropic</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="openai">OpenAI</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit-llm-model" class="form-label">Model</label>
+                            <input type="text" class="form-control" id="edit-llm-model">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="edit-temperature" class="form-label">Temperature</label>
+                            <input type="number" class="form-control" id="edit-temperature" step="0.1" min="0" max="2" value="0.7">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="edit-max-tokens" class="form-label">Max Tokens</label>
+                            <input type="number" class="form-control" id="edit-max-tokens" value="4096">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="edit-max-iterations" class="form-label">Max Iterations</label>
+                            <input type="number" class="form-control" id="edit-max-iterations" value="10">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="edit-description" class="form-label">Description</label>
+                        <textarea class="form-control" id="edit-description" rows="2"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="edit-system-prompt" class="form-label">Custom System Prompt (optional)</label>
+                        <textarea class="form-control font-monospace" id="edit-system-prompt" rows="4" placeholder="Leave blank to use default for agent type..."></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Enabled Tools</label>
+                        <div id="edit-tools-list" class="row">
+                            <!-- Tools will be populated dynamically -->
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger me-auto" id="delete-agent-btn">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-agent-btn">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chat Modal -->
+<div class="modal fade" id="chatAgentModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-comments"></i> Chat with <span id="chat-agent-name"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="chat-container" style="height: 500px; display: flex; flex-direction: column;">
+                    <div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 1rem;">
+                        <!-- Messages will be populated here -->
+                    </div>
+                    <div class="border-top p-3">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="chat-input" placeholder="Type your message...">
+                            <button class="btn btn-primary" type="button" id="send-message-btn">
+                                <i class="fas fa-paper-plane"></i> Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Sessions Modal -->
+<div class="modal fade" id="agentSessionsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-history"></i> Session History</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="sessions-loading" class="text-center">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+                <div id="sessions-container" style="display: none;">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Session ID</th>
+                                <th>Status</th>
+                                <th>Trigger</th>
+                                <th>Started</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessions-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+$(document).ready(function() {
+    let agents = [];
+    let currentAgentId = null;
+    let socket = null;
+    let currentSessionId = null;
+
+    // Load agents
+    function loadAgents() {
+        $('#agents-loading').show();
+        $('#agents-container').hide();
+        $('#agents-empty').hide();
+
+        $.ajax({
+            url: '/agents/api/agents',
+            method: 'GET',
+            success: function(response) {
+                agents = response.agents || [];
+                renderAgents();
+                updateStats();
+            },
+            error: function(xhr) {
+                console.error('Error loading agents:', xhr);
+                showToast('Error loading agents', 'danger');
+            }
+        });
+    }
+
+    function renderAgents() {
+        const $tbody = $('#agents-body');
+        $tbody.empty();
+
+        if (agents.length === 0) {
+            $('#agents-loading').hide();
+            $('#agents-container').hide();
+            $('#agents-empty').show();
+            return;
+        }
+
+        const searchTerm = $('#agent-search').val().toLowerCase();
+        const filteredAgents = agents.filter(a =>
+            a.agent_name.toLowerCase().includes(searchTerm) ||
+            a.agent_type.toLowerCase().includes(searchTerm)
+        );
+
+        filteredAgents.forEach(function(agent) {
+            const statusBadge = agent.is_active
+                ? '<span class="badge bg-success"><i class="fas fa-circle"></i> Active</span>'
+                : '<span class="badge bg-secondary"><i class="fas fa-circle"></i> Inactive</span>';
+
+            $tbody.append(`
+                <tr>
+                    <td>${statusBadge}</td>
+                    <td><strong>${escapeHtml(agent.agent_name)}</strong></td>
+                    <td><span class="badge bg-info">${escapeHtml(agent.agent_type)}</span></td>
+                    <td>${escapeHtml(agent.llm_provider || 'anthropic')}</td>
+                    <td><code>${escapeHtml(agent.llm_model || 'default')}</code></td>
+                    <td>${agent.session_count || 0}</td>
+                    <td>${formatDate(agent.created_at)}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary chat-btn" data-id="${agent.agent_id}" title="Chat">
+                                <i class="fas fa-comments"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary edit-btn" data-id="${agent.agent_id}" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-outline-${agent.is_active ? 'warning' : 'success'} toggle-btn" data-id="${agent.agent_id}" data-active="${agent.is_active}" title="${agent.is_active ? 'Deactivate' : 'Activate'}">
+                                <i class="fas fa-${agent.is_active ? 'pause' : 'play'}"></i>
+                            </button>
+                            <button class="btn btn-outline-info sessions-btn" data-id="${agent.agent_id}" title="Sessions">
+                                <i class="fas fa-history"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `);
+        });
+
+        $('#agents-loading').hide();
+        $('#agents-container').show();
+    }
+
+    function updateStats() {
+        const activeCount = agents.filter(a => a.is_active).length;
+        $('#active-agents-count').text(activeCount);
+        $('#total-agents-count').text(agents.length);
+
+        // Load pending approvals count
+        $.ajax({
+            url: '/approvals/api/approvals?status=pending',
+            method: 'GET',
+            success: function(response) {
+                $('#pending-approvals').text(response.approvals ? response.approvals.length : 0);
+            }
+        });
+    }
+
+    // Create agent
+    $('#create-agent-form').on('submit', function(e) {
+        e.preventDefault();
+
+        const data = {
+            agent_name: $('#agent-name').val(),
+            agent_type: $('#agent-type').val(),
+            llm_provider: $('#llm-provider').val(),
+            llm_model: $('#llm-model').val() || null,
+            description: $('#agent-description').val() || null
+        };
+
+        $.ajax({
+            url: '/agents/api/agents',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                showToast('Agent created successfully', 'success');
+                $('#create-agent-form')[0].reset();
+                loadAgents();
+            },
+            error: function(xhr) {
+                showToast('Error creating agent: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Edit agent
+    $(document).on('click', '.edit-btn', function() {
+        const agentId = $(this).data('id');
+        const agent = agents.find(a => a.agent_id === agentId);
+        if (!agent) return;
+
+        currentAgentId = agentId;
+        $('#edit-agent-id').val(agentId);
+        $('#edit-agent-name').val(agent.agent_name);
+        $('#edit-agent-type').val(agent.agent_type);
+        $('#edit-llm-provider').val(agent.llm_provider || 'anthropic');
+        $('#edit-llm-model').val(agent.llm_model || '');
+        $('#edit-temperature').val(agent.temperature || 0.7);
+        $('#edit-max-tokens').val(agent.max_tokens || 4096);
+        $('#edit-max-iterations').val(agent.max_iterations || 10);
+        $('#edit-description').val(agent.description || '');
+        $('#edit-system-prompt').val(agent.system_prompt || '');
+
+        // Load available tools
+        loadAvailableTools(agent.enabled_tools || []);
+
+        new bootstrap.Modal($('#editAgentModal')).show();
+    });
+
+    function loadAvailableTools(enabledTools) {
+        $.ajax({
+            url: '/agents/api/tools',
+            method: 'GET',
+            success: function(response) {
+                const $container = $('#edit-tools-list');
+                $container.empty();
+
+                (response.tools || []).forEach(function(tool) {
+                    const isEnabled = enabledTools.includes(tool.name);
+                    $container.append(`
+                        <div class="col-md-4 mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input tool-checkbox" type="checkbox"
+                                       value="${tool.name}" id="tool-${tool.name}" ${isEnabled ? 'checked' : ''}>
+                                <label class="form-check-label" for="tool-${tool.name}">
+                                    ${escapeHtml(tool.name)}
+                                </label>
+                            </div>
+                        </div>
+                    `);
+                });
+            }
+        });
+    }
+
+    // Save agent
+    $('#save-agent-btn').on('click', function() {
+        const enabledTools = [];
+        $('.tool-checkbox:checked').each(function() {
+            enabledTools.push($(this).val());
+        });
+
+        const data = {
+            agent_name: $('#edit-agent-name').val(),
+            agent_type: $('#edit-agent-type').val(),
+            llm_provider: $('#edit-llm-provider').val(),
+            llm_model: $('#edit-llm-model').val() || null,
+            temperature: parseFloat($('#edit-temperature').val()),
+            max_tokens: parseInt($('#edit-max-tokens').val()),
+            max_iterations: parseInt($('#edit-max-iterations').val()),
+            description: $('#edit-description').val() || null,
+            system_prompt: $('#edit-system-prompt').val() || null,
+            enabled_tools: enabledTools
+        };
+
+        $.ajax({
+            url: `/agents/api/agents/${currentAgentId}`,
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                showToast('Agent updated successfully', 'success');
+                bootstrap.Modal.getInstance($('#editAgentModal')).hide();
+                loadAgents();
+            },
+            error: function(xhr) {
+                showToast('Error updating agent: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Delete agent
+    $('#delete-agent-btn').on('click', function() {
+        if (!confirm('Are you sure you want to delete this agent?')) return;
+
+        $.ajax({
+            url: `/agents/api/agents/${currentAgentId}`,
+            method: 'DELETE',
+            success: function(response) {
+                showToast('Agent deleted successfully', 'success');
+                bootstrap.Modal.getInstance($('#editAgentModal')).hide();
+                loadAgents();
+            },
+            error: function(xhr) {
+                showToast('Error deleting agent: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Toggle agent active status
+    $(document).on('click', '.toggle-btn', function() {
+        const agentId = $(this).data('id');
+        const isActive = $(this).data('active');
+
+        $.ajax({
+            url: `/agents/api/agents/${agentId}/toggle`,
+            method: 'POST',
+            success: function(response) {
+                showToast(`Agent ${isActive ? 'deactivated' : 'activated'}`, 'success');
+                loadAgents();
+            },
+            error: function(xhr) {
+                showToast('Error toggling agent: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Chat with agent
+    $(document).on('click', '.chat-btn', function() {
+        const agentId = $(this).data('id');
+        const agent = agents.find(a => a.agent_id === agentId);
+        if (!agent) return;
+
+        currentAgentId = agentId;
+        $('#chat-agent-name').text(agent.agent_name);
+        $('#chat-messages').empty();
+
+        // Initialize WebSocket connection
+        initWebSocket(agentId);
+
+        new bootstrap.Modal($('#chatAgentModal')).show();
+    });
+
+    function initWebSocket(agentId) {
+        if (socket) {
+            socket.disconnect();
+        }
+
+        socket = io('/agents', {
+            transports: ['websocket']
+        });
+
+        socket.on('connect', function() {
+            console.log('WebSocket connected');
+            // Start a new session
+            socket.emit('start_session', {
+                agent_id: agentId
+            });
+        });
+
+        socket.on('session_started', function(data) {
+            currentSessionId = data.session_id;
+            appendMessage('system', `Connected to ${data.agent_name}. Session started.`);
+        });
+
+        socket.on('agent_event', function(event) {
+            handleAgentEvent(event);
+        });
+
+        socket.on('error', function(data) {
+            appendMessage('error', data.message);
+        });
+
+        socket.on('disconnect', function() {
+            appendMessage('system', 'Disconnected from agent.');
+        });
+    }
+
+    function handleAgentEvent(event) {
+        switch(event.type) {
+            case 'thinking':
+                appendMessage('agent-thinking', event.content);
+                break;
+            case 'tool_call':
+                appendMessage('agent-tool', `Using tool: ${event.tool_name}`);
+                break;
+            case 'tool_result':
+                appendMessage('agent-tool-result', `Result: ${JSON.stringify(event.tool_result).substring(0, 200)}...`);
+                break;
+            case 'final_response':
+                appendMessage('agent', event.content);
+                break;
+            case 'approval_required':
+                appendApprovalRequest(event);
+                break;
+        }
+    }
+
+    function appendMessage(type, content) {
+        const $messages = $('#chat-messages');
+        let className = '';
+        let icon = '';
+
+        switch(type) {
+            case 'user':
+                className = 'bg-primary text-white ms-auto';
+                icon = '<i class="fas fa-user"></i>';
+                break;
+            case 'agent':
+                className = 'bg-light';
+                icon = '<i class="fas fa-robot"></i>';
+                break;
+            case 'agent-thinking':
+                className = 'bg-light text-muted fst-italic';
+                icon = '<i class="fas fa-brain"></i>';
+                break;
+            case 'agent-tool':
+                className = 'bg-info text-white';
+                icon = '<i class="fas fa-wrench"></i>';
+                break;
+            case 'agent-tool-result':
+                className = 'bg-secondary text-white small';
+                icon = '<i class="fas fa-reply"></i>';
+                break;
+            case 'system':
+                className = 'bg-dark text-white text-center';
+                icon = '<i class="fas fa-info-circle"></i>';
+                break;
+            case 'error':
+                className = 'bg-danger text-white';
+                icon = '<i class="fas fa-exclamation-triangle"></i>';
+                break;
+        }
+
+        $messages.append(`
+            <div class="d-flex mb-2">
+                <div class="card ${className}" style="max-width: 80%;">
+                    <div class="card-body py-2 px-3">
+                        ${icon} ${escapeHtml(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+
+        $messages.scrollTop($messages[0].scrollHeight);
+    }
+
+    function appendApprovalRequest(event) {
+        const $messages = $('#chat-messages');
+        $messages.append(`
+            <div class="d-flex mb-2">
+                <div class="card bg-warning" style="max-width: 80%;">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-shield-alt"></i> <strong>Approval Required</strong><br>
+                        ${escapeHtml(event.content)}<br>
+                        <small>Tool: ${event.data?.tool_name || 'Unknown'}</small><br>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-success approve-btn" data-approval-id="${event.data?.approval_id}">
+                                <i class="fas fa-check"></i> Approve
+                            </button>
+                            <button class="btn btn-sm btn-danger reject-btn" data-approval-id="${event.data?.approval_id}">
+                                <i class="fas fa-times"></i> Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        $messages.scrollTop($messages[0].scrollHeight);
+    }
+
+    // Send message
+    $('#send-message-btn').on('click', sendMessage);
+    $('#chat-input').on('keypress', function(e) {
+        if (e.which === 13) sendMessage();
+    });
+
+    function sendMessage() {
+        const message = $('#chat-input').val().trim();
+        if (!message || !currentSessionId) return;
+
+        appendMessage('user', message);
+        $('#chat-input').val('');
+
+        socket.emit('send_message', {
+            session_id: currentSessionId,
+            message: message
+        });
+    }
+
+    // Handle approval buttons
+    $(document).on('click', '.approve-btn', function() {
+        const approvalId = $(this).data('approval-id');
+        socket.emit('approve_action', {
+            session_id: currentSessionId,
+            approval_id: approvalId,
+            approved: true
+        });
+        $(this).closest('.card').removeClass('bg-warning').addClass('bg-success text-white');
+        $(this).parent().html('<span>Approved</span>');
+    });
+
+    $(document).on('click', '.reject-btn', function() {
+        const approvalId = $(this).data('approval-id');
+        socket.emit('approve_action', {
+            session_id: currentSessionId,
+            approval_id: approvalId,
+            approved: false,
+            reason: 'Rejected by user'
+        });
+        $(this).closest('.card').removeClass('bg-warning').addClass('bg-danger text-white');
+        $(this).parent().html('<span>Rejected</span>');
+    });
+
+    // Cleanup on modal close
+    $('#chatAgentModal').on('hidden.bs.modal', function() {
+        if (socket) {
+            socket.emit('end_session', { session_id: currentSessionId });
+            socket.disconnect();
+            socket = null;
+        }
+        currentSessionId = null;
+    });
+
+    // View sessions
+    $(document).on('click', '.sessions-btn', function() {
+        const agentId = $(this).data('id');
+
+        $('#sessions-loading').show();
+        $('#sessions-container').hide();
+
+        $.ajax({
+            url: `/agents/api/sessions?agent_id=${agentId}`,
+            method: 'GET',
+            success: function(response) {
+                const $tbody = $('#sessions-body');
+                $tbody.empty();
+
+                (response.sessions || []).forEach(function(session) {
+                    $tbody.append(`
+                        <tr>
+                            <td><code>${session.session_id.substring(0, 8)}...</code></td>
+                            <td><span class="badge bg-${session.status === 'active' ? 'success' : 'secondary'}">${session.status}</span></td>
+                            <td>${session.trigger_type || 'user'}</td>
+                            <td>${formatDate(session.created_at)}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info view-session-btn" data-id="${session.session_id}">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `);
+                });
+
+                $('#sessions-loading').hide();
+                $('#sessions-container').show();
+            },
+            error: function(xhr) {
+                showToast('Error loading sessions', 'danger');
+            }
+        });
+
+        new bootstrap.Modal($('#agentSessionsModal')).show();
+    });
+
+    // Search
+    $('#agent-search').on('input', function() {
+        renderAgents();
+    });
+
+    // Refresh
+    $('#refresh-agents-btn').on('click', loadAgents);
+
+    // Utility functions
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    }
+
+    function showToast(message, type) {
+        // Simple alert for now - could be replaced with proper toast
+        const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+        const $alert = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed" style="top: 70px; right: 20px; z-index: 9999;">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`);
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
+    }
+
+    // Initial load
+    loadAgents();
+});
+</script>
+{% endblock %}

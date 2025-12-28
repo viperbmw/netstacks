@@ -566,6 +566,21 @@ function addEditServiceItem(service, index) {
     // devices is now an array of {name, variables} objects
     const devices = service.devices || [];
 
+    // Get vendor types for this service's template
+    const templateName = service.template || '';
+    const cleanTemplateName = templateName.endsWith('.j2') ? templateName.slice(0, -3) : templateName;
+    const configTemplate = allTemplates.find(t => t.name === cleanTemplateName);
+    const vendorTypes = configTemplate ? (configTemplate.vendor_types || []) : [];
+
+    // Filter devices by vendor types if set
+    let filteredDevices = allDevices;
+    if (vendorTypes && vendorTypes.length > 0) {
+        filteredDevices = allDevices.filter(device => {
+            const platform = device.platform || '';
+            return vendorTypes.some(vt => platform === vt || platform.startsWith(vt));
+        });
+    }
+
     // Get all unique variable names from all devices
     const allVarNames = new Set();
     devices.forEach(device => {
@@ -601,10 +616,10 @@ function addEditServiceItem(service, index) {
             <div class="edit-device-item border rounded p-2 mb-2" data-device-index="${deviceIndex}">
                 <div class="d-flex gap-2 align-items-start flex-wrap">
                     <div style="min-width: 180px; flex: 1 1 180px;">
-                        <label class="form-label small mb-1">Device</label>
+                        <label class="form-label small mb-1">Device${vendorTypes.length > 0 ? ` <span class="badge bg-info">${vendorTypes.join(', ')}</span>` : ''}</label>
                         <select class="form-select form-select-sm edit-service-device" required>
                             <option value="">Select device...</option>
-                            ${allDevices.map(d => `<option value="${d.name}" ${deviceName === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
+                            ${filteredDevices.map(d => `<option value="${d.name}" ${deviceName === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
                         </select>
                     </div>
                     ${varsHtml}
@@ -614,9 +629,9 @@ function addEditServiceItem(service, index) {
         `;
     }).join('');
 
-    // Store variable names for adding new devices
+    // Store variable names and vendor type for adding new devices
     const serviceHtml = `
-        <div class="edit-service-item border rounded p-3 mb-3" data-service-index="${index}" data-var-names="${escapeHtml(varNames.join(','))}" id="${serviceId}">
+        <div class="edit-service-item border rounded p-3 mb-3" data-service-index="${index}" data-var-names="${escapeHtml(varNames.join(','))}" data-vendor-types='${JSON.stringify(vendorTypes)}' id="${serviceId}">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <div>
                     <strong>${escapeHtml(service.name)}</strong>
@@ -639,7 +654,7 @@ function addEditServiceItem(service, index) {
 
     // Add device button
     $serviceItem.find('.add-edit-device-btn').click(function() {
-        addEditDeviceToService(index, varNames);
+        addEditDeviceToService(index, varNames, vendorTypes);
     });
 
     // Remove device buttons
@@ -651,7 +666,7 @@ function addEditServiceItem(service, index) {
 /**
  * Add a device dropdown to a service in edit modal
  */
-function addEditDeviceToService(serviceIndex, varNames) {
+function addEditDeviceToService(serviceIndex, varNames, vendorTypes) {
     const $devicesList = $(`.edit-devices-list[data-service-index="${serviceIndex}"]`);
     const deviceIndex = $devicesList.find('.edit-device-item').length;
 
@@ -659,6 +674,20 @@ function addEditDeviceToService(serviceIndex, varNames) {
     if (!varNames) {
         const varNamesStr = $(`.edit-service-item[data-service-index="${serviceIndex}"]`).data('var-names') || '';
         varNames = varNamesStr ? varNamesStr.split(',') : [];
+    }
+
+    // If vendorTypes not provided, get from data attribute
+    if (!vendorTypes) {
+        vendorTypes = $(`.edit-service-item[data-service-index="${serviceIndex}"]`).data('vendor-types') || [];
+    }
+
+    // Filter devices by vendor types if set
+    let filteredDevices = allDevices;
+    if (vendorTypes && vendorTypes.length > 0) {
+        filteredDevices = allDevices.filter(device => {
+            const platform = device.platform || '';
+            return vendorTypes.some(vt => platform === vt || platform.startsWith(vt));
+        });
     }
 
     // Build per-device variable inputs
@@ -681,10 +710,10 @@ function addEditDeviceToService(serviceIndex, varNames) {
         <div class="edit-device-item border rounded p-2 mb-2" data-device-index="${deviceIndex}">
             <div class="d-flex gap-2 align-items-start flex-wrap">
                 <div style="min-width: 180px; flex: 1 1 180px;">
-                    <label class="form-label small mb-1">Device</label>
+                    <label class="form-label small mb-1">Device${vendorTypes && vendorTypes.length > 0 ? ` <span class="badge bg-info">${vendorTypes.join(', ')}</span>` : ''}</label>
                     <select class="form-select form-select-sm edit-service-device" required>
                         <option value="">Select device...</option>
-                        ${allDevices.map(d => `<option value="${d.name}">${d.display || d.name}</option>`).join('')}
+                        ${filteredDevices.map(d => `<option value="${d.name}">${d.display || d.name}</option>`).join('')}
                     </select>
                 </div>
                 ${varsHtml}
@@ -2424,6 +2453,17 @@ function openDeployFromTemplateModal(templateId) {
                 const apiVariables = template.api_variables || {};
                 const perDeviceVarList = template.per_device_variables || [];
 
+                // Build a map of service index to vendor_types from allTemplates
+                const serviceVendorTypes = template.services.map(service => {
+                    const templateName = service.template || '';
+                    const cleanName = templateName.endsWith('.j2') ? templateName.slice(0, -3) : templateName;
+                    const configTemplate = allTemplates.find(t => t.name === cleanName);
+                    return configTemplate ? (configTemplate.vendor_types || []) : [];
+                });
+
+                // Store vendor types in modal data
+                $('#deployFromTemplateModal').data('service-vendor-types', serviceVendorTypes);
+
                 // Fetch variables from each config template
                 const variablePromises = configTemplateNames.map(templateName => {
                     return $.get(`/api/templates/${encodeURIComponent(templateName)}/variables`)
@@ -2551,6 +2591,19 @@ function addDeployDeviceDropdown(serviceIndex, selectedDevice) {
     const perDeviceVars = $('#deployFromTemplateModal').data('template-per-device-vars') || [];
     const apiVariables = $('#deployFromTemplateModal').data('template-api-vars') || {};
 
+    // Get vendor types for this service to filter devices
+    const serviceVendorTypes = $('#deployFromTemplateModal').data('service-vendor-types') || [];
+    const vendorTypes = serviceVendorTypes[serviceIndex] || [];
+
+    // Filter devices by vendor types if set
+    let filteredDevices = allDevices;
+    if (vendorTypes && vendorTypes.length > 0) {
+        filteredDevices = allDevices.filter(device => {
+            const platform = device.platform || '';
+            return vendorTypes.some(vt => platform === vt || platform.startsWith(vt));
+        });
+    }
+
     // Build per-device variable inputs as inline columns
     let variablesColumnsHtml = '';
     if (perDeviceVars.length > 0) {
@@ -2584,16 +2637,22 @@ function addDeployDeviceDropdown(serviceIndex, selectedDevice) {
         });
     }
 
+    // Show warning if no matching devices
+    const noDevicesMsg = filteredDevices.length === 0 && vendorTypes && vendorTypes.length > 0
+        ? `<option value="" disabled>No ${vendorTypes.join('/')} devices</option>`
+        : '';
+
     const deviceHtml = `
         <div class="deploy-device-dropdown-item mb-2 p-2 border rounded" data-device-instance="${deviceInstanceId}">
             <div class="d-flex gap-2 align-items-start flex-wrap">
                 <div style="min-width: 200px; flex: 1 1 200px;">
-                    <label class="form-label small mb-1">Device</label>
+                    <label class="form-label small mb-1">Device${vendorTypes && vendorTypes.length > 0 ? ` <span class="badge bg-info">${vendorTypes.join(', ')}</span>` : ''}</label>
                     <select class="form-select form-select-sm deploy-service-device-select"
                             data-service-index="${serviceIndex}"
                             data-device-instance="${deviceInstanceId}" required>
                         <option value="">Select device...</option>
-                        ${allDevices.map(d => `<option value="${d.name}" ${selectedDevice === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
+                        ${noDevicesMsg}
+                        ${filteredDevices.map(d => `<option value="${d.name}" ${selectedDevice === d.name ? 'selected' : ''}>${d.display || d.name}</option>`).join('')}
                     </select>
                 </div>
                 ${variablesColumnsHtml}

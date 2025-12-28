@@ -66,48 +66,46 @@ def platform():
 
 
 # ============================================================================
-# AI Feature Pages (Placeholders)
+# AI Feature Pages - Redirect to proper blueprints
 # ============================================================================
 
 @pages_bp.route('/agents')
 @login_required
 def agents():
-    """AI Agents management page."""
-    return render_template('ai_placeholder.html',
-        page_title='AI Agents',
-        page_icon='robot',
-        page_description='Configure and manage AI-powered automation agents'
-    )
+    """Redirect to agents blueprint."""
+    return redirect(url_for('agents.agents_page'))
 
 
 @pages_bp.route('/incidents')
 @login_required
 def incidents():
-    """Incidents and alerts page."""
-    return render_template('ai_placeholder.html',
-        page_title='Incidents',
-        page_icon='exclamation-triangle',
-        page_description='View and manage network incidents and alerts'
-    )
+    """Redirect to incidents page."""
+    return redirect(url_for('alerts.incidents_page'))
 
 
 @pages_bp.route('/knowledge')
 @login_required
 def knowledge():
-    """Knowledge base page."""
-    return render_template('ai_placeholder.html',
-        page_title='Knowledge Base',
-        page_icon='book-open',
-        page_description='Documentation and runbooks for AI agents'
-    )
+    """Redirect to knowledge blueprint."""
+    return redirect(url_for('knowledge.knowledge_page'))
 
 
 @pages_bp.route('/tools')
 @login_required
 def tools():
     """AI Tools management page."""
-    return render_template('ai_placeholder.html',
-        page_title='Tools',
-        page_icon='wrench',
-        page_description='Configure tools available to AI agents'
-    )
+    return render_template('tools.html')
+
+
+@pages_bp.route('/alerts')
+@login_required
+def alerts():
+    """Redirect to alerts blueprint."""
+    return redirect(url_for('alerts.alerts_page'))
+
+
+@pages_bp.route('/approvals')
+@login_required
+def approvals():
+    """Redirect to approvals blueprint."""
+    return redirect(url_for('approvals.approvals_page'))

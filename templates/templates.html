@@ -60,14 +60,33 @@
                     <input type="text" class="form-control" id="template-description" placeholder="Brief description of what this template does">
                 </div>
 
-                <div class="mb-3">
-                    <label for="template-type" class="form-label">Template Type</label>
-                    <select class="form-select" id="template-type">
-                        <option value="deploy">Deploy - Adds configuration to device</option>
-                        <option value="delete">Delete - Removes configuration from device</option>
-                        <option value="validation">Validation - Validates configuration on device</option>
-                    </select>
-                    <small class="text-muted">Deploy templates can have validation and delete templates linked. Delete and validation templates are standalone.</small>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="template-type" class="form-label">Template Type</label>
+                        <select class="form-select" id="template-type">
+                            <option value="deploy">Deploy - Adds configuration</option>
+                            <option value="delete">Delete - Removes configuration</option>
+                            <option value="validation">Validation - Validates config</option>
+                        </select>
+                        <small class="text-muted">Deploy templates can have validation and delete templates linked.</small>
+                    </div>
+                    <div class="col-6">
+                        <label for="vendor-type" class="form-label">Vendor/Platform Types</label>
+                        <select class="form-select" id="vendor-type" multiple size="4">
+                            <option value="cisco_ios">Cisco IOS</option>
+                            <option value="cisco_xe">Cisco IOS-XE</option>
+                            <option value="cisco_xr">Cisco IOS-XR</option>
+                            <option value="cisco_nxos">Cisco NX-OS</option>
+                            <option value="juniper_junos">Juniper JunOS</option>
+                            <option value="arista_eos">Arista EOS</option>
+                            <option value="huawei">Huawei VRP</option>
+                            <option value="nokia_sros">Nokia SR OS</option>
+                            <option value="paloalto_panos">Palo Alto PAN-OS</option>
+                            <option value="fortinet">Fortinet FortiOS</option>
+                            <option value="linux">Linux</option>
+                        </select>
+                        <small class="text-muted">Hold Ctrl/Cmd to select multiple. Leave empty for any device.</small>
+                    </div>
                 </div>
 
                 <div class="row mb-3" id="deploy-template-options">

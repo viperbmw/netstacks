@@ -207,6 +207,7 @@ def get_template_metadata(name: str) -> Optional[Dict]:
                 'name': template.name,
                 'content': template.content,
                 'type': template.type,
+                'vendor_types': template.vendor_types or [],
                 'validation_template': template.validation_template,
                 'delete_template': template.delete_template,
                 'description': template.description,
@@ -231,6 +232,7 @@ def save_template(name: str, content: str, metadata: Dict = None):
             template.content = content
             if metadata:
                 template.type = metadata.get('type', template.type)
+                template.vendor_types = metadata.get('vendor_types', template.vendor_types)
                 template.validation_template = metadata.get('validation_template', template.validation_template)
                 template.delete_template = metadata.get('delete_template', template.delete_template)
                 template.description = metadata.get('description', template.description)
@@ -240,6 +242,7 @@ def save_template(name: str, content: str, metadata: Dict = None):
                 name=name,
                 content=content,
                 type=metadata.get('type', 'deploy') if metadata else 'deploy',
+                vendor_types=metadata.get('vendor_types') if metadata else None,
                 validation_template=metadata.get('validation_template') if metadata else None,
                 delete_template=metadata.get('delete_template') if metadata else None,
                 description=metadata.get('description') if metadata else None
@@ -252,6 +255,7 @@ def save_template_metadata(name: str, metadata: Dict):
         template = session.query(Template).filter(Template.name == name).first()
         if template:
             template.type = metadata.get('type', 'deploy')
+            template.vendor_types = metadata.get('vendor_types')
             template.validation_template = metadata.get('validation_template')
             template.delete_template = metadata.get('delete_template')
             template.description = metadata.get('description')
@@ -260,6 +264,7 @@ def save_template_metadata(name: str, metadata: Dict):
             session.add(Template(
                 name=name,
                 type=metadata.get('type', 'deploy'),
+                vendor_types=metadata.get('vendor_types'),
                 validation_template=metadata.get('validation_template'),
                 delete_template=metadata.get('delete_template'),
                 description=metadata.get('description')
@@ -281,6 +286,7 @@ def get_all_templates() -> List[Dict]:
                 'name': t.name,
                 'content': t.content,
                 'type': t.type,
+                'vendor_types': t.vendor_types or [],
                 'validation_template': t.validation_template,
                 'delete_template': t.delete_template,
                 'description': t.description,

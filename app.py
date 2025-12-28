@@ -1788,6 +1788,7 @@ def create_template():
         # Build metadata
         metadata = {
             'type': data.get('type', 'deploy'),
+            'vendor_types': data.get('vendor_types'),
             'description': data.get('description'),
             'validation_template': data.get('validation_template'),
             'delete_template': data.get('delete_template')
@@ -1821,6 +1822,7 @@ def update_template_metadata(template_name):
 
         metadata = {
             'type': data.get('type', 'deploy'),  # deploy, delete, or validation
+            'vendor_types': data.get('vendor_types'),
             'validation_template': data.get('validation_template'),
             'delete_template': data.get('delete_template'),
             'description': data.get('description'),

@@ -1,0 +1,509 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Chat - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row h-100">
+    <!-- Agent Selection Sidebar -->
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-robot"></i> Select Agent</h5>
+            </div>
+            <div class="card-body p-0">
+                <div id="agents-loading" class="text-center p-4">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+                <div class="list-group list-group-flush" id="agents-list">
+                    <!-- Agents will be populated here -->
+                </div>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">
+                    <i class="fas fa-circle text-success"></i> Active
+                    <i class="fas fa-circle text-secondary ms-2"></i> Inactive
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="col-md-9">
+        <div class="card h-100" style="min-height: 600px;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-comments"></i>
+                    <span id="chat-title">Select an agent to start</span>
+                </h5>
+                <div id="session-controls" style="display: none;">
+                    <span class="badge bg-success me-2" id="connection-status">
+                        <i class="fas fa-plug"></i> Connected
+                    </span>
+                    <button class="btn btn-sm btn-outline-danger" id="end-session-btn">
+                        <i class="fas fa-times"></i> End Session
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0 d-flex flex-column" style="height: calc(100% - 120px);">
+                <!-- Welcome State -->
+                <div id="chat-welcome" class="text-center text-muted py-5">
+                    <i class="fas fa-robot fa-5x mb-4"></i>
+                    <h4>Welcome to Agent Chat</h4>
+                    <p>Select an agent from the sidebar to start a conversation.</p>
+                </div>
+
+                <!-- Chat Messages -->
+                <div id="chat-messages" class="flex-grow-1 overflow-auto p-3" style="display: none;">
+                    <!-- Messages will be appended here -->
+                </div>
+
+                <!-- Typing Indicator -->
+                <div id="typing-indicator" class="px-3 pb-2" style="display: none;">
+                    <div class="d-flex align-items-center text-muted">
+                        <div class="spinner-grow spinner-grow-sm me-2" role="status"></div>
+                        <small>Agent is thinking...</small>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="chat-input"
+                           placeholder="Type your message..." disabled>
+                    <button class="btn btn-primary" type="button" id="send-btn" disabled>
+                        <i class="fas fa-paper-plane"></i> Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+$(document).ready(function() {
+    let agents = [];
+    let socket = null;
+    let currentSessionId = null;
+    let currentAgentId = null;
+
+    // Load available agents
+    function loadAgents() {
+        $.ajax({
+            url: '/agents/api/agents',
+            method: 'GET',
+            success: function(response) {
+                agents = response.agents || [];
+                renderAgentsList();
+                $('#agents-loading').hide();
+            },
+            error: function(xhr) {
+                console.error('Error loading agents:', xhr);
+                $('#agents-loading').html('<p class="text-danger">Error loading agents</p>');
+            }
+        });
+    }
+
+    function renderAgentsList() {
+        const $list = $('#agents-list');
+        $list.empty();
+
+        if (agents.length === 0) {
+            $list.html('<p class="text-center text-muted p-3">No agents configured</p>');
+            return;
+        }
+
+        agents.forEach(function(agent) {
+            const statusIcon = agent.is_active
+                ? '<i class="fas fa-circle text-success"></i>'
+                : '<i class="fas fa-circle text-secondary"></i>';
+
+            $list.append(`
+                <a href="#" class="list-group-item list-group-item-action agent-item ${!agent.is_active ? 'text-muted' : ''}"
+                   data-id="${agent.agent_id}" data-name="${escapeHtml(agent.agent_name)}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(agent.agent_name)}</strong><br>
+                            <small class="text-muted">${escapeHtml(agent.agent_type)}</small>
+                        </div>
+                        ${statusIcon}
+                    </div>
+                </a>
+            `);
+        });
+    }
+
+    // Select agent and start session
+    $(document).on('click', '.agent-item', function(e) {
+        e.preventDefault();
+
+        const agentId = $(this).data('id');
+        const agentName = $(this).data('name');
+
+        // Highlight selected
+        $('.agent-item').removeClass('active');
+        $(this).addClass('active');
+
+        // If already in a session, end it first
+        if (socket && currentSessionId) {
+            socket.emit('end_session', { session_id: currentSessionId });
+            socket.disconnect();
+        }
+
+        // Update UI
+        $('#chat-title').html(`<i class="fas fa-robot"></i> ${escapeHtml(agentName)}`);
+        $('#chat-welcome').hide();
+        $('#chat-messages').show().empty();
+        $('#session-controls').show();
+
+        // Start new session
+        startSession(agentId);
+    });
+
+    function startSession(agentId) {
+        currentAgentId = agentId;
+
+        // Connect to WebSocket
+        socket = io('/agents', {
+            transports: ['websocket']
+        });
+
+        socket.on('connect', function() {
+            $('#connection-status')
+                .removeClass('bg-danger bg-warning')
+                .addClass('bg-success')
+                .html('<i class="fas fa-plug"></i> Connected');
+
+            // Start agent session
+            socket.emit('start_session', {
+                agent_id: agentId
+            });
+        });
+
+        socket.on('session_started', function(data) {
+            currentSessionId = data.session_id;
+            appendSystemMessage(`Session started with ${data.agent_name}`);
+
+            // Enable input
+            $('#chat-input').prop('disabled', false).focus();
+            $('#send-btn').prop('disabled', false);
+        });
+
+        socket.on('agent_event', function(event) {
+            handleAgentEvent(event);
+        });
+
+        socket.on('approval_required', function(data) {
+            appendApprovalRequest(data);
+        });
+
+        socket.on('error', function(data) {
+            appendErrorMessage(data.message);
+        });
+
+        socket.on('disconnect', function() {
+            $('#connection-status')
+                .removeClass('bg-success bg-warning')
+                .addClass('bg-danger')
+                .html('<i class="fas fa-plug"></i> Disconnected');
+
+            $('#chat-input').prop('disabled', true);
+            $('#send-btn').prop('disabled', true);
+        });
+
+        socket.on('connect_error', function() {
+            $('#connection-status')
+                .removeClass('bg-success bg-danger')
+                .addClass('bg-warning')
+                .html('<i class="fas fa-exclamation-triangle"></i> Reconnecting...');
+        });
+    }
+
+    function handleAgentEvent(event) {
+        $('#typing-indicator').hide();
+
+        switch(event.type) {
+            case 'processing':
+                $('#typing-indicator').show();
+                break;
+            case 'thinking':
+                appendAgentThinking(event.content);
+                break;
+            case 'tool_call':
+                appendToolCall(event.tool_name, event.tool_args);
+                break;
+            case 'tool_result':
+                appendToolResult(event.tool_name, event.tool_result);
+                break;
+            case 'final_response':
+                appendAgentMessage(event.content);
+                break;
+            case 'handoff':
+                appendHandoffMessage(event.data);
+                break;
+            case 'approval_required':
+                appendApprovalRequest(event);
+                break;
+        }
+    }
+
+    // Message rendering functions
+    function appendUserMessage(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex justify-content-end mb-3">
+                <div class="card bg-primary text-white" style="max-width: 70%;">
+                    <div class="card-body py-2 px-3">
+                        ${escapeHtml(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendAgentMessage(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-3">
+                <div class="card bg-light" style="max-width: 70%;">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-robot text-primary me-1"></i>
+                        ${formatMessage(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendAgentThinking(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-2">
+                <div class="card border-secondary" style="max-width: 70%;">
+                    <div class="card-body py-1 px-3 text-muted small">
+                        <i class="fas fa-brain me-1"></i>
+                        <em>${escapeHtml(content)}</em>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendToolCall(toolName, toolArgs) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-2">
+                <div class="card bg-info text-white" style="max-width: 70%;">
+                    <div class="card-body py-1 px-3 small">
+                        <i class="fas fa-wrench me-1"></i>
+                        <strong>Using tool:</strong> ${escapeHtml(toolName)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendToolResult(toolName, result) {
+        const resultStr = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
+        const truncated = resultStr.length > 300 ? resultStr.substring(0, 300) + '...' : resultStr;
+
+        $('#chat-messages').append(`
+            <div class="d-flex mb-2">
+                <div class="card bg-secondary text-white" style="max-width: 70%;">
+                    <div class="card-body py-1 px-3 small">
+                        <i class="fas fa-reply me-1"></i>
+                        <strong>${escapeHtml(toolName)} result:</strong>
+                        <pre class="mb-0 mt-1" style="font-size: 0.8em; white-space: pre-wrap;">${escapeHtml(truncated)}</pre>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendSystemMessage(content) {
+        $('#chat-messages').append(`
+            <div class="text-center mb-3">
+                <span class="badge bg-dark">
+                    <i class="fas fa-info-circle me-1"></i>
+                    ${escapeHtml(content)}
+                </span>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendErrorMessage(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-3">
+                <div class="card bg-danger text-white" style="max-width: 70%;">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        ${escapeHtml(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendHandoffMessage(data) {
+        $('#chat-messages').append(`
+            <div class="text-center mb-3">
+                <div class="card bg-warning d-inline-block">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-exchange-alt me-1"></i>
+                        <strong>Handoff to ${escapeHtml(data.handoff?.target_agent || 'specialist')}</strong><br>
+                        <small>${escapeHtml(data.handoff?.summary || '')}</small>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendApprovalRequest(event) {
+        const approvalId = event.data?.approval_id || event.approval_id;
+        const toolName = event.data?.tool_name || event.tool_name || 'Unknown action';
+        const riskLevel = event.data?.risk_level || event.risk_level || 'high';
+        const message = event.content || event.message || 'This action requires approval';
+
+        $('#chat-messages').append(`
+            <div class="d-flex mb-3">
+                <div class="card border-warning" style="max-width: 80%;">
+                    <div class="card-header bg-warning text-dark py-1">
+                        <i class="fas fa-shield-alt me-1"></i>
+                        <strong>Approval Required</strong>
+                        <span class="badge bg-${riskLevel === 'critical' ? 'danger' : 'warning'} float-end">${riskLevel}</span>
+                    </div>
+                    <div class="card-body py-2">
+                        <p class="mb-2">${escapeHtml(message)}</p>
+                        <small class="text-muted">Tool: ${escapeHtml(toolName)}</small>
+                        <div class="mt-3">
+                            <button class="btn btn-success btn-sm approve-btn" data-id="${approvalId}">
+                                <i class="fas fa-check"></i> Approve
+                            </button>
+                            <button class="btn btn-danger btn-sm ms-2 reject-btn" data-id="${approvalId}">
+                                <i class="fas fa-times"></i> Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    // Handle approval buttons
+    $(document).on('click', '.approve-btn', function() {
+        const approvalId = $(this).data('id');
+        const $card = $(this).closest('.card');
+
+        socket.emit('approve_action', {
+            session_id: currentSessionId,
+            approval_id: approvalId,
+            approved: true
+        });
+
+        $card.removeClass('border-warning').addClass('border-success');
+        $card.find('.card-header').removeClass('bg-warning').addClass('bg-success text-white');
+        $card.find('.card-body .mt-3').html('<span class="text-success"><i class="fas fa-check"></i> Approved</span>');
+    });
+
+    $(document).on('click', '.reject-btn', function() {
+        const approvalId = $(this).data('id');
+        const reason = prompt('Rejection reason (optional):') || 'Rejected by user';
+        const $card = $(this).closest('.card');
+
+        socket.emit('approve_action', {
+            session_id: currentSessionId,
+            approval_id: approvalId,
+            approved: false,
+            reason: reason
+        });
+
+        $card.removeClass('border-warning').addClass('border-danger');
+        $card.find('.card-header').removeClass('bg-warning').addClass('bg-danger text-white');
+        $card.find('.card-body .mt-3').html('<span class="text-danger"><i class="fas fa-times"></i> Rejected</span>');
+    });
+
+    // Send message
+    function sendMessage() {
+        const message = $('#chat-input').val().trim();
+        if (!message || !currentSessionId) return;
+
+        appendUserMessage(message);
+        $('#chat-input').val('');
+        $('#typing-indicator').show();
+
+        socket.emit('send_message', {
+            session_id: currentSessionId,
+            message: message
+        });
+    }
+
+    $('#send-btn').on('click', sendMessage);
+    $('#chat-input').on('keypress', function(e) {
+        if (e.which === 13) sendMessage();
+    });
+
+    // End session
+    $('#end-session-btn').on('click', function() {
+        if (!confirm('End this chat session?')) return;
+
+        if (socket && currentSessionId) {
+            socket.emit('end_session', { session_id: currentSessionId });
+            socket.disconnect();
+        }
+
+        resetChat();
+    });
+
+    function resetChat() {
+        socket = null;
+        currentSessionId = null;
+        currentAgentId = null;
+
+        $('.agent-item').removeClass('active');
+        $('#chat-title').text('Select an agent to start');
+        $('#chat-messages').hide().empty();
+        $('#chat-welcome').show();
+        $('#session-controls').hide();
+        $('#chat-input').prop('disabled', true).val('');
+        $('#send-btn').prop('disabled', true);
+        $('#typing-indicator').hide();
+    }
+
+    // Utility functions
+    function scrollToBottom() {
+        const $messages = $('#chat-messages');
+        $messages.scrollTop($messages[0].scrollHeight);
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMessage(content) {
+        // Basic markdown-like formatting
+        let html = escapeHtml(content);
+        // Code blocks
+        html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-dark text-light p-2 rounded">$1</pre>');
+        // Inline code
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // Bold
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // Line breaks
+        html = html.replace(/\n/g, '<br>');
+        return html;
+    }
+
+    // Initial load
+    loadAgents();
+});
+</script>
+{% endblock %}

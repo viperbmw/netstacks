@@ -340,6 +340,7 @@ function createNewTemplate(suggestedName = '', relatedTo = null, relationType = 
     $('#editor-mode-title').text('Create New Template');
     $('#template-name').val(suggestedName).prop('disabled', false);
     $('#template-description').val('');
+    $('#vendor-type').val('');
     $('#validation-template').val('');
     $('#delete-template-select').val('');
     editor.setValue('');
@@ -411,6 +412,10 @@ function loadTemplate(templateName) {
                     $('#template-description').val(templateObj.description || '');
                     $('#template-type').val(templateType);
 
+                    // Handle vendor_types as array (multi-select)
+                    const vendorTypes = templateObj.vendor_types || [];
+                    $('#vendor-type').val(vendorTypes);
+
                     // Show/hide deploy options based on type
                     // Templates without a type should be treated as deploy templates
                     if (templateType === 'deploy') {
@@ -473,6 +478,7 @@ function saveTemplate() {
     let templateName = $('#template-name').val().trim();
     const description = $('#template-description').val().trim();
     const templateType = $('#template-type').val();
+    const vendorTypes = $('#vendor-type').val() || []; // Returns array for multi-select
     const validationTemplate = $('#validation-template').val();
     const deleteTemplate = $('#delete-template-select').val();
 
@@ -508,6 +514,7 @@ function saveTemplate() {
         name: templateName,
         base64_payload: base64Content,
         description: description || null,
+        vendor_types: vendorTypes.length > 0 ? vendorTypes : null,
         validation_template: validationTemplate || null,
         delete_template: deleteTemplate || null
     };
@@ -524,6 +531,7 @@ function saveTemplate() {
             // Template saved successfully, now save metadata
             const metadataData = {
                 type: templateType || 'deploy',
+                vendor_types: vendorTypes.length > 0 ? vendorTypes : null,
                 description: description || null,
                 validation_template: validationTemplate || null,
                 delete_template: deleteTemplate || null

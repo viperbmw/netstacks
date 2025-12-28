@@ -1,5 +1,9 @@
 // Deploy page JavaScript for NetStacks
 
+// Store all devices and templates globally for filtering
+let allDevices = [];
+let allTemplates = [];
+
 $(document).ready(function() {
     loadDevices();
 
@@ -121,6 +125,9 @@ function loadDevices() {
 }
 
 function populateDeviceDropdowns(devices) {
+    // Store devices globally for filtering
+    allDevices = devices;
+
     const getSelect = $('#get-device');
     const setSelect = $('#set-device');
     const templateSelect = $('#template-device');
@@ -143,12 +150,61 @@ function populateDeviceDropdowns(devices) {
     devices.forEach(function(device) {
         const displayName = device.display || device.name;
         const deviceValue = device.name;
+        const platform = device.platform || '';
 
-        const option = `<option value="${deviceValue}" data-name="${device.name}">${displayName}</option>`;
+        // Include platform in data attribute for filtering
+        const option = `<option value="${deviceValue}" data-name="${device.name}" data-platform="${platform}">${displayName}</option>`;
         getSelect.append(option);
         setSelect.append(option);
         templateSelect.append(option);
     });
+}
+
+/**
+ * Filter template device dropdown based on selected template's vendor_types
+ * @param {Array} vendorTypes - Array of allowed vendor types
+ */
+function filterTemplateDevices(vendorTypes) {
+    const templateSelect = $('#template-device');
+    const currentValue = templateSelect.val();
+
+    templateSelect.empty();
+    templateSelect.append('<option value="">Select a device...</option>');
+
+    if (allDevices.length === 0) {
+        templateSelect.append('<option value="">No devices found</option>');
+        return;
+    }
+
+    let matchingDevices = allDevices;
+
+    // If vendor_types is set (non-empty array), filter devices by platform
+    if (vendorTypes && vendorTypes.length > 0) {
+        matchingDevices = allDevices.filter(device => {
+            const platform = device.platform || '';
+            // Match if platform matches any of the vendor types
+            return vendorTypes.some(vt => platform === vt || platform.startsWith(vt));
+        });
+
+        if (matchingDevices.length === 0) {
+            templateSelect.append(`<option value="" disabled>No matching devices found</option>`);
+            return;
+        }
+    }
+
+    matchingDevices.forEach(function(device) {
+        const displayName = device.display || device.name;
+        const deviceValue = device.name;
+        const platform = device.platform || '';
+
+        const option = `<option value="${deviceValue}" data-name="${device.name}" data-platform="${platform}">${displayName}</option>`;
+        templateSelect.append(option);
+    });
+
+    // Restore previous value if still valid
+    if (currentValue && templateSelect.find(`option[value="${currentValue}"]`).length > 0) {
+        templateSelect.val(currentValue);
+    }
 }
 
 function loadTemplates() {
@@ -161,9 +217,14 @@ function loadTemplates() {
             select.append('<option value="">Select a template...</option>');
 
             if (data.success && data.templates && data.templates.length > 0) {
+                // Store templates globally
+                allTemplates = data.templates;
+
                 data.templates.forEach(function(template) {
                     const templateName = template.name || template;
-                    select.append(`<option value="${templateName}">${templateName}</option>`);
+                    const vendorTypes = template.vendor_types || [];
+                    // Store vendor_types as JSON in data attribute
+                    select.append(`<option value="${templateName}" data-vendor-types='${JSON.stringify(vendorTypes)}'>${templateName}</option>`);
                 });
             } else {
                 select.append('<option value="">No templates found</option>');
@@ -177,6 +238,22 @@ function loadTemplates() {
 // Load templates when the template tab is shown
 $('#template-tab').on('shown.bs.tab', function() {
     loadTemplates();
+});
+
+// Filter devices when template is selected
+$('#template-select').on('change', function() {
+    const selectedOption = $(this).find('option:selected');
+    const vendorTypesStr = selectedOption.data('vendor-types') || '';
+    // Parse vendor types - could be JSON array or empty string
+    let vendorTypes = [];
+    if (vendorTypesStr) {
+        try {
+            vendorTypes = typeof vendorTypesStr === 'string' ? JSON.parse(vendorTypesStr) : vendorTypesStr;
+        } catch (e) {
+            vendorTypes = [];
+        }
+    }
+    filterTemplateDevices(vendorTypes);
 });
 
 function resetStatus() {

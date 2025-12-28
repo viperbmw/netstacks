@@ -16,6 +16,10 @@ from .settings import settings_bp
 from .admin import admin_bp
 from .deploy import deploy_bp
 from .api import api_bp
+from .agents import agents_bp
+from .alerts import alerts_bp
+from .knowledge import knowledge_bp
+from .approvals import approvals_bp
 
 
 def register_blueprints(app):
@@ -31,3 +35,7 @@ def register_blueprints(app):
     app.register_blueprint(admin_bp)
     app.register_blueprint(deploy_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(agents_bp)
+    app.register_blueprint(alerts_bp)
+    app.register_blueprint(knowledge_bp)
+    app.register_blueprint(approvals_bp)

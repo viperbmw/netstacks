@@ -71,33 +71,38 @@ def login():
             error='Username and password are required'
         )
 
-    # Authenticate user through all enabled methods
-    success, user_info, auth_method = auth_service.authenticate(
-        username, password
-    )
+    # Try auth microservice first
+    ms_success, ms_user_info = microservice_client.login(username, password)
 
-    if not success:
-        return render_template(
-            'login.html',
-            error='Invalid username or password'
+    if ms_success:
+        # Login successful via microservice - JWT tokens stored in session
+        session['username'] = username
+        session['auth_method'] = ms_user_info.get('auth_method', 'local') if ms_user_info else 'local'
+        session['login_time'] = datetime.now().isoformat()
+        if ms_user_info:
+            session['user_info'] = ms_user_info
+        log.info(f"User {username} logged in successfully via auth microservice")
+    else:
+        # Fallback to local auth service if microservice unavailable
+        success, user_info, auth_method = auth_service.authenticate(
+            username, password
         )
 
-    # Login successful - create session
-    session['username'] = username
-    session['auth_method'] = auth_method
-    session['login_time'] = datetime.now().isoformat()
+        if not success:
+            return render_template(
+                'login.html',
+                error='Invalid username or password'
+            )
 
-    if user_info:
-        session['user_info'] = user_info
+        # Login successful - create session
+        session['username'] = username
+        session['auth_method'] = auth_method
+        session['login_time'] = datetime.now().isoformat()
 
-    # Get JWT token from auth microservice for API calls
-    jwt_success, jwt_user = microservice_client.login(username, password)
-    if jwt_success:
-        log.info(f"JWT token obtained for user {username}")
-    else:
-        log.warning(f"Failed to get JWT token for user {username}, API proxy may not work")
+        if user_info:
+            session['user_info'] = user_info
 
-    log.info(f"User {username} logged in successfully via {auth_method}")
+        log.info(f"User {username} logged in successfully via local {auth_method}")
 
     # Redirect to dashboard
     return redirect(url_for('pages.index'))

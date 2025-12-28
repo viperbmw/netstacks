@@ -1,0 +1,606 @@
+{% extends "base.html" %}
+
+{% block title %}Alerts - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-bell"></i> Alerts
+        </h1>
+        <p class="text-muted">Monitor and manage incoming alerts from monitoring systems</p>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Critical</h6>
+                        <h2 id="critical-count">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-fire fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Warning</h6>
+                        <h2 id="warning-count">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-exclamation-triangle fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Info</h6>
+                        <h2 id="info-count">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-info-circle fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Acknowledged</h6>
+                        <h2 id="ack-count">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Panel -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <h6 class="mb-0">
+            <i class="fas fa-filter"></i> Filters
+        </h6>
+        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#filter-panel">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse show" id="filter-panel">
+        <div class="card-body py-2">
+            <div class="row">
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Severity</label>
+                    <select class="form-control form-control-sm" id="filter-severity">
+                        <option value="">All Severities</option>
+                        <option value="critical">Critical</option>
+                        <option value="warning">Warning</option>
+                        <option value="info">Info</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Status</label>
+                    <select class="form-control form-control-sm" id="filter-status">
+                        <option value="">All Status</option>
+                        <option value="new">New</option>
+                        <option value="acknowledged">Acknowledged</option>
+                        <option value="resolved">Resolved</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Source</label>
+                    <select class="form-control form-control-sm" id="filter-source">
+                        <option value="">All Sources</option>
+                        <option value="prometheus">Prometheus</option>
+                        <option value="solarwinds">SolarWinds</option>
+                        <option value="generic">Generic</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Search</label>
+                    <input type="text" class="form-control form-control-sm" id="alert-search" placeholder="Search alerts...">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Limit</label>
+                    <select class="form-control form-control-sm" id="filter-limit">
+                        <option value="50">50</option>
+                        <option value="100" selected>100</option>
+                        <option value="200">200</option>
+                        <option value="500">500</option>
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-sm btn-primary w-100" id="apply-filter-btn">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert List -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5><i class="fas fa-list"></i> Alert List <small id="alert-count-label" class="text-muted"></small></h5>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-success" id="ack-selected-btn" disabled>
+                <i class="fas fa-check"></i> Acknowledge Selected
+            </button>
+            <button class="btn btn-sm btn-outline-primary" id="refresh-alerts-btn">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div id="alerts-loading" class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+        <div id="alerts-container" style="display: none;">
+            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-hover table-striped table-sm">
+                    <thead class="sticky-top bg-light">
+                        <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox" id="select-all-alerts" class="form-check-input">
+                            </th>
+                            <th style="width: 100px;">Severity</th>
+                            <th>Title</th>
+                            <th>Device</th>
+                            <th>Source</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alerts-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="alerts-empty" class="text-center text-muted py-4" style="display: none;">
+            <i class="fas fa-bell-slash fa-3x mb-3"></i>
+            <p>No alerts found matching your criteria.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Details Modal -->
+<div class="modal fade" id="alertDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-bell"></i> Alert Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <h4 id="detail-title"></h4>
+                        <p id="detail-description" class="text-muted"></p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <span id="detail-severity" class="badge"></span>
+                        <span id="detail-status" class="badge ms-1"></span>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <strong>Device:</strong><br>
+                        <span id="detail-device">-</span>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Source:</strong><br>
+                        <span id="detail-source">-</span>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Created:</strong><br>
+                        <span id="detail-created">-</span>
+                    </div>
+                </div>
+
+                <div class="row mb-3" id="ack-info" style="display: none;">
+                    <div class="col-md-6">
+                        <strong>Acknowledged By:</strong><br>
+                        <span id="detail-ack-by">-</span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Acknowledged At:</strong><br>
+                        <span id="detail-ack-at">-</span>
+                    </div>
+                </div>
+
+                <div class="mb-3" id="incident-info" style="display: none;">
+                    <strong>Linked Incident:</strong><br>
+                    <a href="#" id="detail-incident-link" class="btn btn-sm btn-outline-primary mt-1">
+                        <i class="fas fa-external-link-alt"></i> View Incident
+                    </a>
+                </div>
+
+                <div class="mb-3">
+                    <strong>Alert Data:</strong>
+                    <pre id="detail-data" class="bg-light p-2 rounded mt-1" style="max-height: 200px; overflow-y: auto;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-warning" id="create-incident-btn">
+                    <i class="fas fa-exclamation-triangle"></i> Create Incident
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="triage-alert-btn">
+                    <i class="fas fa-robot"></i> Triage with AI
+                </button>
+                <button type="button" class="btn btn-success" id="ack-alert-btn">
+                    <i class="fas fa-check"></i> Acknowledge
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Webhook Info Panel -->
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <h6 class="mb-0">
+            <i class="fas fa-webhook"></i> Webhook Endpoints
+        </h6>
+        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#webhook-panel">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse" id="webhook-panel">
+        <div class="card-body">
+            <p class="text-muted small">Configure your monitoring systems to send alerts to these endpoints:</p>
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Source</th>
+                        <th>Endpoint</th>
+                        <th>Method</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Generic</td>
+                        <td><code id="webhook-generic"></code></td>
+                        <td><span class="badge bg-primary">POST</span></td>
+                    </tr>
+                    <tr>
+                        <td>Prometheus AlertManager</td>
+                        <td><code id="webhook-prometheus"></code></td>
+                        <td><span class="badge bg-primary">POST</span></td>
+                    </tr>
+                    <tr>
+                        <td>SolarWinds</td>
+                        <td><code id="webhook-solarwinds"></code></td>
+                        <td><span class="badge bg-primary">POST</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    let alerts = [];
+    let selectedAlerts = [];
+    let currentAlertId = null;
+
+    // Set webhook URLs
+    const baseUrl = window.location.origin;
+    $('#webhook-generic').text(`${baseUrl}/alerts/api/webhooks/generic`);
+    $('#webhook-prometheus').text(`${baseUrl}/alerts/api/webhooks/prometheus`);
+    $('#webhook-solarwinds').text(`${baseUrl}/alerts/api/webhooks/solarwinds`);
+
+    // Load alerts
+    function loadAlerts() {
+        $('#alerts-loading').show();
+        $('#alerts-container').hide();
+        $('#alerts-empty').hide();
+
+        const params = new URLSearchParams();
+        if ($('#filter-severity').val()) params.append('severity', $('#filter-severity').val());
+        if ($('#filter-status').val()) params.append('status', $('#filter-status').val());
+        if ($('#filter-source').val()) params.append('source', $('#filter-source').val());
+        params.append('limit', $('#filter-limit').val());
+
+        $.ajax({
+            url: '/alerts/api/alerts?' + params.toString(),
+            method: 'GET',
+            success: function(response) {
+                alerts = response.alerts || [];
+                renderAlerts();
+                updateStats();
+            },
+            error: function(xhr) {
+                console.error('Error loading alerts:', xhr);
+                showToast('Error loading alerts', 'danger');
+            }
+        });
+    }
+
+    function renderAlerts() {
+        const $tbody = $('#alerts-body');
+        $tbody.empty();
+        selectedAlerts = [];
+        updateSelectionButtons();
+
+        if (alerts.length === 0) {
+            $('#alerts-loading').hide();
+            $('#alerts-container').hide();
+            $('#alerts-empty').show();
+            return;
+        }
+
+        const searchTerm = $('#alert-search').val().toLowerCase();
+        const filteredAlerts = alerts.filter(a =>
+            a.title.toLowerCase().includes(searchTerm) ||
+            (a.device || '').toLowerCase().includes(searchTerm) ||
+            (a.description || '').toLowerCase().includes(searchTerm)
+        );
+
+        $('#alert-count-label').text(`(${filteredAlerts.length} alerts)`);
+
+        filteredAlerts.forEach(function(alert) {
+            const severityBadge = getSeverityBadge(alert.severity);
+            const statusBadge = getStatusBadge(alert.status);
+
+            $tbody.append(`
+                <tr>
+                    <td>
+                        <input type="checkbox" class="form-check-input alert-checkbox" data-id="${alert.alert_id}">
+                    </td>
+                    <td>${severityBadge}</td>
+                    <td>
+                        <strong>${escapeHtml(alert.title)}</strong>
+                        ${alert.incident_id ? '<i class="fas fa-link text-info ms-1" title="Linked to incident"></i>' : ''}
+                    </td>
+                    <td>${escapeHtml(alert.device || '-')}</td>
+                    <td><span class="badge bg-secondary">${escapeHtml(alert.source)}</span></td>
+                    <td>${statusBadge}</td>
+                    <td>${formatDate(alert.created_at)}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-info view-btn" data-id="${alert.alert_id}" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-success ack-btn" data-id="${alert.alert_id}" title="Acknowledge" ${alert.status === 'acknowledged' ? 'disabled' : ''}>
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `);
+        });
+
+        $('#alerts-loading').hide();
+        $('#alerts-container').show();
+    }
+
+    function updateStats() {
+        const critical = alerts.filter(a => a.severity === 'critical' && a.status !== 'resolved').length;
+        const warning = alerts.filter(a => a.severity === 'warning' && a.status !== 'resolved').length;
+        const info = alerts.filter(a => a.severity === 'info' && a.status !== 'resolved').length;
+        const ack = alerts.filter(a => a.status === 'acknowledged').length;
+
+        $('#critical-count').text(critical);
+        $('#warning-count').text(warning);
+        $('#info-count').text(info);
+        $('#ack-count').text(ack);
+    }
+
+    function getSeverityBadge(severity) {
+        const badges = {
+            'critical': '<span class="badge bg-danger"><i class="fas fa-fire"></i> Critical</span>',
+            'warning': '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> Warning</span>',
+            'info': '<span class="badge bg-info"><i class="fas fa-info-circle"></i> Info</span>',
+            'error': '<span class="badge bg-danger"><i class="fas fa-times-circle"></i> Error</span>'
+        };
+        return badges[severity] || `<span class="badge bg-secondary">${severity}</span>`;
+    }
+
+    function getStatusBadge(status) {
+        const badges = {
+            'new': '<span class="badge bg-primary">New</span>',
+            'acknowledged': '<span class="badge bg-success">Acknowledged</span>',
+            'resolved': '<span class="badge bg-secondary">Resolved</span>'
+        };
+        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+
+    // View alert details
+    $(document).on('click', '.view-btn', function() {
+        const alertId = $(this).data('id');
+
+        $.ajax({
+            url: `/alerts/api/alerts/${alertId}`,
+            method: 'GET',
+            success: function(alert) {
+                currentAlertId = alertId;
+
+                $('#detail-title').text(alert.title);
+                $('#detail-description').text(alert.description || 'No description');
+                $('#detail-severity').html(getSeverityBadge(alert.severity));
+                $('#detail-status').html(getStatusBadge(alert.status));
+                $('#detail-device').text(alert.device || '-');
+                $('#detail-source').text(alert.source);
+                $('#detail-created').text(formatDate(alert.created_at));
+
+                if (alert.acknowledged_by) {
+                    $('#ack-info').show();
+                    $('#detail-ack-by').text(alert.acknowledged_by);
+                    $('#detail-ack-at').text(formatDate(alert.acknowledged_at));
+                } else {
+                    $('#ack-info').hide();
+                }
+
+                if (alert.incident_id) {
+                    $('#incident-info').show();
+                    $('#detail-incident-link').attr('href', `/alerts/incidents?id=${alert.incident_id}`);
+                } else {
+                    $('#incident-info').hide();
+                }
+
+                $('#detail-data').text(JSON.stringify(alert.alert_data || {}, null, 2));
+
+                // Update button states
+                $('#ack-alert-btn').prop('disabled', alert.status === 'acknowledged');
+
+                new bootstrap.Modal($('#alertDetailsModal')).show();
+            },
+            error: function(xhr) {
+                showToast('Error loading alert details', 'danger');
+            }
+        });
+    });
+
+    // Acknowledge alert
+    $(document).on('click', '.ack-btn', function() {
+        const alertId = $(this).data('id');
+        acknowledgeAlert(alertId);
+    });
+
+    $('#ack-alert-btn').on('click', function() {
+        if (currentAlertId) {
+            acknowledgeAlert(currentAlertId);
+            bootstrap.Modal.getInstance($('#alertDetailsModal')).hide();
+        }
+    });
+
+    function acknowledgeAlert(alertId) {
+        $.ajax({
+            url: `/alerts/api/alerts/${alertId}/acknowledge`,
+            method: 'POST',
+            success: function(response) {
+                showToast('Alert acknowledged', 'success');
+                loadAlerts();
+            },
+            error: function(xhr) {
+                showToast('Error acknowledging alert: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    }
+
+    // Bulk acknowledge
+    $('#select-all-alerts').on('change', function() {
+        const isChecked = $(this).is(':checked');
+        $('.alert-checkbox').prop('checked', isChecked);
+        updateSelectionButtons();
+    });
+
+    $(document).on('change', '.alert-checkbox', function() {
+        updateSelectionButtons();
+    });
+
+    function updateSelectionButtons() {
+        selectedAlerts = [];
+        $('.alert-checkbox:checked').each(function() {
+            selectedAlerts.push($(this).data('id'));
+        });
+        $('#ack-selected-btn').prop('disabled', selectedAlerts.length === 0);
+    }
+
+    $('#ack-selected-btn').on('click', function() {
+        if (selectedAlerts.length === 0) return;
+        if (!confirm(`Acknowledge ${selectedAlerts.length} alerts?`)) return;
+
+        let completed = 0;
+        selectedAlerts.forEach(function(alertId) {
+            $.ajax({
+                url: `/alerts/api/alerts/${alertId}/acknowledge`,
+                method: 'POST',
+                success: function() {
+                    completed++;
+                    if (completed === selectedAlerts.length) {
+                        showToast(`${completed} alerts acknowledged`, 'success');
+                        loadAlerts();
+                    }
+                }
+            });
+        });
+    });
+
+    // Create incident from alert
+    $('#create-incident-btn').on('click', function() {
+        if (!currentAlertId) return;
+
+        const alert = alerts.find(a => a.alert_id === currentAlertId);
+        if (!alert) return;
+
+        // Redirect to incidents page with pre-filled data
+        window.location.href = `/alerts/incidents?create=true&alert_id=${currentAlertId}&title=${encodeURIComponent(alert.title)}`;
+    });
+
+    // Triage with AI
+    $('#triage-alert-btn').on('click', function() {
+        if (!currentAlertId) return;
+
+        // Redirect to agent chat with context
+        window.location.href = `/agents/chat?context=alert&alert_id=${currentAlertId}`;
+    });
+
+    // Filters
+    $('#apply-filter-btn').on('click', loadAlerts);
+    $('#refresh-alerts-btn').on('click', loadAlerts);
+    $('#alert-search').on('input', function() {
+        renderAlerts();
+    });
+
+    // Utility functions
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    }
+
+    function showToast(message, type) {
+        const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+        const $alert = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed" style="top: 70px; right: 20px; z-index: 9999;">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`);
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
+    }
+
+    // Initial load
+    loadAlerts();
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadAlerts, 30000);
+});
+</script>
+{% endblock %}
