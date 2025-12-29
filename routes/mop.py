@@ -106,9 +106,9 @@ def get_mop_executions(mop_id):
 def get_mop_execution(execution_id):
     """
     Get a specific MOP execution.
-    Proxied to config:8002/api/mop-executions/{execution_id}
+    Proxied to config:8002/api/mops/executions/{execution_id}
     """
-    return proxy_config_request('/api/mop-executions/{execution_id}', execution_id=execution_id)
+    return proxy_config_request('/api/mops/executions/{execution_id}', execution_id=execution_id)
 
 
 @mop_bp.route('/api/mop-executions/running', methods=['GET'])
@@ -116,9 +116,9 @@ def get_mop_execution(execution_id):
 def get_running_executions():
     """
     Get all running MOP executions.
-    Proxied to config:8002/api/mop-executions/running
+    Proxied to config:8002/api/mops/executions/running/list
     """
-    return proxy_config_request('/api/mop-executions/running')
+    return proxy_config_request('/api/mops/executions/running/list')
 
 
 # Note: /api/mops/<mop_id>/execute is complex and may remain in app.py

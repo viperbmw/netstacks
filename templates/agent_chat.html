@@ -305,20 +305,34 @@ $(document).ready(function() {
     }
 
     function appendToolResult(toolName, result) {
-        const resultStr = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
-        const truncated = resultStr.length > 300 ? resultStr.substring(0, 300) + '...' : resultStr;
+        // Only show tool result details if there was an error
+        const isError = result && (result.success === false || result.error);
 
-        $('#chat-messages').append(`
-            <div class="d-flex mb-2">
-                <div class="card bg-secondary text-white" style="max-width: 70%;">
-                    <div class="card-body py-1 px-3 small">
-                        <i class="fas fa-reply me-1"></i>
-                        <strong>${escapeHtml(toolName)} result:</strong>
-                        <pre class="mb-0 mt-1" style="font-size: 0.8em; white-space: pre-wrap;">${escapeHtml(truncated)}</pre>
+        if (isError) {
+            const errorMsg = result.error || 'Unknown error';
+            $('#chat-messages').append(`
+                <div class="d-flex mb-2">
+                    <div class="card bg-danger text-white" style="max-width: 70%;">
+                        <div class="card-body py-1 px-3 small">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            <strong>${escapeHtml(toolName)} failed:</strong> ${escapeHtml(errorMsg)}
+                        </div>
                     </div>
                 </div>
-            </div>
-        `);
+            `);
+        } else {
+            // Success - just show a brief confirmation
+            $('#chat-messages').append(`
+                <div class="d-flex mb-2">
+                    <div class="card bg-success text-white" style="max-width: 70%;">
+                        <div class="card-body py-1 px-3 small">
+                            <i class="fas fa-check me-1"></i>
+                            <strong>${escapeHtml(toolName)}</strong> completed
+                        </div>
+                    </div>
+                </div>
+            `);
+        }
         scrollToBottom();
     }
 

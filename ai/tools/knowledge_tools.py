@@ -97,29 +97,29 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
                 error=str(e)
             )
 
-    def _generate_embedding(self, text: str) -> Optional[List[float]]:
+    def _generate_embedding(self, query_text: str) -> Optional[List[float]]:
         """Generate embedding using OpenAI API"""
         try:
-            import db
-            from models import SystemSetting
+            import database as db
+            from sqlalchemy import text as sql_text
 
-            # Get OpenAI API key from settings
-            session = db.get_session()
-            try:
-                setting = session.query(SystemSetting).filter(
-                    SystemSetting.key == 'openai_api_key'
-                ).first()
+            # Get OpenAI API key from llm_providers table
+            with db.get_db() as session:
+                result = session.execute(
+                    sql_text("SELECT api_key FROM llm_providers WHERE name = 'openai' AND is_enabled = true")
+                ).fetchone()
 
-                if not setting or not setting.value:
-                    log.error("OpenAI API key not configured")
+                if not result or not result[0]:
+                    log.error("OpenAI API key not configured in LLM providers")
                     return None
 
-                api_key = setting.value
+                api_key = result[0]
+                # Handle space-separated key format (some keys have extra data)
+                if ' ' in api_key:
+                    api_key = api_key.split(' ')[0]
                 if api_key.startswith('enc:'):
                     from credential_encryption import decrypt_value
                     api_key = decrypt_value(api_key)
-            finally:
-                session.close()
 
             # Call OpenAI embeddings API
             import requests
@@ -131,7 +131,7 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
                 },
                 json={
                     'model': 'text-embedding-3-small',
-                    'input': text
+                    'input': query_text
                 },
                 timeout=30
             )
@@ -143,9 +143,6 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
                 log.error(f"OpenAI API error: {response.status_code} - {response.text}")
                 return None
 
-        except ImportError:
-            log.error("Required modules not available for embeddings")
-            return None
         except Exception as e:
             log.error(f"Error generating embedding: {e}")
             return None
@@ -159,11 +156,10 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
     ) -> List[Dict]:
         """Perform vector similarity search using pgvector"""
         try:
-            import db
+            import database as db
             from sqlalchemy import text
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 # Build the query with optional filters
                 filters = []
                 params = {
@@ -184,6 +180,7 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
                     where_clause = "WHERE " + " AND ".join(filters)
 
                 # pgvector similarity search using cosine distance
+                # Note: Use CAST() syntax instead of :: to avoid SQLAlchemy parameter parsing issues
                 query = text(f"""
                     SELECT
                         ke.id,
@@ -193,12 +190,12 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
                         kd.doc_type,
                         kd.source,
                         kc.name as collection_name,
-                        1 - (ke.embedding <=> :embedding::vector) as similarity
+                        1 - (ke.embedding <=> CAST(:embedding AS vector)) as similarity
                     FROM knowledge_embeddings ke
                     JOIN knowledge_documents kd ON ke.doc_id = kd.doc_id
                     LEFT JOIN knowledge_collections kc ON kd.collection_id = kc.id
                     {where_clause}
-                    ORDER BY ke.embedding <=> :embedding::vector
+                    ORDER BY ke.embedding <=> CAST(:embedding AS vector)
                     LIMIT :limit
                 """)
 
@@ -217,8 +214,6 @@ Use this to find SOPs, past incident resolutions, vendor documentation, and netw
                     }
                     for row in results
                 ]
-            finally:
-                session.close()
 
         except Exception as e:
             log.error(f"Vector search error: {e}", exc_info=True)
@@ -269,12 +264,11 @@ Use this when you need more context than what was returned in the initial search
     ) -> ToolResult:
         """Get expanded context around a chunk"""
         try:
-            import db
+            import database as db
             from models import KnowledgeDocument, KnowledgeEmbedding
             from sqlalchemy import and_
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 # Get the document
                 doc = session.query(KnowledgeDocument).filter(
                     KnowledgeDocument.doc_id == doc_id
@@ -312,8 +306,6 @@ Use this when you need more context than what was returned in the initial search
                         'chunks_included': [c.chunk_index for c in chunks]
                     }
                 )
-            finally:
-                session.close()
 
         except Exception as e:
             log.error(f"Knowledge context error: {e}", exc_info=True)
@@ -353,12 +345,11 @@ Use this to understand what knowledge is available before searching."""
     def execute(self, collection: Optional[str] = None) -> ToolResult:
         """List knowledge collections and documents"""
         try:
-            import db
+            import database as db
             from models import KnowledgeCollection, KnowledgeDocument
             from sqlalchemy import func
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 if collection:
                     # List documents in collection
                     coll = session.query(KnowledgeCollection).filter(
@@ -417,8 +408,6 @@ Use this to understand what knowledge is available before searching."""
                             ]
                         }
                     )
-            finally:
-                session.close()
 
         except Exception as e:
             log.error(f"Knowledge list error: {e}", exc_info=True)

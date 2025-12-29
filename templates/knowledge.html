@@ -15,64 +15,72 @@
 <!-- Stats Cards -->
 <div class="row mb-4">
     <div class="col-md-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Total Documents</h6>
-                        <h2 id="total-docs">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-file-alt fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="all">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Total Documents</h6>
+                            <h2 id="total-docs">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-file-alt fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Indexed</h6>
-                        <h2 id="indexed-docs">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-check-circle fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="indexed">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Indexed</h6>
+                            <h2 id="indexed-docs">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Collections</h6>
-                        <h2 id="total-collections">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-folder fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="collections">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Collections</h6>
+                            <h2 id="total-collections">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-folder fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-warning text-dark">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Pending Index</h6>
-                        <h2 id="pending-docs">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-clock fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="pending">
+            <div class="card bg-warning text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Pending Index</h6>
+                            <h2 id="pending-docs">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-clock fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -706,6 +714,55 @@ $(document).ready(function() {
     // Filter
     $('#doc-search').on('input', renderDocuments);
     $('#refresh-docs-btn').on('click', loadDocuments);
+
+    // Stat card click handlers
+    $(document).on('click', '.stat-card-link', function(e) {
+        e.preventDefault();
+        const filter = $(this).data('filter');
+
+        if (filter === 'all') {
+            // Reset to show all documents
+            currentCollectionId = '';
+            $('.collection-item').removeClass('active');
+            $('.collection-item:first').addClass('active');
+            loadDocuments();
+        } else if (filter === 'indexed') {
+            // Filter to show only indexed documents
+            $('#doc-search').val('');
+            currentCollectionId = '';
+            $('.collection-item').removeClass('active');
+            $('.collection-item:first').addClass('active');
+            loadDocuments();
+            // After load, filter in-memory for indexed
+            setTimeout(function() {
+                const $tbody = $('#docs-body');
+                $tbody.find('tr').each(function() {
+                    const hasIndexed = $(this).find('.badge.bg-success').length > 0;
+                    $(this).toggle(hasIndexed);
+                });
+            }, 500);
+        } else if (filter === 'collections') {
+            // Scroll to collections panel
+            $('html, body').animate({
+                scrollTop: $('#collections-list').offset().top - 100
+            }, 300);
+        } else if (filter === 'pending') {
+            // Filter to show only pending documents
+            $('#doc-search').val('');
+            currentCollectionId = '';
+            $('.collection-item').removeClass('active');
+            $('.collection-item:first').addClass('active');
+            loadDocuments();
+            // After load, filter in-memory for pending
+            setTimeout(function() {
+                const $tbody = $('#docs-body');
+                $tbody.find('tr').each(function() {
+                    const hasPending = $(this).find('.badge.bg-warning').length > 0;
+                    $(this).toggle(hasPending);
+                });
+            }, 500);
+        }
+    });
 
     // Utility functions
     function escapeHtml(text) {

@@ -83,6 +83,7 @@ Key states:
 - Type 7 (NSSA External): External routes in NSSA areas
 
 ## Tools Available
+- `device_list`: List devices in inventory (for device count, filtering by type/platform)
 - `device_show`: Execute show commands
 - `device_multi_command`: Run multiple commands
 - `device_config`: Push configuration changes (requires approval)
@@ -95,19 +96,23 @@ Always explain OSPF concepts clearly. Reference neighbor states and LSA types ap
     def _register_tools(self) -> None:
         """Register tools appropriate for OSPF specialist"""
         from ai.tools import (
+            DeviceListTool,
             DeviceShowTool,
             DeviceMultiCommandTool,
             DeviceConfigTool,
             KnowledgeSearchTool,
+            KnowledgeListTool,
             EscalateTool,
             CreateIncidentTool,
             UpdateIncidentTool,
         )
 
+        self.tool_registry.register(DeviceListTool())
         self.tool_registry.register(DeviceShowTool())
         self.tool_registry.register(DeviceMultiCommandTool())
         self.tool_registry.register(DeviceConfigTool())
         self.tool_registry.register(KnowledgeSearchTool())
+        self.tool_registry.register(KnowledgeListTool())
         self.tool_registry.register(EscalateTool())
         self.tool_registry.register(CreateIncidentTool())
         self.tool_registry.register(UpdateIncidentTool())

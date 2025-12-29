@@ -870,8 +870,7 @@ DEFAULT_STEP_TYPES = [
         'config': {
             'command': '',
             'use_textfsm': False,
-            'use_ttp': False,
-            'use_genie': False
+            'use_ttp': False
         },
         'parameters_schema': {
             'command': {
@@ -892,11 +891,6 @@ DEFAULT_STEP_TYPES = [
             'ttp_template': {
                 'type': 'string',
                 'description': 'TTP template (if use_ttp is true)'
-            },
-            'use_genie': {
-                'type': 'boolean',
-                'description': 'Parse output with Genie',
-                'default': False
             }
         }
     },
@@ -1121,7 +1115,7 @@ DEFAULT_AGENT_TOOLS = [
     {
         'tool_id': 'device_show',
         'name': 'device_show',
-        'description': 'Execute show commands on network devices and optionally parse output with TextFSM/Genie',
+        'description': 'Execute show commands on network devices and optionally parse output with TextFSM',
         'category': 'device',
         'is_builtin': True,
         'risk_level': 'low',
@@ -1131,7 +1125,7 @@ DEFAULT_AGENT_TOOLS = [
             'properties': {
                 'device_name': {'type': 'string', 'description': 'Name of the device'},
                 'command': {'type': 'string', 'description': 'Show command to execute'},
-                'parse': {'type': 'boolean', 'description': 'Parse output with TextFSM/Genie', 'default': True}
+                'parse': {'type': 'boolean', 'description': 'Parse output with TextFSM', 'default': True}
             },
             'required': ['device_name', 'command']
         }

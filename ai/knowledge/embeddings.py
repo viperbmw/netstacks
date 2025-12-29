@@ -27,11 +27,10 @@ def get_openai_api_key() -> Optional[str]:
 
     # Try database
     try:
-        import db
+        import database as db
         from models import SystemSetting
 
-        session = db.get_session()
-        try:
+        with db.get_db() as session:
             setting = session.query(SystemSetting).filter(
                 SystemSetting.key == 'openai_api_key'
             ).first()
@@ -42,8 +41,6 @@ def get_openai_api_key() -> Optional[str]:
                     from credential_encryption import decrypt_value
                     return decrypt_value(value)
                 return value
-        finally:
-            session.close()
 
     except Exception as e:
         log.warning(f"Could not get OpenAI key from database: {e}")

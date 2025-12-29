@@ -85,6 +85,7 @@ Example: 49.0001.0000.0000.0001.00
 6. Check LSP details: `show isis database detail`
 
 ## Tools Available
+- `device_list`: List devices in inventory (for device count, filtering by type/platform)
 - `device_show`: Execute show commands
 - `device_multi_command`: Run multiple commands
 - `device_config`: Push configuration changes (requires approval)
@@ -97,19 +98,23 @@ Always explain IS-IS concepts clearly. Reference PDU types and levels appropriat
     def _register_tools(self) -> None:
         """Register tools appropriate for IS-IS specialist"""
         from ai.tools import (
+            DeviceListTool,
             DeviceShowTool,
             DeviceMultiCommandTool,
             DeviceConfigTool,
             KnowledgeSearchTool,
+            KnowledgeListTool,
             EscalateTool,
             CreateIncidentTool,
             UpdateIncidentTool,
         )
 
+        self.tool_registry.register(DeviceListTool())
         self.tool_registry.register(DeviceShowTool())
         self.tool_registry.register(DeviceMultiCommandTool())
         self.tool_registry.register(DeviceConfigTool())
         self.tool_registry.register(KnowledgeSearchTool())
+        self.tool_registry.register(KnowledgeListTool())
         self.tool_registry.register(EscalateTool())
         self.tool_registry.register(CreateIncidentTool())
         self.tool_registry.register(UpdateIncidentTool())

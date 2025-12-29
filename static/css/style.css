@@ -961,3 +961,142 @@ select.form-select {
     background-color: #1e1e1e;
     border-color: #404040 !important;
 }
+
+/* ============================================================================
+   Agent Chat Dark Theme Support
+   ============================================================================ */
+
+/* Agent messages - override bg-light for dark theme */
+[data-bs-theme="dark"] #chat-messages .card.bg-light {
+    background-color: #3a3a3a !important;
+    border-color: #4a4a4a !important;
+}
+
+[data-bs-theme="dark"] #chat-messages .card.bg-light .card-body {
+    color: #e0e0e0;
+}
+
+/* Agent thinking messages */
+[data-bs-theme="dark"] #chat-messages .card.border-secondary {
+    background-color: #2a2a2a;
+    border-color: #4a4a4a !important;
+}
+
+[data-bs-theme="dark"] #chat-messages .card.border-secondary .card-body {
+    color: #a0a0a0;
+}
+
+/* Tool result messages - bg-secondary override */
+[data-bs-theme="dark"] #chat-messages .card.bg-secondary {
+    background-color: #3a3a3a !important;
+}
+
+[data-bs-theme="dark"] #chat-messages .card.bg-secondary pre {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0;
+}
+
+/* Chat input area */
+[data-bs-theme="dark"] #chat-input {
+    background-color: #333333;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] #chat-input::placeholder {
+    color: #808080;
+}
+
+[data-bs-theme="dark"] #chat-input:disabled {
+    background-color: #2a2a2a;
+    color: #6c757d;
+}
+
+/* Chat messages container */
+[data-bs-theme="dark"] #chat-messages {
+    background-color: #1a1a1a;
+}
+
+/* Typing indicator */
+[data-bs-theme="dark"] #typing-indicator {
+    background-color: #1a1a1a;
+}
+
+/* Agents list sidebar */
+[data-bs-theme="dark"] .list-group-item.agent-item {
+    background-color: #2a2a2a;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] .list-group-item.agent-item:hover {
+    background-color: #333333;
+}
+
+[data-bs-theme="dark"] .list-group-item.agent-item.active {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    color: #ffffff;
+}
+
+/* Welcome state in chat */
+[data-bs-theme="dark"] #chat-welcome {
+    color: #a0a0a0 !important;
+}
+
+/* Code blocks in agent messages */
+[data-bs-theme="dark"] #chat-messages pre.bg-dark {
+    background-color: #1a1a1a !important;
+    border: 1px solid #404040;
+}
+
+/* Approval request cards */
+[data-bs-theme="dark"] #chat-messages .card.border-warning .card-body p,
+[data-bs-theme="dark"] #chat-messages .card.border-warning .card-body small {
+    color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] #chat-messages .card.border-warning .card-header.bg-warning {
+    color: #1a1a1a;
+}
+
+/* Handoff message */
+[data-bs-theme="dark"] #chat-messages .card.bg-warning {
+    background-color: #4a3c1a !important;
+    color: #f0d8a8;
+}
+
+[data-bs-theme="dark"] #chat-messages .card.bg-warning strong,
+[data-bs-theme="dark"] #chat-messages .card.bg-warning small {
+    color: #f0d8a8;
+}
+
+/* ============================================================================
+   Agent Chat Layout Fixes
+   ============================================================================ */
+
+/* Fix chat container to prevent expanding - use fixed height */
+#chat-messages {
+    max-height: 500px;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+}
+
+/* Ensure the chat card body uses flexbox properly */
+.card-body.d-flex.flex-column {
+    min-height: 0;
+}
+
+/* Chat messages should scroll, not expand the container */
+#chat-messages .card {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Pre-formatted text in messages should wrap */
+#chat-messages pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-width: 100%;
+    overflow-x: auto;
+}

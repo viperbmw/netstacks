@@ -13,6 +13,108 @@ from .base import BaseTool, ToolResult
 log = logging.getLogger(__name__)
 
 
+class DeviceListTool(BaseTool):
+    """
+    List devices from the inventory.
+
+    Returns device count and basic info about devices in the system.
+    """
+
+    name = "device_list"
+    description = """List devices from the network inventory.
+Use this to get a count of devices, see what devices are available, or filter by device type/platform.
+This is the first tool to use when asked about device inventory or how many devices exist."""
+    category = "device"
+    risk_level = "low"
+    requires_approval = False
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "device_type": {
+                    "type": "string",
+                    "description": "Optional: Filter by device type (e.g., 'cisco_ios', 'juniper_junos')"
+                },
+                "platform": {
+                    "type": "string",
+                    "description": "Optional: Filter by platform (e.g., 'cisco', 'juniper', 'arista')"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of devices to return (default 50)",
+                    "default": 50
+                }
+            },
+            "required": []
+        }
+
+    def execute(
+        self,
+        device_type: Optional[str] = None,
+        platform: Optional[str] = None,
+        limit: int = 50
+    ) -> ToolResult:
+        """List devices from inventory"""
+        try:
+            import database as db
+            from models import Device
+
+            with db.get_db() as session:
+                query = session.query(Device)
+
+                if device_type:
+                    query = query.filter(Device.device_type == device_type)
+                if platform:
+                    query = query.filter(Device.platform.ilike(f"%{platform}%"))
+
+                # Get total count
+                total_count = query.count()
+
+                # Get devices with limit
+                devices = query.limit(limit).all()
+
+                device_list = [
+                    {
+                        'name': d.name,
+                        'host': d.host,
+                        'device_type': d.device_type,
+                        'platform': d.platform,
+                        'site': d.site,
+                        'manufacturer': d.manufacturer,
+                        'model': d.model
+                    }
+                    for d in devices
+                ]
+
+                return ToolResult(
+                    success=True,
+                    data={
+                        'total_count': total_count,
+                        'returned_count': len(device_list),
+                        'devices': device_list,
+                        'filters_applied': {
+                            'device_type': device_type,
+                            'platform': platform
+                        }
+                    }
+                )
+
+        except ImportError:
+            log.warning("Database not available")
+            return ToolResult(
+                success=False,
+                error="Database not available"
+            )
+        except Exception as e:
+            log.error(f"Device list error: {e}", exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(e)
+            )
+
+
 class DeviceShowTool(BaseTool):
     """
     Execute show commands on network devices.
@@ -111,11 +213,10 @@ Use this to gather information about device state, configuration, routing tables
     def _get_device_info(self, device_name: str) -> Optional[Dict]:
         """Get device info from database"""
         try:
-            import db
+            import database as db
             from models import Device
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 device = session.query(Device).filter(
                     Device.name == device_name
                 ).first()
@@ -130,8 +231,6 @@ Use this to gather information about device state, configuration, routing tables
                         'username': device.username,
                         'password': device.password,
                     }
-            finally:
-                session.close()
         except ImportError:
             log.warning("Database not available")
         except Exception as e:
@@ -142,7 +241,7 @@ Use this to gather information about device state, configuration, routing tables
     def _build_connection_args(self, device_info: Dict) -> Optional[Dict]:
         """Build Netmiko connection arguments from device info"""
         try:
-            import db
+            import database as db
             from models import DefaultCredential
 
             # Use device-specific credentials if available
@@ -151,8 +250,7 @@ Use this to gather information about device state, configuration, routing tables
 
             # Fall back to default credentials if not on device
             if not username or not password:
-                session = db.get_session()
-                try:
+                with db.get_db() as session:
                     credential = session.query(DefaultCredential).filter(
                         DefaultCredential.is_default == True
                     ).first()
@@ -160,8 +258,6 @@ Use this to gather information about device state, configuration, routing tables
                     if credential:
                         username = credential.username
                         password = credential.password
-                finally:
-                    session.close()
 
             if not username or not password:
                 log.error("No credentials available")
@@ -358,11 +454,10 @@ WARNING: This modifies device configuration - use with caution."""
     def _get_device_info(self, device_name: str) -> Optional[Dict]:
         """Get device info from database (same as DeviceShowTool)"""
         try:
-            import db
+            import database as db
             from models import Device
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 device = session.query(Device).filter(
                     Device.name == device_name
                 ).first()
@@ -377,8 +472,6 @@ WARNING: This modifies device configuration - use with caution."""
                         'username': device.username,
                         'password': device.password,
                     }
-            finally:
-                session.close()
         except ImportError:
             log.warning("Database not available")
         except Exception as e:
@@ -389,7 +482,7 @@ WARNING: This modifies device configuration - use with caution."""
     def _build_connection_args(self, device_info: Dict) -> Optional[Dict]:
         """Build Netmiko connection arguments"""
         try:
-            import db
+            import database as db
             from models import DefaultCredential
 
             # Use device-specific credentials if available
@@ -398,8 +491,7 @@ WARNING: This modifies device configuration - use with caution."""
 
             # Fall back to default credentials if not on device
             if not username or not password:
-                session = db.get_session()
-                try:
+                with db.get_db() as session:
                     credential = session.query(DefaultCredential).filter(
                         DefaultCredential.is_default == True
                     ).first()
@@ -407,8 +499,6 @@ WARNING: This modifies device configuration - use with caution."""
                     if credential:
                         username = credential.username
                         password = credential.password
-                finally:
-                    session.close()
 
             if not username or not password:
                 log.error("No credentials available")
@@ -432,19 +522,16 @@ WARNING: This modifies device configuration - use with caution."""
     def _get_template(self, template_name: str) -> Optional[str]:
         """Get template content from database"""
         try:
-            import db
+            import database as db
             from models import Template
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 template = session.query(Template).filter(
                     Template.name == template_name
                 ).first()
 
                 if template:
                     return template.content
-            finally:
-                session.close()
         except ImportError:
             log.warning("Database not available")
         except Exception as e:
@@ -545,11 +632,10 @@ Use this when you need to gather multiple pieces of information from a device ef
     def _get_device_info(self, device_name: str) -> Optional[Dict]:
         """Get device info from database"""
         try:
-            import db
+            import database as db
             from models import Device
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 device = session.query(Device).filter(
                     Device.name == device_name
                 ).first()
@@ -564,8 +650,6 @@ Use this when you need to gather multiple pieces of information from a device ef
                         'username': device.username,
                         'password': device.password,
                     }
-            finally:
-                session.close()
         except ImportError:
             log.warning("Database not available")
         except Exception as e:
@@ -576,7 +660,7 @@ Use this when you need to gather multiple pieces of information from a device ef
     def _build_connection_args(self, device_info: Dict) -> Optional[Dict]:
         """Build connection arguments"""
         try:
-            import db
+            import database as db
             from models import DefaultCredential
 
             # Use device-specific credentials if available
@@ -585,8 +669,7 @@ Use this when you need to gather multiple pieces of information from a device ef
 
             # Fall back to default credentials if not on device
             if not username or not password:
-                session = db.get_session()
-                try:
+                with db.get_db() as session:
                     credential = session.query(DefaultCredential).filter(
                         DefaultCredential.is_default == True
                     ).first()
@@ -594,8 +677,6 @@ Use this when you need to gather multiple pieces of information from a device ef
                     if credential:
                         username = credential.username
                         password = credential.password
-                finally:
-                    session.close()
 
             if not username or not password:
                 log.error("No credentials available")

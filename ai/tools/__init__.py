@@ -12,6 +12,7 @@ from .registry import ToolRegistry, get_registry, register_tool, get_tool
 
 # Device tools
 from .device_tools import (
+    DeviceListTool,
     DeviceShowTool,
     DeviceConfigTool,
     DeviceMultiCommandTool,
@@ -42,6 +43,7 @@ __all__ = [
     'register_tool',
     'get_tool',
     # Device tools
+    'DeviceListTool',
     'DeviceShowTool',
     'DeviceConfigTool',
     'DeviceMultiCommandTool',
@@ -74,6 +76,7 @@ def register_all_tools(registry: ToolRegistry = None) -> ToolRegistry:
         registry = get_registry()
 
     # Device tools
+    registry.register(DeviceListTool())
     registry.register(DeviceShowTool())
     registry.register(DeviceConfigTool())
     registry.register(DeviceMultiCommandTool())

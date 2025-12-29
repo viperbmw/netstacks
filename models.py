@@ -314,7 +314,7 @@ class StepType(Base):
     action_type = Column(String(50), nullable=False)
 
     # Configuration for the action (all UI-configurable)
-    # For get_config: {command, use_textfsm, use_ttp, ttp_template, use_genie}
+    # For get_config: {command, use_textfsm, use_ttp, ttp_template}
     # For set_config: {config_lines, template_name, save_config}
     # For api_call: {url, method, headers, body_template, auth_type, expected_status}
     # For validate: {command, patterns: [{pattern, must_match, description}]}
@@ -859,15 +859,13 @@ DEFAULT_STEP_TYPES = [
         'config': {
             'command': '',
             'use_textfsm': False,
-            'use_ttp': False,
-            'use_genie': False
+            'use_ttp': False
         },
         'parameters_schema': {
             'command': {'type': 'string', 'description': 'CLI command to execute', 'required': True},
             'use_textfsm': {'type': 'boolean', 'description': 'Parse output with TextFSM', 'default': False},
             'use_ttp': {'type': 'boolean', 'description': 'Parse output with TTP', 'default': False},
-            'ttp_template': {'type': 'string', 'description': 'TTP template (if use_ttp is true)'},
-            'use_genie': {'type': 'boolean', 'description': 'Parse output with Genie', 'default': False}
+            'ttp_template': {'type': 'string', 'description': 'TTP template (if use_ttp is true)'}
         }
     },
     # Set Config Step

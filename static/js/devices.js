@@ -101,6 +101,33 @@ $(document).ready(function() {
         executeBulkSetConfig();
     });
 
+    // Bulk test connectivity
+    $('#bulk-test-btn').click(function() {
+        if (selectedDevices.length === 0) {
+            alert('Please select at least one device');
+            return;
+        }
+        executeBulkTestConnectivity();
+    });
+
+    // Bulk backup
+    $('#bulk-backup-btn').click(function() {
+        if (selectedDevices.length === 0) {
+            alert('Please select at least one device');
+            return;
+        }
+        executeBulkBackup();
+    });
+
+    // Bulk delete (only manual devices)
+    $('#bulk-delete-btn').click(function() {
+        if (selectedDevices.length === 0) {
+            alert('Please select at least one device');
+            return;
+        }
+        executeBulkDelete();
+    });
+
     // Template source toggle
     $('input[name="bulk-set-config-source"]').change(function() {
         if ($(this).val() === 'manual') {
@@ -169,7 +196,7 @@ function displayDevices(devices) {
     tbody.empty();
 
     if (devices.length === 0) {
-        tbody.append('<tr><td colspan="6" class="text-center text-muted">No devices found</td></tr>');
+        tbody.append('<tr><td colspan="7" class="text-center text-muted">No devices found</td></tr>');
         return;
     }
 
@@ -179,6 +206,9 @@ function displayDevices(devices) {
         const sourceBadge = source === 'manual' ?
             '<span class="badge bg-primary">Manual</span>' :
             '<span class="badge bg-info">Netbox</span>';
+
+        // Get management IP from device data
+        const managementIp = device.primary_ip || device.host || device.ip_address || '-';
 
         // Get backup info for this device
         const backup = deviceBackups[device.name];
@@ -200,7 +230,7 @@ function displayDevices(devices) {
             }
 
             // Add view button if backup exists
-            backupBadge = `<button class="btn btn-sm btn-link p-0 ms-1 view-device-backup-btn" data-id="${backup.backup_id}" title="View backup">
+            backupBadge = `<button class="btn btn-sm btn-link p-0 ms-1 view-device-backup-btn" data-id="${backup.backup_id}" data-device="${device.name}" title="View backup">
                 <i class="fas fa-eye"></i>
             </button>`;
         }
@@ -222,16 +252,21 @@ function displayDevices(devices) {
             <i class="fas fa-edit"></i>
         </button>`;
 
+        const testBtn = `<button class="btn btn-sm btn-outline-info test-connectivity-btn me-1" data-device="${device.name}" title="Test connectivity">
+            <i class="fas fa-plug"></i>
+        </button>`;
+
         const row = `
             <tr>
                 <td>
                     <input type="checkbox" class="form-check-input device-checkbox" data-device="${device.name}">
                 </td>
                 <td><strong>${device.name}</strong>${overrideIndicator}</td>
+                <td><code class="text-muted">${escapeHtml(managementIp)}</code></td>
                 <td>${deviceType}</td>
                 <td>${sourceBadge}</td>
                 <td>${backupInfo}${backupBadge}</td>
-                <td>${editBtn}${backupBtn}${deleteBtn}</td>
+                <td>${editBtn}${testBtn}${backupBtn}${deleteBtn}</td>
             </tr>
         `;
         tbody.append(row);
@@ -257,13 +292,20 @@ function displayDevices(devices) {
     // Attach click handler to view backup buttons
     $('.view-device-backup-btn').click(function() {
         const backupId = $(this).data('id');
-        viewBackup(backupId);
+        const deviceName = $(this).data('device');
+        viewBackup(backupId, deviceName);
     });
 
     // Attach click handler to edit device buttons
     $('.edit-device-btn').click(function() {
         const deviceName = $(this).data('device');
         openEditDeviceModal(deviceName);
+    });
+
+    // Attach click handler to test connectivity buttons
+    $('.test-connectivity-btn').click(function() {
+        const deviceName = $(this).data('device');
+        testDeviceConnectivity(deviceName, $(this));
     });
 }
 
@@ -706,8 +748,10 @@ function showActiveFilters() {
 function loadBackupSummary() {
     $.get('/api/config-backups?limit=1')
         .done(function(response) {
-            if (response.success && response.summary) {
-                const s = response.summary;
+            // Handle wrapped response (data.summary) or direct response (summary)
+            const data = response.data || response;
+            if (response.success && data.summary) {
+                const s = data.summary;
                 $('#total-backups').text(s.total_backups || 0);
                 $('#devices-with-backups').text(s.unique_devices || 0);
                 $('#latest-backup').text(s.latest_backup ? formatDate(s.latest_backup) : 'Never');
@@ -732,9 +776,11 @@ function loadDeviceBackupStatus() {
     // Get latest backup for each device
     $.get('/api/config-backups?limit=500')
         .done(function(response) {
-            if (response.success && response.backups) {
+            // Handle wrapped response (data.backups) or direct response (backups)
+            const data = response.data || response;
+            if (response.success && data.backups) {
                 deviceBackups = {};
-                response.backups.forEach(function(backup) {
+                data.backups.forEach(function(backup) {
                     // Only keep the first (latest) backup per device
                     if (!deviceBackups[backup.device_name]) {
                         deviceBackups[backup.device_name] = backup;
@@ -972,11 +1018,89 @@ function renderBackupsTable(backups) {
     });
 }
 
-function viewBackup(backupId) {
-    // Redirect to snapshots page with the backup ID as a parameter
-    // The snapshots page will open the config view modal for this backup
-    window.location.href = `/snapshots?backup=${backupId}`;
+function viewBackup(backupId, deviceName) {
+    // Show the backup modal
+    const modal = new bootstrap.Modal(document.getElementById('viewBackupModal'));
+
+    // Reset and show loading state
+    $('#view-backup-device-name').text(deviceName || 'Device');
+    $('#view-backup-loading').show();
+    $('#view-backup-content-container').hide();
+    $('#view-backup-created').text('-');
+    $('#view-backup-format').text('-');
+    $('#view-backup-size').text('-');
+
+    modal.show();
+
+    // Fetch backup content
+    $.get(`/api/config-backups/${backupId}`)
+        .done(function(response) {
+            $('#view-backup-loading').hide();
+
+            // Handle wrapped response (data.backup) or direct response (backup)
+            const data = response.data || response;
+            if (response.success && data.backup) {
+                const backup = data.backup;
+                $('#viewBackupModal').data('backup', backup);
+
+                // Display metadata
+                $('#view-backup-device-name').text(backup.device_name);
+                $('#view-backup-created').text(formatDate(backup.created_at));
+                $('#view-backup-format').html(backup.config_format === 'set' ?
+                    '<span class="badge bg-info">Set Format</span>' :
+                    '<span class="badge bg-secondary">Native</span>');
+                $('#view-backup-size').text(formatFileSize(backup.file_size || 0));
+
+                // Display config content
+                $('#view-backup-config').val(backup.config_content || '');
+                $('#view-backup-content-container').show();
+            } else {
+                $('#view-backup-config').val('Error: Could not load backup content');
+                $('#view-backup-content-container').show();
+            }
+        })
+        .fail(function() {
+            $('#view-backup-loading').hide();
+            $('#view-backup-config').val('Error: Failed to fetch backup');
+            $('#view-backup-content-container').show();
+        });
 }
+
+// Copy backup button handler
+$('#copy-backup-btn').click(function() {
+    const content = $('#view-backup-config').val();
+    const btn = $(this);
+    const originalHtml = btn.html();
+
+    navigator.clipboard.writeText(content).then(function() {
+        btn.html('<i class="fas fa-check"></i> Copied!');
+        setTimeout(function() {
+            btn.html(originalHtml);
+        }, 2000);
+    }).catch(function(err) {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+});
+
+// Download backup button handler
+$('#download-backup-btn').click(function() {
+    const backup = $('#viewBackupModal').data('backup');
+    if (!backup) return;
+
+    const content = backup.config_content || '';
+    const filename = `${backup.device_name}_backup_${backup.created_at.replace(/[: ]/g, '_')}.txt`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});
 
 // Reset diff view to initial state
 function resetDiffView() {
@@ -1170,6 +1294,264 @@ function computeLineDiff(oldLines, newLines) {
     }
 
     return { html, added, removed, unchanged };
+}
+
+// ============================================================================
+// Test Connectivity Functions
+// ============================================================================
+
+function testDeviceConnectivity(deviceName, $btn) {
+    const originalHtml = $btn.html();
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+    $.ajax({
+        url: `/api/devices/${encodeURIComponent(deviceName)}/test`,
+        method: 'POST',
+        contentType: 'application/json',
+        timeout: 60000
+    })
+    .done(function(response) {
+        if (response.success && response.data && response.data.task_id) {
+            // Poll for task result
+            pollConnectivityTest(response.data.task_id, deviceName, $btn, originalHtml);
+        } else {
+            $btn.prop('disabled', false).html(originalHtml);
+            showToast('error', 'Failed to start connectivity test: ' + (response.error || 'Unknown error'));
+        }
+    })
+    .fail(function(xhr) {
+        $btn.prop('disabled', false).html(originalHtml);
+        const error = xhr.responseJSON?.error || 'Failed to test connectivity';
+        showToast('error', error);
+    });
+}
+
+function pollConnectivityTest(taskId, deviceName, $btn, originalHtml) {
+    let pollCount = 0;
+    const maxPolls = 30;  // 30 seconds max
+
+    const pollInterval = setInterval(function() {
+        pollCount++;
+
+        $.get(`/api/task/${taskId}`)
+            .done(function(response) {
+                const status = response.data?.task_status || response.status;
+
+                if (status === 'success' || status === 'SUCCESS') {
+                    clearInterval(pollInterval);
+                    $btn.prop('disabled', false).html('<i class="fas fa-check text-success"></i>');
+                    showToast('success', `${deviceName}: Connection successful!`);
+                    setTimeout(() => $btn.html(originalHtml), 3000);
+                } else if (status === 'failed' || status === 'FAILURE') {
+                    clearInterval(pollInterval);
+                    $btn.prop('disabled', false).html('<i class="fas fa-times text-danger"></i>');
+                    const error = response.data?.task_result?.error || 'Connection failed';
+                    showToast('error', `${deviceName}: ${error}`);
+                    setTimeout(() => $btn.html(originalHtml), 3000);
+                } else if (pollCount >= maxPolls) {
+                    clearInterval(pollInterval);
+                    $btn.prop('disabled', false).html(originalHtml);
+                    showToast('warning', `${deviceName}: Test timed out`);
+                }
+            })
+            .fail(function() {
+                if (pollCount >= maxPolls) {
+                    clearInterval(pollInterval);
+                    $btn.prop('disabled', false).html(originalHtml);
+                    showToast('error', `${deviceName}: Failed to get test result`);
+                }
+            });
+    }, 1000);
+}
+
+// ============================================================================
+// Bulk Operations
+// ============================================================================
+
+function executeBulkTestConnectivity() {
+    if (!confirm(`Test connectivity for ${selectedDevices.length} devices?`)) return;
+
+    // Show status modal
+    const statusModal = new bootstrap.Modal(document.getElementById('bulkStatusModal'));
+    statusModal.show();
+
+    let completed = 0;
+    let successful = 0;
+    let failed = 0;
+
+    selectedDevices.forEach(function(device) {
+        $.ajax({
+            url: `/api/devices/${encodeURIComponent(device)}/test`,
+            method: 'POST',
+            contentType: 'application/json',
+            timeout: 60000
+        })
+        .done(function(response) {
+            if (response.success && response.data && response.data.task_id) {
+                // Start polling for this device
+                pollBulkConnectivityTest(response.data.task_id, device, function(success) {
+                    if (success) successful++;
+                    else failed++;
+                    completed++;
+                    updateBulkStatus(completed, successful, failed, selectedDevices.length);
+                });
+            } else {
+                failed++;
+                completed++;
+                updateBulkStatus(completed, successful, failed, selectedDevices.length);
+            }
+        })
+        .fail(function() {
+            failed++;
+            completed++;
+            updateBulkStatus(completed, successful, failed, selectedDevices.length);
+        });
+    });
+}
+
+function pollBulkConnectivityTest(taskId, deviceName, callback) {
+    let pollCount = 0;
+    const maxPolls = 30;
+
+    const pollInterval = setInterval(function() {
+        pollCount++;
+
+        $.get(`/api/task/${taskId}`)
+            .done(function(response) {
+                const status = response.data?.task_status || response.status;
+
+                if (status === 'success' || status === 'SUCCESS') {
+                    clearInterval(pollInterval);
+                    callback(true);
+                } else if (status === 'failed' || status === 'FAILURE') {
+                    clearInterval(pollInterval);
+                    callback(false);
+                } else if (pollCount >= maxPolls) {
+                    clearInterval(pollInterval);
+                    callback(false);
+                }
+            })
+            .fail(function() {
+                if (pollCount >= maxPolls) {
+                    clearInterval(pollInterval);
+                    callback(false);
+                }
+            });
+    }, 1000);
+}
+
+function executeBulkBackup() {
+    if (!confirm(`Backup ${selectedDevices.length} devices?`)) return;
+
+    const $btn = $('#bulk-backup-btn');
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Backing up...');
+
+    $.ajax({
+        url: '/api/config-backups/run-selected',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            device_names: selectedDevices,
+            juniper_set_format: true
+        }),
+        timeout: 300000
+    })
+    .done(function(response) {
+        if (response.success) {
+            showToast('success', `Backup started for ${response.submitted || selectedDevices.length} devices`);
+            if (response.tasks && response.tasks.length > 0) {
+                runningTasks = response.tasks;
+                showRunningTasks();
+                startTaskPolling();
+            }
+        } else {
+            showToast('error', 'Failed to start backup: ' + (response.error || 'Unknown error'));
+        }
+    })
+    .fail(function(xhr) {
+        const error = xhr.responseJSON?.error || 'Failed to start backup';
+        showToast('error', error);
+    })
+    .always(function() {
+        $btn.prop('disabled', false).html('<i class="fas fa-save"></i> Backup');
+    });
+}
+
+function updateBulkStatus(completed, successful, failed, total) {
+    const percent = Math.round((completed / total) * 100);
+    $('#bulk-progress-bar').css('width', percent + '%').text(percent + '%');
+    $('#bulk-completed-count').text(completed);
+    $('#bulk-success-count').text(successful);
+    $('#bulk-failed-count').text(failed);
+
+    if (completed === total) {
+        $('#bulk-progress-bar').removeClass('progress-bar-animated');
+        if (failed === 0) {
+            $('#bulk-progress-bar').removeClass('bg-primary').addClass('bg-success');
+        } else if (successful === 0) {
+            $('#bulk-progress-bar').removeClass('bg-primary').addClass('bg-danger');
+        } else {
+            $('#bulk-progress-bar').removeClass('bg-primary').addClass('bg-warning');
+        }
+    }
+}
+
+function executeBulkDelete() {
+    // Filter to only manual devices
+    const manualDevices = selectedDevices.filter(function(deviceName) {
+        const device = allDevices.find(d => d.name === deviceName);
+        return device && device.source === 'manual';
+    });
+
+    if (manualDevices.length === 0) {
+        alert('No manual devices selected. Only manual devices can be deleted.');
+        return;
+    }
+
+    const netboxCount = selectedDevices.length - manualDevices.length;
+    let confirmMsg = `Delete ${manualDevices.length} manual device(s)?`;
+    if (netboxCount > 0) {
+        confirmMsg += `\n\n(${netboxCount} NetBox device(s) will be skipped - they cannot be deleted here)`;
+    }
+
+    if (!confirm(confirmMsg)) return;
+
+    const $btn = $('#bulk-delete-btn');
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Deleting...');
+
+    let deleted = 0;
+    let errors = 0;
+    let completed = 0;
+
+    manualDevices.forEach(function(deviceName) {
+        $.ajax({
+            url: `/api/manual-devices/${encodeURIComponent(deviceName)}`,
+            method: 'DELETE'
+        })
+        .done(function(response) {
+            if (response.success) {
+                deleted++;
+            } else {
+                errors++;
+            }
+        })
+        .fail(function() {
+            errors++;
+        })
+        .always(function() {
+            completed++;
+            if (completed === manualDevices.length) {
+                $btn.prop('disabled', false).html('<i class="fas fa-trash"></i> Delete');
+                if (deleted > 0) {
+                    showToast('success', `Deleted ${deleted} device(s)`);
+                    clearCacheAndReload();
+                }
+                if (errors > 0) {
+                    showToast('error', `Failed to delete ${errors} device(s)`);
+                }
+            }
+        });
+    });
 }
 
 function deleteBackup(backupId) {

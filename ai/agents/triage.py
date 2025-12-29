@@ -67,9 +67,10 @@ Handle directly when:
 - Interface up/down that doesn't affect routing
 
 ## Tools Available
+- `device_list`: List devices in the inventory - USE THIS for questions about device count, available devices, or filtering by type/platform
 - `device_show`: Execute show commands on devices
 - `device_multi_command`: Run multiple show commands at once
-- `knowledge_search`: Search documentation and runbooks
+- `knowledge_search`: Search documentation and runbooks (NOT for device inventory questions)
 - `handoff`: Transfer to specialist agent
 - `escalate`: Escalate to human operators
 - `create_incident`: Create incident for tracking
@@ -79,6 +80,7 @@ Always explain your reasoning before taking actions. Be thorough but efficient."
     def _register_tools(self) -> None:
         """Register tools appropriate for triage"""
         from ai.tools import (
+            DeviceListTool,
             DeviceShowTool,
             DeviceMultiCommandTool,
             KnowledgeSearchTool,
@@ -89,6 +91,7 @@ Always explain your reasoning before taking actions. Be thorough but efficient."
         )
 
         # Triage gets read-only device tools and workflow tools
+        self.tool_registry.register(DeviceListTool())
         self.tool_registry.register(DeviceShowTool())
         self.tool_registry.register(DeviceMultiCommandTool())
         self.tool_registry.register(KnowledgeSearchTool())

@@ -114,6 +114,8 @@ services:
       dockerfile: Dockerfile
     container_name: netstacks
     environment:
+      # Security Configuration
+      - SECRET_KEY=${SECRET_KEY:-a1f4a6308d52837fd4fe48ad3ce9dc9c3fe0f6f58763541678edd725b981f589}
       # Database Configuration
       - DB_FILE=/data/netstacks.db
       - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
@@ -194,9 +196,9 @@ services:
       - netstacks-network
     restart: unless-stopped
 
-  # PostgreSQL Database
+  # PostgreSQL Database with pgvector extension
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: netstacks-postgres
     environment:
       - POSTGRES_DB=netstacks
@@ -204,6 +206,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-netstacks_secret_change_me}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
     networks:
       - netstacks-network
     restart: unless-stopped

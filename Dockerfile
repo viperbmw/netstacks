@@ -20,13 +20,13 @@ COPY . .
 # Create data directory for SQLite database
 RUN mkdir -p /data && chmod 777 /data
 
-# Expose port 8088
-EXPOSE 8089
+# Expose in-container port (Flask-SocketIO runs on 8088)
+EXPOSE 8088
 
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV PYTHONUNBUFFERED=1
-ENV DB_FILE=/data/netstackspro.db
+ENV DB_FILE=/data/netstacks.db
 
 # Run the application
 CMD ["python", "app.py"]

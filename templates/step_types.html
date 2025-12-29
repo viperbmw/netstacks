@@ -213,19 +213,13 @@
                                     <small class="text-muted">Default CLI command (can be overridden in MOP YAML)</small>
                                 </div>
                                 <div class="row">
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="get-config-textfsm">
                                             <label class="form-check-label" for="get-config-textfsm">Parse with TextFSM</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="get-config-genie">
-                                            <label class="form-check-label" for="get-config-genie">Parse with Genie</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="get-config-ttp">
                                             <label class="form-check-label" for="get-config-ttp">Parse with TTP</label>
@@ -574,7 +568,6 @@ function editStepType(stepTypeId) {
     if (st.action_type === 'get_config') {
         $('#get-config-command').val(config.command || '');
         $('#get-config-textfsm').prop('checked', config.use_textfsm || false);
-        $('#get-config-genie').prop('checked', config.use_genie || false);
         $('#get-config-ttp').prop('checked', config.use_ttp || false);
         $('#get-config-ttp-template').val(config.ttp_template || '');
         $('#ttp-template-section').toggle(config.use_ttp || false);
@@ -731,7 +724,6 @@ function saveStepType() {
         config = {
             command: $('#get-config-command').val().trim(),
             use_textfsm: $('#get-config-textfsm').is(':checked'),
-            use_genie: $('#get-config-genie').is(':checked'),
             use_ttp: $('#get-config-ttp').is(':checked'),
             ttp_template: $('#get-config-ttp-template').val().trim()
         };

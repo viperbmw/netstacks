@@ -278,6 +278,40 @@ def delete_document(doc_id):
         return jsonify({'error': str(e)}), 500
 
 
+@knowledge_bp.route('/api/documents/index-all', methods=['POST'])
+@login_required
+def index_all_documents():
+    """Index all pending documents"""
+    try:
+        from models import KnowledgeDocument
+
+        with db.get_db() as db_session:
+            pending_docs = db_session.query(KnowledgeDocument).filter(
+                KnowledgeDocument.is_indexed == False
+            ).all()
+
+            if not pending_docs:
+                return jsonify({'message': 'No pending documents to index', 'indexed': 0})
+
+            indexed_count = 0
+            for doc in pending_docs:
+                try:
+                    _index_document_now(doc.doc_id)
+                    indexed_count += 1
+                except Exception as e:
+                    log.error(f"Error indexing {doc.doc_id}: {e}")
+
+            return jsonify({
+                'message': f'Indexed {indexed_count} documents',
+                'indexed': indexed_count,
+                'total_pending': len(pending_docs)
+            })
+
+    except Exception as e:
+        log.error(f"Error indexing all documents: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @knowledge_bp.route('/api/documents/<doc_id>/reindex', methods=['POST'])
 @login_required
 def reindex_document(doc_id):
@@ -384,13 +418,143 @@ def _read_file_content(file, doc_type):
 def _queue_document_indexing(doc_id):
     """Queue document for embedding generation"""
     try:
-        # In production, this would use Celery
-        # For now, just log and do inline
-        log.info(f"Queued document {doc_id} for indexing")
+        log.info(f"Indexing document {doc_id}")
+        _index_document_now(doc_id)
+    except Exception as e:
+        log.error(f"Error indexing document: {e}")
 
-        # Could call embedding generation here
-        # from ai.knowledge.embeddings import index_document
-        # index_document.delay(doc_id)
+
+def _index_document_now(doc_id):
+    """Generate embeddings for a document immediately using pgvector"""
+    from models import KnowledgeDocument
+    from sqlalchemy import text as sql_text
+
+    with db.get_db() as db_session:
+        doc = db_session.query(KnowledgeDocument).filter(
+            KnowledgeDocument.doc_id == doc_id
+        ).first()
+
+        if not doc:
+            log.error(f"Document not found: {doc_id}")
+            return
+
+        # Chunk the document
+        chunks = _chunk_text(doc.content, chunk_size=1000, overlap=200)
+        log.info(f"Document {doc_id} split into {len(chunks)} chunks")
+
+        # Generate embeddings for each chunk
+        for i, chunk_text in enumerate(chunks):
+            try:
+                embedding = _generate_embedding(chunk_text)
+                if not embedding:
+                    log.error(f"Failed to generate embedding for chunk {i}")
+                    return
+
+                # Store embedding using raw SQL for pgvector compatibility
+                # Note: Use CAST() syntax instead of :: to avoid SQLAlchemy parameter parsing issues
+                db_session.execute(
+                    sql_text("""
+                        INSERT INTO knowledge_embeddings
+                        (doc_id, chunk_index, chunk_text, embedding, created_at)
+                        VALUES (:doc_id, :chunk_index, :chunk_text, CAST(:embedding AS vector), NOW())
+                    """),
+                    {
+                        'doc_id': doc_id,
+                        'chunk_index': i,
+                        'chunk_text': chunk_text,
+                        'embedding': str(embedding)
+                    }
+                )
+
+            except Exception as e:
+                log.error(f"Error generating embedding for chunk {i}: {e}")
+                return
+
+        # Mark document as indexed
+        doc.is_indexed = True
+        db_session.commit()
+        log.info(f"Document {doc_id} indexed successfully with {len(chunks)} chunks")
+
+
+def _generate_embedding(text):
+    """Generate embedding using OpenAI API"""
+    import requests
+    from sqlalchemy import text as sql_text
+
+    try:
+        with db.get_db() as session:
+            result = session.execute(
+                sql_text("SELECT api_key FROM llm_providers WHERE name = 'openai' AND is_enabled = true")
+            ).fetchone()
+
+            if not result or not result[0]:
+                log.error("OpenAI API key not configured")
+                return None
+
+            api_key = result[0]
+            # Handle space-separated key format (some keys have extra data)
+            if ' ' in api_key:
+                api_key = api_key.split(' ')[0]
+            # Handle encrypted keys
+            if api_key.startswith('enc:'):
+                try:
+                    from credential_encryption import decrypt_value
+                    api_key = decrypt_value(api_key)
+                except Exception as e:
+                    log.error(f"Failed to decrypt API key: {e}")
+                    return None
+
+        response = requests.post(
+            'https://api.openai.com/v1/embeddings',
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'model': 'text-embedding-3-small',
+                'input': text
+            },
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            return response.json()['data'][0]['embedding']
+        else:
+            log.error(f"OpenAI API error: {response.status_code} - {response.text}")
+            return None
 
     except Exception as e:
-        log.error(f"Error queuing document indexing: {e}")
+        log.error(f"OpenAI embedding error: {e}")
+        return None
+
+
+def _chunk_text(text, chunk_size=1000, overlap=200):
+    """Split text into overlapping chunks"""
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+    text_len = len(text)
+
+    while start < text_len:
+        end = start + chunk_size
+
+        # Try to break at paragraph or sentence boundary
+        if end < text_len:
+            # Look for paragraph break
+            para_break = text.rfind('\n\n', start, end)
+            if para_break > start + chunk_size // 2:
+                end = para_break + 2
+            else:
+                # Look for sentence break
+                for sep in ['. ', '.\n', '! ', '? ']:
+                    sent_break = text.rfind(sep, start, end)
+                    if sent_break > start + chunk_size // 2:
+                        end = sent_break + len(sep)
+                        break
+
+        chunks.append(text[start:end].strip())
+        start = end - overlap
+
+    return [c for c in chunks if c]  # Filter empty chunks

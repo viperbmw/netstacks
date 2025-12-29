@@ -24,7 +24,7 @@ def celery_getconfig():
         "device": "device-name",
         "command": "show version",
         "use_textfsm": true,
-        "use_genie": false,
+        "use_ttp": false,
         "username": "optional-override",
         "password": "optional-override"
     }
@@ -74,7 +74,7 @@ def celery_getconfig():
             connection_args=connection_args,
             command=command,
             use_textfsm=data.get('use_textfsm', False),
-            use_genie=data.get('use_genie', False)
+            use_ttp=data.get('use_ttp', False)
         )
 
         return jsonify({

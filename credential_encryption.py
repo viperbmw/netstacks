@@ -99,6 +99,18 @@ def encrypt_credential(plaintext: str) -> str:
         raise
 
 
+# ---------------------------------------------------------------------------
+# Compatibility aliases
+# ---------------------------------------------------------------------------
+# Some parts of the codebase refer to encrypt_value/decrypt_value.
+# Keep these as thin wrappers so older imports keep working.
+
+
+def encrypt_value(plaintext: str) -> str:
+    """Alias for encrypt_credential (backwards compatible name)."""
+    return encrypt_credential(plaintext)
+
+
 def decrypt_credential(encrypted: str) -> str:
     """
     Decrypt a credential value.
@@ -131,6 +143,11 @@ def decrypt_credential(encrypted: str) -> str:
     except Exception as e:
         log.error(f"Error decrypting credential: {e}")
         raise
+
+
+def decrypt_value(encrypted: str) -> str:
+    """Alias for decrypt_credential (backwards compatible name)."""
+    return decrypt_credential(encrypted)
 
 
 def is_encrypted(value: str) -> bool:

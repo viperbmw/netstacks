@@ -12,6 +12,11 @@ from .triage import TriageAgent
 from .bgp import BGPAgent
 from .ospf import OSPFAgent
 from .isis import ISISAgent
+from .layer2 import Layer2Agent
+from .mpls import MPLSAgent
+from .automation import AutomationAgent
+from .documentation import DocumentationAgent
+from .general import GeneralAgent
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +27,11 @@ AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
     'bgp': BGPAgent,
     'ospf': OSPFAgent,
     'isis': ISISAgent,
+    'layer2': Layer2Agent,
+    'mpls': MPLSAgent,
+    'automation': AutomationAgent,
+    'documentation': DocumentationAgent,
+    'general': GeneralAgent,
 }
 
 

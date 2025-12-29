@@ -24,11 +24,10 @@ def index_document(doc_id: str) -> bool:
         True if successful, False otherwise
     """
     try:
-        import db
+        import database as db
         from models import KnowledgeDocument, KnowledgeEmbedding
 
-        session = db.get_session()
-        try:
+        with db.get_db() as session:
             # Get document
             doc = session.query(KnowledgeDocument).filter(
                 KnowledgeDocument.doc_id == doc_id
@@ -41,7 +40,6 @@ def index_document(doc_id: str) -> bool:
             if not doc.content:
                 log.warning(f"Document has no content: {doc_id}")
                 doc.is_indexed = True
-                session.commit()
                 return True
 
             # Chunk the document
@@ -50,7 +48,6 @@ def index_document(doc_id: str) -> bool:
             if not chunks:
                 log.warning(f"No chunks generated for document: {doc_id}")
                 doc.is_indexed = True
-                session.commit()
                 return True
 
             log.info(f"Generated {len(chunks)} chunks for document {doc_id}")
@@ -76,12 +73,9 @@ def index_document(doc_id: str) -> bool:
 
             # Mark document as indexed
             doc.is_indexed = True
-            session.commit()
 
             log.info(f"Successfully indexed document {doc_id}")
             return True
-        finally:
-            session.close()
 
     except Exception as e:
         log.error(f"Error indexing document {doc_id}: {e}", exc_info=True)
@@ -99,7 +93,7 @@ def reindex_collection(collection_id: int) -> dict:
         Dict with success count and failures
     """
     try:
-        import db
+        import database as db
         from models import KnowledgeDocument, KnowledgeEmbedding
 
         results = {
@@ -109,8 +103,7 @@ def reindex_collection(collection_id: int) -> dict:
             'failed_docs': []
         }
 
-        session = db.get_session()
-        try:
+        with db.get_db() as session:
             # Get all documents in collection
             docs = session.query(KnowledgeDocument).filter(
                 KnowledgeDocument.collection_id == collection_id
@@ -124,16 +117,14 @@ def reindex_collection(collection_id: int) -> dict:
                     KnowledgeEmbedding.doc_id == doc.doc_id
                 ).delete()
                 doc.is_indexed = False
-                session.commit()
 
-                # Reindex
-                if index_document(doc.doc_id):
-                    results['success'] += 1
-                else:
-                    results['failed'] += 1
-                    results['failed_docs'].append(doc.doc_id)
-        finally:
-            session.close()
+        # Reindex each document (uses its own session)
+        for doc_id in [d.doc_id for d in docs]:
+            if index_document(doc_id):
+                results['success'] += 1
+            else:
+                results['failed'] += 1
+                results['failed_docs'].append(doc_id)
 
         return results
 
@@ -166,7 +157,7 @@ def get_similar_chunks(
         List of matching chunks with similarity scores
     """
     try:
-        import db
+        import database as db
         from sqlalchemy import text
 
         # Generate query embedding
@@ -175,8 +166,7 @@ def get_similar_chunks(
             log.error("Failed to generate query embedding")
             return []
 
-        session = db.get_session()
-        try:
+        with db.get_db() as session:
             # Build query with optional filters
             filters = []
             params = {
@@ -197,6 +187,7 @@ def get_similar_chunks(
                 where_clause = "WHERE " + " AND ".join(filters)
 
             # pgvector cosine similarity search
+            # Note: Use CAST() instead of :: to avoid SQLAlchemy parameter parsing conflicts
             query_sql = text(f"""
                 SELECT
                     ke.id,
@@ -206,11 +197,11 @@ def get_similar_chunks(
                     kd.title,
                     kd.doc_type,
                     kd.source,
-                    1 - (ke.embedding <=> :embedding::vector) as similarity
+                    1 - (ke.embedding <=> CAST(:embedding AS vector)) as similarity
                 FROM knowledge_embeddings ke
                 JOIN knowledge_documents kd ON ke.doc_id = kd.doc_id
                 {where_clause}
-                ORDER BY ke.embedding <=> :embedding::vector
+                ORDER BY ke.embedding <=> CAST(:embedding AS vector)
                 LIMIT :limit
             """)
 
@@ -229,8 +220,6 @@ def get_similar_chunks(
                 }
                 for row in results
             ]
-        finally:
-            session.close()
 
     except Exception as e:
         log.error(f"Error in similarity search: {e}")

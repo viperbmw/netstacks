@@ -67,9 +67,11 @@ NetStacks is an open-source web application that provides a modern interface for
 
 ## 🚀 Quick Start
 
-**NetStacks now includes the complete platform!** The unified docker-compose deploys both:
-- **NetStacks Web UI** (port 8089) - Frontend interface
-- **Netstacker Backend** (port 9000) - API automation engine
+**NetStacks deploys as a hybrid platform**:
+- **NetStacks Web UI + legacy API (Flask)** (published on **http://localhost:8089**)
+- **Microservices (FastAPI)** for `auth`, `devices`, and `config` (internal container ports **8011/8004/8002**)
+- **Celery workers** for network operations
+- **PostgreSQL + Redis** for persistence and task queue
 
 ### 1. Clone the Repository
 
@@ -85,26 +87,30 @@ cp .env.example .env
 # Edit .env to customize API keys and ports if needed
 ```
 
-### 3. Deploy the Complete Platform
+### 3. Deploy the Platform
 
 ```bash
 docker-compose up -d
 ```
 
-This will start 5 containers:
-- `netstacks` - Web UI
-- `netstacker-controller` - API server
-- `netstacker-worker-pinned` - Task worker (pinned queue)
-- `netstacker-worker-fifo` - Task worker (FIFO queue)
-- `netstacker-redis` - Queue and cache
+This will start these containers:
+- `netstacks` - Web UI + legacy API (Flask)
+- `netstacks-auth` - Auth microservice (FastAPI)
+- `netstacks-devices` - Devices microservice (FastAPI)
+- `netstacks-config` - Config microservice (FastAPI)
+- `netstacks-workers` - Celery worker
+- `netstacks-workers-beat` - Celery beat scheduler
+- `netstacks-postgres` - PostgreSQL
+- `netstacks-redis` - Redis
+- `netstacks-traefik` - Reverse proxy (optional / dev oriented)
 
 ### 4. Access the Platform
 
 - **NetStacks Web UI**: `http://localhost:8089`
-- **Netstacker API**: `http://localhost:9000`
-- **Netstacker Swagger UI**: `http://localhost:9000`
+- **Traefik (if used)**: `http://localhost` (port 80)
+- **Traefik dashboard (dev)**: `http://localhost:8080`
 
-The Web UI is pre-configured to connect to the backend API automatically!
+The Web UI container is published on port **8089** and maps internally to port **8088**.
 
 ### 5. Default Login
 
@@ -163,7 +169,7 @@ Configure which authentication method is tried first:
 
 ## 🌐 Architecture
 
-NetStacks is a **complete network automation platform** with integrated frontend and backend:
+NetStacks is evolving from a monolith to a microservice architecture. The current docker-compose deployment is a **hybrid**:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -171,18 +177,18 @@ NetStacks is a **complete network automation platform** with integrated frontend
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
 │  ┌──────────────┐         ┌──────────────────────────┐ │
-│  │  NetStacks   │  REST   │  Netstacker Backend      │ │
+│  │  NetStacks   │  HTTP   │  Microservices (FastAPI) │ │
 │  │   Web UI     │ ◄─────► │  ┌────────────────────┐  │ │
-│  │  (Flask)     │   API   │  │ FastAPI Controller │  │ │
-│  │  + SQLite    │         │  ├────────────────────┤  │ │
-│  └──────────────┘         │  │ Pinned Worker      │  │ │
-│       Port 8089           │  ├────────────────────┤  │ │
-│                           │  │ FIFO Worker        │  │ │
-│                           │  ├────────────────────┤  │ │
-│                           │  │ Redis Queue/Cache  │  │ │
+│  │  (Flask)     │         │  │ Auth (8011)        │  │ │
+│  │  + Postgres  │         │  ├────────────────────┤  │ │
+│  └──────────────┘         │  │ Devices (8004)     │  │ │
+│       8089→8088           │  ├────────────────────┤  │ │
+│                           │  │ Config (8002)      │  │ │
 │                           │  └────────────────────┘  │ │
-│                           │       Port 9000          │ │
 │                           └──────────────────────────┘ │
+│                 ┌────────────────────────────────────┐ │
+│                 │ Celery Workers + Beat + Redis       │ │
+│                 └────────────────────────────────────┘ │
 │                                       │                 │
 └───────────────────────────────────────┼─────────────────┘
                                         │ SSH/Telnet
@@ -193,11 +199,10 @@ NetStacks is a **complete network automation platform** with integrated frontend
 ```
 
 **Key Points:**
-- **Unified Platform**: Both frontend and backend deploy together
-- **Pre-integrated**: Web UI automatically connects to backend API
-- **Microservices**: Scalable worker architecture for task processing
-- **Persistent Storage**: SQLite for UI data, Redis for task queuing
-- **Network Automation**: Direct device access via Netmiko (SSH/Telnet)
+- **Hybrid**: Flask still serves the UI and some APIs while services are being migrated.
+- **Async device operations**: handled via Celery + Redis.
+- **Persistent storage**: PostgreSQL (default in docker-compose).
+- **Reverse proxy**: Traefik is present, but service routing is currently conservative/disabled in compose labels.
 
 ## 📁 Directory Structure
 
@@ -230,17 +235,10 @@ netstacks/
 │       ├── mops.js             # MOP management
 │       ├── visual-builder.js   # Visual MOP Builder
 │       └── ...
-└── netstacker/                 # Backend API platform
-    ├── docker-compose.yml      # Backend-only deployment (optional)
-    ├── netstacker/             # Backend Python code
-    │   ├── netstacker_controller.py
-    │   ├── backend/
-    │   │   ├── core/
-    │   │   └── plugins/
-    │   └── routers/
-    ├── dockerfiles/            # Backend Dockerfiles
-    ├── config/                 # Backend configuration
-    └── tests/                  # Backend tests
+└── services/                   # Microservices (FastAPI)
+    ├── auth/
+    ├── devices/
+    └── config/
 ```
 
 **Note**: Jinja2 configuration templates are stored in the Netstacker backend under `netstacker/netstacker/backend/plugins/extensibles/j2_config_templates/`
@@ -381,14 +379,11 @@ To add new step types, simply add an `execute_<type>` method to `mop_engine.py`.
    - Execute delete commands on the device
    - Remove the service from tracking
 
-## 🔌 Netstacker Integration
+## 🔌 Service integration
 
-NetStacks uses the following Netstacker API endpoints:
+Device operations are primarily executed via **Celery workers** (Redis broker) and the Flask API submits those jobs.
 
-- `/setconfig` - Deploy configurations via Netmiko
-- `/getconfig` - Retrieve device configurations
-- `/j2template/config/` - List available templates
-- `/task/<task_id>` - Monitor task execution
+Microservices expose their own `/health` endpoints and (optionally) can be placed behind Traefik.
 
 ## 🐳 Docker Configuration
 

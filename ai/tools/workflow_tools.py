@@ -197,11 +197,10 @@ Use this when:
     def _create_escalation_record(self, data: Dict) -> None:
         """Create escalation record in database"""
         try:
-            import db
+            import database as db
             from models import Incident
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 incident = Incident(
                     incident_id=data['escalation_id'],
                     title=f"Escalation: {data['reason'][:100]}",
@@ -216,9 +215,6 @@ Use this when:
                     }
                 )
                 session.add(incident)
-                session.commit()
-            finally:
-                session.close()
 
         except Exception as e:
             log.error(f"Error creating escalation record: {e}")
@@ -280,13 +276,12 @@ Use this when you've identified a significant problem that needs formal tracking
     ) -> ToolResult:
         """Create incident record"""
         try:
-            import db
+            import database as db
             from models import Incident
 
             incident_id = str(uuid.uuid4())
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 incident = Incident(
                     incident_id=incident_id,
                     title=title,
@@ -301,9 +296,6 @@ Use this when you've identified a significant problem that needs formal tracking
                     }
                 )
                 session.add(incident)
-                session.commit()
-            finally:
-                session.close()
 
             return ToolResult(
                 success=True,
@@ -375,12 +367,11 @@ WARNING: This executes changes on network devices - requires approval."""
     ) -> ToolResult:
         """Execute MOP on target devices"""
         try:
-            import db
+            import database as db
             from models import MOP
 
             # Get MOP from database
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 mop = session.query(MOP).filter(MOP.name == mop_name).first()
                 if not mop:
                     return ToolResult(
@@ -396,8 +387,6 @@ WARNING: This executes changes on network devices - requires approval."""
                     'pre_checks': mop.pre_checks,
                     'post_checks': mop.post_checks
                 }
-            finally:
-                session.close()
 
             # For dry run, just return what would be done
             if dry_run:
@@ -517,11 +506,10 @@ Use this to add resolution notes, change status, or update severity."""
     ) -> ToolResult:
         """Update incident"""
         try:
-            import db
+            import database as db
             from models import Incident
 
-            session = db.get_session()
-            try:
+            with db.get_db() as session:
                 incident = session.query(Incident).filter(
                     Incident.incident_id == incident_id
                 ).first()
@@ -557,7 +545,6 @@ Use this to add resolution notes, change status, or update severity."""
                     updates['note_added'] = True
 
                 incident.updated_at = datetime.utcnow()
-                session.commit()
 
                 return ToolResult(
                     success=True,
@@ -567,8 +554,6 @@ Use this to add resolution notes, change status, or update severity."""
                         'message': 'Incident updated successfully'
                     }
                 )
-            finally:
-                session.close()
 
         except Exception as e:
             log.error(f"Update incident error: {e}", exc_info=True)

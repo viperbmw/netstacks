@@ -15,64 +15,72 @@
 <!-- Stats Cards -->
 <div class="row mb-4">
     <div class="col-md-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Built-in Tools</h6>
-                        <h2 id="builtin-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-terminal fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="builtin">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Built-in Tools</h6>
+                            <h2 id="builtin-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-terminal fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Custom Tools</h6>
-                        <h2 id="custom-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-puzzle-piece fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="custom">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Custom Tools</h6>
+                            <h2 id="custom-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-puzzle-piece fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">MCP Servers</h6>
-                        <h2 id="mcp-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-plug fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="mcp">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">MCP Servers</h6>
+                            <h2 id="mcp-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-plug fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-secondary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Total Available</h6>
-                        <h2 id="total-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-tools fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="total">
+            <div class="card bg-secondary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Total Available</h6>
+                            <h2 id="total-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-tools fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -750,6 +758,26 @@ $(document).ready(function() {
     // Refresh buttons
     $('#refresh-custom-btn').on('click', loadCustomTools);
     $('#refresh-mcp-btn').on('click', loadMCPServers);
+
+    // Stat card click handlers
+    $(document).on('click', '.stat-card-link', function(e) {
+        e.preventDefault();
+        const filter = $(this).data('filter');
+
+        if (filter === 'builtin') {
+            // Switch to Built-in Tools tab
+            $('#toolTabs a[href="#builtin-tab"]').tab('show');
+        } else if (filter === 'custom') {
+            // Switch to Custom Tools tab
+            $('#toolTabs a[href="#custom-tab"]').tab('show');
+        } else if (filter === 'mcp') {
+            // Switch to MCP Servers tab
+            $('#toolTabs a[href="#mcp-tab"]').tab('show');
+        } else if (filter === 'total') {
+            // Switch to Built-in Tools tab (shows main view)
+            $('#toolTabs a[href="#builtin-tab"]').tab('show');
+        }
+    });
 
     // Utility functions
     function escapeHtml(text) {

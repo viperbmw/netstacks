@@ -15,64 +15,72 @@
 <!-- Stats Cards -->
 <div class="row mb-4">
     <div class="col-md-3">
-        <div class="card bg-warning text-dark">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Pending</h6>
-                        <h2 id="pending-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-clock fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="pending">
+            <div class="card bg-warning text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Pending</h6>
+                            <h2 id="pending-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-clock fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-danger text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Critical Risk</h6>
-                        <h2 id="critical-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-fire fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="critical">
+            <div class="card bg-danger text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Critical Risk</h6>
+                            <h2 id="critical-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-fire fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Approved Today</h6>
-                        <h2 id="approved-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-check-circle fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="approved">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Approved Today</h6>
+                            <h2 id="approved-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-secondary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Rejected Today</h6>
-                        <h2 id="rejected-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-times-circle fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="rejected">
+            <div class="card bg-secondary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Rejected Today</h6>
+                            <h2 id="rejected-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-times-circle fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -629,6 +637,28 @@ $(document).ready(function() {
     $('#filter-status, #filter-risk').on('change', loadApprovals);
     $('#approval-search').on('input', renderApprovals);
     $('#refresh-btn').on('click', loadApprovals);
+
+    // Stat card click handlers
+    $(document).on('click', '.stat-card-link', function(e) {
+        e.preventDefault();
+        const filter = $(this).data('filter');
+
+        if (filter === 'pending') {
+            $('#filter-status').val('pending');
+            $('#filter-risk').val('');
+        } else if (filter === 'critical') {
+            $('#filter-status').val('pending');
+            $('#filter-risk').val('critical');
+        } else if (filter === 'approved') {
+            $('#filter-status').val('approved');
+            $('#filter-risk').val('');
+        } else if (filter === 'rejected') {
+            $('#filter-status').val('rejected');
+            $('#filter-risk').val('');
+        }
+
+        loadApprovals();
+    });
 
     // Utility functions
     function escapeHtml(text) {

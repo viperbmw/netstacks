@@ -4,10 +4,19 @@ Authentication Service for NetStacks
 Business logic for user authentication, session management, and auth config.
 """
 
-import hashlib
 import logging
 import secrets
 from typing import Any, Dict, List, Optional, Tuple
+
+import hashlib
+import hmac
+
+try:
+    import bcrypt
+    _BCRYPT_AVAILABLE = True
+except Exception:
+    bcrypt = None
+    _BCRYPT_AVAILABLE = False
 
 import database as db
 from utils.exceptions import (
@@ -44,14 +53,46 @@ class AuthService:
     VALID_AUTH_TYPES = ['local', 'ldap', 'oidc']
 
     @staticmethod
-    def hash_password(password: str) -> str:
-        """Hash a password using SHA256."""
+    def _sha256_hex(password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
 
     @staticmethod
+    def _looks_like_sha256_hex(value: str) -> bool:
+        return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value.lower())
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """Hash a password.
+
+        Uses bcrypt when available; falls back to legacy SHA256-hex.
+        """
+        if _BCRYPT_AVAILABLE:
+            salt = bcrypt.gensalt(rounds=12)
+            return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+        return AuthService._sha256_hex(password)
+
+    @staticmethod
     def verify_password(stored_hash: str, provided_password: str) -> bool:
-        """Verify a password against a stored hash."""
-        return stored_hash == AuthService.hash_password(provided_password)
+        """Verify a password against a stored hash.
+
+        Supports bcrypt (preferred) and legacy SHA256-hex.
+        """
+        if not stored_hash or not provided_password:
+            return False
+
+        if isinstance(stored_hash, str) and stored_hash.startswith('$2'):
+            if not _BCRYPT_AVAILABLE:
+                log.error("bcrypt hash present but bcrypt not installed")
+                return False
+            try:
+                return bcrypt.checkpw(provided_password.encode('utf-8'), stored_hash.encode('utf-8'))
+            except Exception:
+                return False
+
+        if AuthService._looks_like_sha256_hex(stored_hash):
+            return hmac.compare_digest(stored_hash, AuthService._sha256_hex(provided_password))
+
+        return False
 
     def get_user(self, username: str) -> Optional[Dict]:
         """Get user from database."""

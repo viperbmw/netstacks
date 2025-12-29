@@ -1,6 +1,0 @@
---2025-12-01 16:03:24--  https://cdn.juniper.net/software/crpdtrial/23.2R1/junos-routing-crpd-docker-amd64-23.2R1.13.tgz?SM_USER=casey.davis@viasat.com
-Resolving cdn.juniper.net (cdn.juniper.net)... 23.202.204.46, 2600:1409:9800:e95::e63, 2600:1409:9800:e8f::e63
-Connecting to cdn.juniper.net (cdn.juniper.net)|23.202.204.46|:443... connected.
-HTTP request sent, awaiting response... 403 Forbidden
-2025-12-01 16:03:24 ERROR 403: Forbidden.
-

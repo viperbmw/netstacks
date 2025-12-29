@@ -88,11 +88,20 @@
                 <strong id="selected-count">0</strong> devices selected
             </div>
             <div>
+                <button class="btn btn-sm btn-info me-2" id="bulk-test-btn" title="Test connectivity for selected devices">
+                    <i class="fas fa-plug"></i> Test
+                </button>
                 <button class="btn btn-sm btn-primary me-2" id="bulk-getconfig-btn">
                     <i class="fas fa-download"></i> Get Config
                 </button>
                 <button class="btn btn-sm btn-warning me-2" id="bulk-setconfig-btn">
                     <i class="fas fa-upload"></i> Set Config
+                </button>
+                <button class="btn btn-sm btn-success me-2" id="bulk-backup-btn" title="Backup selected devices">
+                    <i class="fas fa-save"></i> Backup
+                </button>
+                <button class="btn btn-sm btn-danger me-2" id="bulk-delete-btn" title="Delete selected manual devices">
+                    <i class="fas fa-trash"></i> Delete
                 </button>
                 <button class="btn btn-sm btn-secondary" id="clear-selection-btn">
                     <i class="fas fa-times"></i> Clear
@@ -122,6 +131,7 @@
                                 <input type="checkbox" id="select-all-checkbox" class="form-check-input">
                             </th>
                             <th>Device Name</th>
+                            <th>Management IP</th>
                             <th>Type</th>
                             <th>Source</th>
                             <th>Last Backup</th>
@@ -428,6 +438,88 @@
                 <button type="button" class="btn btn-primary" id="save-device-override-btn">
                     <i class="fas fa-save"></i> Save Settings
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Status Modal -->
+<div class="modal fade" id="bulkStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-tasks"></i> Bulk Operation Progress</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="progress" style="height: 25px;">
+                        <div id="bulk-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h4 id="bulk-completed-count" class="text-primary">0</h4>
+                        <small class="text-muted">Completed</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 id="bulk-success-count" class="text-success">0</h4>
+                        <small class="text-muted">Successful</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 id="bulk-failed-count" class="text-danger">0</h4>
+                        <small class="text-muted">Failed</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Backup Modal -->
+<div class="modal fade" id="viewBackupModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-file-code"></i> <span id="view-backup-device-name">Device</span> - Configuration Backup</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <small class="text-muted">Created:</small>
+                            <span id="view-backup-created" class="ms-2">-</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">Format:</small>
+                            <span id="view-backup-format" class="ms-2">-</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">Size:</small>
+                            <span id="view-backup-size" class="ms-2">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="view-backup-loading" class="text-center py-4">
+                    <div class="spinner-border" role="status"></div>
+                    <p class="mt-2 text-muted">Loading backup...</p>
+                </div>
+                <div id="view-backup-content-container" style="display: none;">
+                    <textarea id="view-backup-config" class="form-control font-monospace" rows="20" readonly style="font-size: 12px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="copy-backup-btn">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="download-backup-btn">
+                    <i class="fas fa-download"></i> Download
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>

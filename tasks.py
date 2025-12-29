@@ -1,6 +1,6 @@
 """
 Celery Tasks for NetStacks
-Network automation tasks using Netmiko, TextFSM, and Genie
+Network automation tasks using Netmiko and TextFSM
 
 Each task handles network device operations directly via Celery workers.
 """
@@ -25,6 +25,46 @@ log = logging.getLogger(__name__)
 # Celery configuration
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+
+# Task metadata storage (in-memory for now, can be moved to Redis)
+import redis
+_redis_client = None
+
+def get_redis_client():
+    """Get Redis client for task metadata"""
+    global _redis_client
+    if _redis_client is None:
+        try:
+            _redis_client = redis.from_url(CELERY_RESULT_BACKEND, decode_responses=True)
+        except Exception as e:
+            log.warning(f"Could not connect to Redis: {e}")
+            return None
+    return _redis_client
+
+def store_task_metadata(task_id: str, metadata: Dict):
+    """Store task metadata in Redis"""
+    client = get_redis_client()
+    if client:
+        try:
+            import json
+            key = f"task_meta:{task_id}"
+            client.setex(key, 3600, json.dumps(metadata))  # 1 hour expiry
+        except Exception as e:
+            log.debug(f"Could not store task metadata: {e}")
+
+def get_task_metadata(task_id: str) -> Optional[Dict]:
+    """Get task metadata from Redis"""
+    client = get_redis_client()
+    if client:
+        try:
+            import json
+            key = f"task_meta:{task_id}"
+            data = client.get(key)
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            log.debug(f"Could not get task metadata: {e}")
+    return None
 
 # Create Celery app
 celery_app = Celery(
@@ -87,87 +127,58 @@ def get_textfsm_template_path(device_type: str, command: str) -> Optional[str]:
         template_name = f"{device_type}_{command_normalized}.textfsm"
         template_path = os.path.join(template_dir, template_name)
 
+        log.debug(f"Looking for TextFSM template: {template_path}")
+
         if os.path.exists(template_path):
+            log.info(f"Found TextFSM template: {template_path}")
             return template_path
 
         # Try ntc-templates index lookup
         try:
             from ntc_templates.parse import get_template
+            # get_template returns a file-like object, not a path
+            # So we use parse_output directly instead
+            log.info(f"Using ntc-templates get_template for {device_type} / {command}")
             return get_template(platform=device_type, command=command)
-        except Exception:
+        except Exception as e:
+            log.debug(f"ntc-templates get_template failed: {e}")
             pass
 
+        log.warning(f"No TextFSM template found for {device_type} / {command}")
         return None
     except ImportError:
         log.warning("ntc-templates not installed")
         return None
 
 
-def parse_with_textfsm(output: str, template_path: str) -> List[Dict]:
+def parse_with_textfsm(output: str, template_source) -> List[Dict]:
     """
     Parse CLI output using TextFSM template
 
     Args:
         output: Raw CLI output
-        template_path: Path to TextFSM template
+        template_source: Path to TextFSM template file, or file-like object
 
     Returns:
         List of parsed records as dicts
     """
     try:
-        with open(template_path) as f:
-            fsm = textfsm.TextFSM(f)
+        # Handle both file path strings and file-like objects
+        if isinstance(template_source, str):
+            with open(template_source) as f:
+                fsm = textfsm.TextFSM(f)
+                result = fsm.ParseText(output)
+                headers = fsm.header
+                return [dict(zip(headers, row)) for row in result]
+        else:
+            # It's a file-like object from ntc-templates
+            fsm = textfsm.TextFSM(template_source)
             result = fsm.ParseText(output)
             headers = fsm.header
             return [dict(zip(headers, row)) for row in result]
     except Exception as e:
         log.error(f"TextFSM parsing error: {e}")
         return []
-
-
-def parse_with_genie(output: str, command: str, device_type: str) -> Dict:
-    """
-    Parse CLI output using Cisco Genie parser
-
-    Args:
-        output: Raw CLI output
-        command: CLI command that was executed
-        device_type: Device OS type
-
-    Returns:
-        Parsed structured data
-    """
-    try:
-        from genie.libs.parser.utils import get_parser
-        from genie.conf.base import Device
-
-        # Map netmiko device types to Genie OS
-        os_map = {
-            'cisco_ios': 'ios',
-            'cisco_xe': 'iosxe',
-            'cisco_xr': 'iosxr',
-            'cisco_nxos': 'nxos',
-            'juniper_junos': 'junos',
-            'arista_eos': 'eos',
-        }
-
-        genie_os = os_map.get(device_type, device_type)
-
-        # Create a mock device for parsing
-        device = Device('mock_device', os=genie_os)
-        device.custom.setdefault('abstraction', {})['order'] = [genie_os]
-
-        # Get parser and parse
-        parser_class = get_parser(command, device)
-        parser = parser_class(device=device)
-        return parser.parse(output=output)
-
-    except ImportError:
-        log.warning("Genie not available")
-        return {'raw_output': output}
-    except Exception as e:
-        log.warning(f"Genie parsing failed: {e}")
-        return {'raw_output': output}
 
 
 def parse_with_ttp(output: str, ttp_template: str) -> List[Dict]:
@@ -219,7 +230,7 @@ def render_jinja2_template(template_content: str, variables: Dict) -> str:
 
 @celery_app.task(bind=True, name='tasks.device_tasks.get_config')
 def get_config(self, connection_args: Dict, command: str,
-               use_textfsm: bool = False, use_genie: bool = False,
+               use_textfsm: bool = False,
                use_ttp: bool = False, ttp_template: str = None) -> Dict:
     """
     Get configuration or command output from a device
@@ -228,13 +239,24 @@ def get_config(self, connection_args: Dict, command: str,
         connection_args: Dict with device_type, host, username, password, etc.
         command: CLI command to execute
         use_textfsm: Parse output with TextFSM
-        use_genie: Parse output with Genie
         use_ttp: Parse output with TTP
         ttp_template: TTP template string (required if use_ttp=True)
 
     Returns:
         Dict with output, parsed_output (if parsing enabled), and metadata
     """
+    started_at = utc_now()
+
+    # Store task metadata
+    store_task_metadata(self.request.id, {
+        'created_at': started_at.isoformat(),
+        'started_at': started_at.isoformat(),
+        'device_name': connection_args.get('host'),
+        'command': command,
+        'queue': 'device_tasks',
+        'worker': self.request.hostname
+    })
+
     result = {
         'status': 'started',
         'host': connection_args.get('host'),
@@ -242,7 +264,7 @@ def get_config(self, connection_args: Dict, command: str,
     }
 
     try:
-        log.info(f"Connecting to {connection_args.get('host')} for get_config")
+        log.info(f"Connecting to {connection_args.get('host')} for get_config (use_textfsm={use_textfsm})")
 
         with ConnectHandler(**connection_args) as conn:
             output = conn.send_command(command)
@@ -262,20 +284,25 @@ def get_config(self, connection_args: Dict, command: str,
             # Parse with TextFSM if requested
             if use_textfsm and not result.get('parsed_output'):
                 device_type = connection_args.get('device_type', 'cisco_ios')
-                template_path = get_textfsm_template_path(device_type, command)
-                if template_path:
-                    result['parsed_output'] = parse_with_textfsm(output, template_path)
-                    result['parser'] = 'textfsm'
-                else:
-                    log.warning(f"No TextFSM template found for {device_type} / {command}")
-
-            # Parse with Genie if requested
-            if use_genie and not result.get('parsed_output'):
-                device_type = connection_args.get('device_type', 'cisco_ios')
-                parsed = parse_with_genie(output, command, device_type)
-                if parsed and parsed != {'raw_output': output}:
-                    result['parsed_output'] = parsed
-                    result['parser'] = 'genie'
+                # Try using ntc_templates.parse.parse_output first (recommended way)
+                try:
+                    from ntc_templates.parse import parse_output
+                    parsed = parse_output(platform=device_type, command=command, data=output)
+                    if parsed:
+                        result['parsed_output'] = parsed
+                        result['parser'] = 'textfsm'
+                        log.info(f"TextFSM parsed output successfully for {device_type} / {command}")
+                    else:
+                        log.warning(f"TextFSM parsing returned empty result for {device_type} / {command}")
+                except Exception as e:
+                    log.warning(f"ntc_templates.parse_output failed: {e}, trying manual template lookup")
+                    # Fallback to manual template lookup
+                    template_source = get_textfsm_template_path(device_type, command)
+                    if template_source:
+                        result['parsed_output'] = parse_with_textfsm(output, template_source)
+                        result['parser'] = 'textfsm'
+                    else:
+                        log.warning(f"No TextFSM template found for {device_type} / {command}")
 
     except NetmikoTimeoutException as e:
         log.error(f"Timeout connecting to {connection_args.get('host')}: {e}")
@@ -291,6 +318,21 @@ def get_config(self, connection_args: Dict, command: str,
         log.error(f"Error in get_config: {e}", exc_info=True)
         result['status'] = 'failed'
         result['error'] = str(e)
+
+    # Update task metadata with end time
+    ended_at = utc_now()
+    duration = (ended_at - started_at).total_seconds()
+    store_task_metadata(self.request.id, {
+        'created_at': started_at.isoformat(),
+        'started_at': started_at.isoformat(),
+        'ended_at': ended_at.isoformat(),
+        'duration': duration,
+        'device_name': connection_args.get('host'),
+        'command': command,
+        'queue': 'device_tasks',
+        'worker': self.request.hostname,
+        'status': result.get('status', 'unknown')
+    })
 
     return result
 

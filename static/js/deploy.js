@@ -467,6 +467,7 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
     };
 
     const taskIds = [];
+    const dryRunResults = [];  // Collect dry run results
     let completed = 0;
     const endpoint = dryRun ? '/api/deploy/setconfig/dry-run' : '/api/deploy/setconfig';
 
@@ -529,20 +530,35 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
                     timeout: 30000
                 })
                 .done(function(data) {
-                    // API returns: {status: 'success', data: {task_id: '...', ...}}
-                    const taskId = data.data?.task_id || data.task_id || data.id;
-                    if (taskId) {
-                        taskIds.push(taskId);
-                    }
                     completed++;
 
-                    if (completed === devices.length) {
-                        showStatus('success', { taskId: `${taskIds.length} tasks created` });
+                    if (dryRun) {
+                        // For dry run, collect rendered config
+                        const renderedConfig = data.data?.rendered_config || data.rendered_config || '';
+                        dryRunResults.push({
+                            device: device,
+                            config: Array.isArray(renderedConfig) ? renderedConfig.join('\n') : renderedConfig
+                        });
 
-                        // Redirect to job monitor after 3 seconds
-                        setTimeout(function() {
-                            window.location.href = '/monitor';
-                        }, 3000);
+                        if (completed === devices.length) {
+                            // Show dry run results in modal
+                            showDryRunResults(dryRunResults);
+                        }
+                    } else {
+                        // API returns: {status: 'success', data: {task_id: '...', ...}}
+                        const taskId = data.data?.task_id || data.task_id || data.id;
+                        if (taskId) {
+                            taskIds.push(taskId);
+                        }
+
+                        if (completed === devices.length) {
+                            showStatus('success', { taskId: `${taskIds.length} tasks created` });
+
+                            // Redirect to job monitor after 3 seconds
+                            setTimeout(function() {
+                                window.location.href = '/monitor';
+                            }, 3000);
+                        }
                     }
                 })
                 .fail(function(xhr, status, error) {
@@ -950,3 +966,33 @@ $(document).on('click', '#confirm-schedule-deploy-btn', function() {
         alert('Failed to schedule deployment: ' + (xhr.responseJSON?.error || 'Unknown error'));
     });
 });
+
+/**
+ * Show dry run results in a modal
+ */
+function showDryRunResults(results) {
+    // Build the content for the modal
+    let content = '';
+    results.forEach(function(result) {
+        content += `<div class="mb-3">
+            <h6 class="text-primary"><i class="fas fa-server"></i> ${result.device}</h6>
+            <pre class="bg-dark text-light p-3 rounded" style="max-height: 300px; overflow-y: auto; white-space: pre-wrap;">${escapeHtml(result.config)}</pre>
+        </div>`;
+    });
+
+    // Set the modal content and show it
+    $('#result-content').html(content);
+    showStatus('success', { taskId: `Dry run completed for ${results.length} device(s)` });
+
+    const modal = new bootstrap.Modal(document.getElementById('resultModal'));
+    modal.show();
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

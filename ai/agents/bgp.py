@@ -73,6 +73,7 @@ Understand and diagnose states: Idle → Connect → Active → OpenSent → Ope
 - Escalate if changes affect production traffic significantly
 
 ## Tools Available
+- `device_list`: List devices in inventory (for device count, filtering by type/platform)
 - `device_show`: Execute show commands (primary diagnostic tool)
 - `device_multi_command`: Run multiple commands efficiently
 - `device_config`: Push configuration changes (high risk - requires approval)
@@ -85,20 +86,24 @@ Always explain your BGP analysis clearly. Use proper BGP terminology. Show your 
     def _register_tools(self) -> None:
         """Register tools appropriate for BGP specialist"""
         from ai.tools import (
+            DeviceListTool,
             DeviceShowTool,
             DeviceMultiCommandTool,
             DeviceConfigTool,
             KnowledgeSearchTool,
+            KnowledgeListTool,
             EscalateTool,
             CreateIncidentTool,
             UpdateIncidentTool,
         )
 
         # BGP agent gets device tools including config
+        self.tool_registry.register(DeviceListTool())
         self.tool_registry.register(DeviceShowTool())
         self.tool_registry.register(DeviceMultiCommandTool())
         self.tool_registry.register(DeviceConfigTool())
         self.tool_registry.register(KnowledgeSearchTool())
+        self.tool_registry.register(KnowledgeListTool())
         self.tool_registry.register(EscalateTool())
         self.tool_registry.register(CreateIncidentTool())
         self.tool_registry.register(UpdateIncidentTool())

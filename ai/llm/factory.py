@@ -43,7 +43,7 @@ def get_llm_client(
     """
     # Import here to avoid circular imports
     try:
-        import db
+        import database as db
         from models import LLMProvider
     except ImportError:
         # Fallback for standalone usage
@@ -52,8 +52,7 @@ def get_llm_client(
 
     # If no provider specified, get default from database
     if provider is None and db is not None:
-        session = db.get_session()
-        try:
+        with db.get_db() as session:
             default_provider = session.query(LLMProvider).filter(
                 LLMProvider.is_default == True,
                 LLMProvider.is_enabled == True
@@ -67,8 +66,6 @@ def get_llm_client(
                     model = default_provider.default_model
             else:
                 raise ValueError("No default LLM provider configured. Please configure an LLM provider in Settings.")
-        finally:
-            session.close()
 
     if provider is None:
         provider = 'anthropic'  # Fallback default
@@ -81,8 +78,7 @@ def get_llm_client(
 
     # Get API key from database if not provided
     if api_key is None and db is not None:
-        session = db.get_session()
-        try:
+        with db.get_db() as session:
             db_provider = session.query(LLMProvider).filter(
                 LLMProvider.name == provider
             ).first()
@@ -93,8 +89,6 @@ def get_llm_client(
                     model = db_provider.default_model
             else:
                 raise ValueError(f"LLM provider '{provider}' not configured or disabled.")
-        finally:
-            session.close()
 
     if api_key is None:
         raise ValueError(f"No API key provided for LLM provider: {provider}")
@@ -119,7 +113,7 @@ def get_available_providers() -> List[Dict[str, Any]]:
         List of provider info dicts with name, display_name, is_enabled, is_default.
     """
     try:
-        import db
+        import database as db
         from models import LLMProvider
     except ImportError:
         # Return static list if database not available
@@ -129,8 +123,7 @@ def get_available_providers() -> List[Dict[str, Any]]:
         ]
 
     providers = []
-    session = db.get_session()
-    try:
+    with db.get_db() as session:
         db_providers = session.query(LLMProvider).all()
         for p in db_providers:
             providers.append({
@@ -141,8 +134,6 @@ def get_available_providers() -> List[Dict[str, Any]]:
                 'default_model': p.default_model,
                 'available_models': p.available_models or [],
             })
-    finally:
-        session.close()
 
     return providers
 

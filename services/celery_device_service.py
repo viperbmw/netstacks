@@ -20,7 +20,7 @@ class CeleryDeviceService:
         self.app = celery_app
 
     def execute_get_config(self, connection_args: Dict, command: str,
-                           use_textfsm: bool = False, use_genie: bool = False,
+                           use_textfsm: bool = False,
                            use_ttp: bool = False, ttp_template: str = None) -> str:
         """
         Execute a show command on a device asynchronously.
@@ -29,7 +29,6 @@ class CeleryDeviceService:
             connection_args: Device connection parameters
             command: CLI command to execute
             use_textfsm: Parse with TextFSM
-            use_genie: Parse with Genie
             use_ttp: Parse with TTP
             ttp_template: TTP template string
 
@@ -43,7 +42,6 @@ class CeleryDeviceService:
             connection_args=clean_args,
             command=command,
             use_textfsm=use_textfsm,
-            use_genie=use_genie,
             use_ttp=use_ttp,
             ttp_template=ttp_template
         )
@@ -145,10 +143,43 @@ class CeleryDeviceService:
             'status': result.status,
         }
 
+        # Add metadata from result backend
+        try:
+            # Get extended task info if available
+            if hasattr(result, 'info') and result.info:
+                info = result.info
+                if isinstance(info, dict):
+                    response['meta'] = info
+
+            # Get task metadata from backend
+            response['queue'] = getattr(result, 'queue', None)
+
+            # Try to get date information
+            if hasattr(result, 'date_done') and result.date_done:
+                response['ended_at'] = result.date_done.isoformat() if hasattr(result.date_done, 'isoformat') else str(result.date_done)
+
+            # Get worker info if task is running or completed
+            if result.status in ('STARTED', 'SUCCESS', 'FAILURE'):
+                try:
+                    # Check if we have backend info
+                    backend_info = result.backend.get_task_meta(task_id)
+                    if backend_info:
+                        if 'date_done' in backend_info and backend_info['date_done']:
+                            response['ended_at'] = backend_info['date_done'].isoformat() if hasattr(backend_info['date_done'], 'isoformat') else str(backend_info['date_done'])
+                        if 'traceback' in backend_info and backend_info['traceback']:
+                            response['traceback'] = backend_info['traceback']
+                        # Worker info may be in the result or meta
+                        if 'task_id' in backend_info:
+                            response['worker'] = backend_info.get('hostname', backend_info.get('worker'))
+                except Exception as e:
+                    log.debug(f"Could not get backend info for task {task_id}: {e}")
+        except Exception as e:
+            log.debug(f"Could not get extended metadata for task {task_id}: {e}")
+
         if result.ready():
             if result.successful():
                 response['result'] = result.result
-                response['status'] = result.result.get('status', 'success')
+                response['status'] = result.result.get('status', 'success') if isinstance(result.result, dict) else 'success'
             else:
                 response['status'] = 'failed'
                 response['error'] = str(result.result)

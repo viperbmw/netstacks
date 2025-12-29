@@ -2,14 +2,25 @@
 Page Routes
 Main dashboard and general page routes
 """
-from flask import Blueprint, render_template, redirect, url_for
+from flask import Blueprint, render_template, redirect, url_for, send_from_directory, current_app
 import logging
+import os
 
 from routes.auth import login_required
 
 log = logging.getLogger(__name__)
 
 pages_bp = Blueprint('pages', __name__)
+
+
+@pages_bp.route('/favicon.ico')
+def favicon():
+    """Return favicon or empty response to prevent 404 spam."""
+    static_dir = os.path.join(current_app.root_path, 'static')
+    if os.path.exists(os.path.join(static_dir, 'favicon.ico')):
+        return send_from_directory(static_dir, 'favicon.ico', mimetype='image/x-icon')
+    # Return empty response with 204 No Content if no favicon exists
+    return '', 204
 
 
 # ============================================================================

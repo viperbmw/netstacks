@@ -15,64 +15,72 @@
 <!-- Stats Cards -->
 <div class="row mb-4">
     <div class="col-md-3">
-        <div class="card bg-danger text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Critical</h6>
-                        <h2 id="critical-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-fire fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="critical">
+            <div class="card bg-danger text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Critical</h6>
+                            <h2 id="critical-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-fire fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-warning text-dark">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Warning</h6>
-                        <h2 id="warning-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-exclamation-triangle fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="warning">
+            <div class="card bg-warning text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Warning</h6>
+                            <h2 id="warning-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-exclamation-triangle fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Info</h6>
-                        <h2 id="info-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-info-circle fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="info">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Info</h6>
+                            <h2 id="info-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-info-circle fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">Acknowledged</h6>
-                        <h2 id="ack-count">0</h2>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-check-circle fa-2x opacity-50"></i>
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="acknowledged">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Acknowledged</h6>
+                            <h2 id="ack-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -595,6 +603,22 @@ $(document).ready(function() {
         $('body').append($alert);
         setTimeout(() => $alert.alert('close'), 3000);
     }
+
+    // Stat card click handlers
+    $(document).on('click', '.stat-card-link', function(e) {
+        e.preventDefault();
+        const filter = $(this).data('filter');
+
+        if (filter === 'critical' || filter === 'warning' || filter === 'info') {
+            $('#filter-severity').val(filter);
+            $('#filter-status').val('');
+        } else if (filter === 'acknowledged') {
+            $('#filter-severity').val('');
+            $('#filter-status').val('acknowledged');
+        }
+
+        loadAlerts();
+    });
 
     // Initial load
     loadAlerts();

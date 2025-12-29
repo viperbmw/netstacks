@@ -24,6 +24,23 @@ from services.celery_device_service import celery_device_service
 
 app = Flask(__name__)
 
+# Initialize Flask-SocketIO for real-time WebSocket communication
+from flask_socketio import SocketIO
+
+def _get_socketio_cors_allowed_origins():
+    """Return SocketIO CORS allowed origins.
+
+    - If SOCKETIO_CORS_ALLOWED_ORIGINS is unset: keep legacy behaviour ("*").
+    - If set: parse as comma-separated list.
+    """
+    raw = os.environ.get('SOCKETIO_CORS_ALLOWED_ORIGINS', '').strip()
+    if not raw:
+        return "*"
+    origins = [o.strip() for o in raw.split(',') if o.strip()]
+    return origins or "*"
+
+socketio = SocketIO(app, cors_allowed_origins=_get_socketio_cors_allowed_origins())
+
 # Secret key for session management - MUST be set in production
 _secret_key = os.environ.get('SECRET_KEY')
 if not _secret_key:
@@ -45,6 +62,14 @@ log = logging.getLogger(__name__)
 from routes import register_blueprints
 register_blueprints(app)
 log.info("Registered all route blueprints")
+
+# Initialize WebSocket handlers for agent chat
+try:
+    from routes.agent_websocket import init_socketio
+    init_socketio(socketio)
+    log.info("Initialized agent WebSocket handlers")
+except Exception as e:
+    log.warning(f"Could not initialize WebSocket handlers: {e}")
 
 # Register API documentation blueprint (legacy)
 try:
@@ -569,6 +594,7 @@ def proxy_api_call():
     try:
         import requests
         import base64
+        from urllib.parse import urlparse
 
         data = request.json
         resource_id = data.get('resource_id')
@@ -613,6 +639,19 @@ def proxy_api_call():
         base_url = resource['base_url'].rstrip('/')
         clean_endpoint = substituted_endpoint if substituted_endpoint.startswith('/') else '/' + substituted_endpoint
         url = base_url + clean_endpoint
+
+        # Optional outbound allowlist (disabled by default)
+        # If PROXY_API_ALLOWED_HOSTS is set, only allow proxying to these hostnames.
+        allowed_hosts_raw = os.environ.get('PROXY_API_ALLOWED_HOSTS', '').strip()
+        if allowed_hosts_raw:
+            allowed_hosts = {h.strip().lower() for h in allowed_hosts_raw.split(',') if h.strip()}
+            parsed = urlparse(url)
+            host = (parsed.hostname or '').lower()
+            if not host or host not in allowed_hosts:
+                return jsonify({
+                    'success': False,
+                    'error': f"Outbound proxy blocked by allowlist (host='{host}')"
+                }), 403
 
         # Build headers based on auth type
         headers = {}
@@ -834,6 +873,59 @@ def run_all_device_backups():
         })
     except Exception as e:
         log.error(f"Error running all device backups: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config-backups/run-selected', methods=['POST'])
+@login_required
+def run_selected_device_backups():
+    """Run backups for selected devices"""
+    try:
+        data = request.json or {}
+        device_names = data.get('device_names', [])
+
+        if not device_names:
+            return jsonify({'success': False, 'error': 'No devices specified'}), 400
+
+        log.info(f"Running backup for {len(device_names)} selected devices")
+
+        # Get backup settings
+        schedule = db.get_backup_schedule()
+        juniper_set_format = data.get('juniper_set_format', schedule.get('juniper_set_format', True) if schedule else True)
+
+        # Submit backup tasks
+        from services.device_service import get_device_connection_info as get_conn_info
+        submitted = []
+        failed = []
+        created_by = session.get('username', 'system')
+
+        for device_name in device_names:
+            try:
+                device_info = get_conn_info(device_name)
+                if device_info:
+                    task_id = celery_device_service.execute_backup(
+                        connection_args=device_info['connection_args'],
+                        device_name=device_name,
+                        device_platform=device_info['device_info'].get('platform'),
+                        juniper_set_format=juniper_set_format,
+                        created_by=created_by
+                    )
+                    submitted.append({'device': device_name, 'task_id': task_id})
+                    save_task_id(task_id, device_name=f"backup:{device_name}:{task_id}")
+                else:
+                    failed.append({'device': device_name, 'error': 'Could not get connection info'})
+            except Exception as e:
+                failed.append({'device': device_name, 'error': str(e)})
+
+        return jsonify({
+            'success': True,
+            'submitted': len(submitted),
+            'failed': len(failed),
+            'tasks': submitted,
+            'errors': failed
+        })
+    except Exception as e:
+        log.error(f"Error running selected device backups: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -1530,12 +1622,32 @@ def get_task(task_id):
     """Get specific task details from Celery"""
     try:
         result = celery_device_service.get_task_result(task_id)
+
+        # Also try to get task metadata from our task_metadata store
+        task_meta = {}
+        try:
+            from tasks import get_task_metadata
+            task_meta = get_task_metadata(task_id) or {}
+        except ImportError:
+            pass
+        except Exception as e:
+            log.debug(f"Could not get task metadata: {e}")
+
         return jsonify({
             'status': 'success',
             'data': {
                 'task_id': task_id,
                 'task_status': result.get('status', 'unknown'),
-                'task_result': result.get('result', {})
+                'task_result': result.get('result', {}),
+                'task_queue': result.get('queue') or task_meta.get('queue', 'celery'),
+                'task_meta': {
+                    'assigned_worker': result.get('worker') or task_meta.get('worker'),
+                    'started_at': task_meta.get('started_at') or result.get('started_at'),
+                    'ended_at': result.get('ended_at') or task_meta.get('ended_at'),
+                    'total_elapsed_seconds': task_meta.get('duration', 0)
+                },
+                'task_errors': result.get('errors', []),
+                'created_on': task_meta.get('created_at') or task_meta.get('enqueued_at')
             }
         })
     except Exception as e:
@@ -1615,21 +1727,28 @@ def deploy_getconfig():
         connection_args = payload.get('connection_args', {})
         command = payload.get('command', 'show running-config')
 
+        # Apply default credentials if not provided
+        if not connection_args.get('username') or not connection_args.get('password'):
+            settings = db.get_all_settings()
+            if not connection_args.get('username'):
+                connection_args['username'] = settings.get('default_username', '')
+            if not connection_args.get('password'):
+                connection_args['password'] = settings.get('default_password', '')
+            log.info(f"Applied default credentials for {device_name}")
+
         # Extract parsing options from payload.args (where frontend sends them)
         args = payload.get('args', {})
         use_textfsm = args.get('use_textfsm', False)
-        use_genie = args.get('use_genie', False)
         use_ttp = args.get('use_ttp', False)
         ttp_template = args.get('ttp_template', None)
 
-        log.info(f"Parsing options: textfsm={use_textfsm}, genie={use_genie}, ttp={use_ttp}")
+        log.info(f"Parsing options: textfsm={use_textfsm}, ttp={use_ttp}")
 
         # Execute via Celery
         task_id = celery_device_service.execute_get_config(
             connection_args=connection_args,
             command=command,
             use_textfsm=use_textfsm,
-            use_genie=use_genie,
             use_ttp=use_ttp,
             ttp_template=ttp_template
         )
@@ -1656,6 +1775,15 @@ def deploy_setconfig():
         payload = data.get('payload', {})
         connection_args = payload.get('connection_args', {})
         config = payload.get('config', payload.get('config_set', ''))
+
+        # Apply default credentials if not provided
+        if not connection_args.get('username') or not connection_args.get('password'):
+            settings = db.get_all_settings()
+            if not connection_args.get('username'):
+                connection_args['username'] = settings.get('default_username', '')
+            if not connection_args.get('password'):
+                connection_args['password'] = settings.get('default_password', '')
+            log.info(f"Applied default credentials for {device_name}")
 
         # Handle config as string or list
         if isinstance(config, list):
@@ -3353,8 +3481,7 @@ def execute_getconfig_step(step, context=None, step_index=0):
                 task_id = celery_device_service.execute_get_config(
                     connection_args=payload['connection_args'],
                     command=command,
-                    use_textfsm=config.get('use_textfsm', False),
-                    use_genie=False
+                    use_textfsm=config.get('use_textfsm', False)
                 )
 
                 # Save task ID to history
@@ -4059,5 +4186,5 @@ def execute_deploy_stack_step(step, mop_context=None, step_index=0):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8088, debug=True)
-
+    # Use socketio.run instead of app.run for WebSocket support
+    socketio.run(app, host="0.0.0.0", port=8088, debug=True, allow_unsafe_werkzeug=True)
