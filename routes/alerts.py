@@ -61,6 +61,8 @@ def webhook_generic():
         "description": "Alert description",
         "source": "source-system"
     }
+
+    All alerts are automatically processed by AI triage unless skip_ai=true.
     """
     try:
         data = request.get_json() or {}
@@ -75,13 +77,14 @@ def webhook_generic():
             alert_data=data
         )
 
-        # Optionally trigger triage agent
-        if data.get('auto_triage', False):
-            _trigger_triage_agent(alert)
+        # Trigger AI processing (async) unless explicitly skipped
+        if not data.get('skip_ai', False):
+            _trigger_ai_processing(alert)
 
         return jsonify({
             'status': 'received',
-            'alert_id': alert['alert_id']
+            'alert_id': alert['alert_id'],
+            'ai_processing': not data.get('skip_ai', False)
         }), 201
 
     except Exception as e:
@@ -95,6 +98,7 @@ def webhook_prometheus():
     Prometheus AlertManager webhook.
 
     Expects Prometheus AlertManager webhook format.
+    All alerts are automatically processed by AI triage.
     """
     try:
         data = request.get_json() or {}
@@ -133,9 +137,13 @@ def webhook_prometheus():
             )
             created_alerts.append(alert['alert_id'])
 
+            # Trigger AI processing for each alert
+            _trigger_ai_processing(alert)
+
         return jsonify({
             'status': 'received',
-            'alerts': created_alerts
+            'alerts': created_alerts,
+            'ai_processing': True
         }), 201
 
     except Exception as e:
@@ -149,6 +157,7 @@ def webhook_solarwinds():
     SolarWinds webhook.
 
     Expects SolarWinds alert format.
+    All alerts are automatically processed by AI triage.
     """
     try:
         data = request.get_json() or {}
@@ -171,9 +180,13 @@ def webhook_solarwinds():
             alert_data=data
         )
 
+        # Trigger AI processing
+        _trigger_ai_processing(alert)
+
         return jsonify({
             'status': 'received',
-            'alert_id': alert['alert_id']
+            'alert_id': alert['alert_id'],
+            'ai_processing': True
         }), 201
 
     except Exception as e:
@@ -294,6 +307,89 @@ def acknowledge_alert(alert_id):
 
     except Exception as e:
         log.error(f"Error acknowledging alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@alerts_bp.route('/api/alerts/<alert_id>/process', methods=['POST'])
+@login_required
+def process_alert_manually(alert_id):
+    """
+    Manually trigger AI processing for an alert.
+
+    Use this to re-process an alert or process one that was skipped.
+    """
+    try:
+        from models import Alert
+
+        with db.get_db() as db_session:
+            alert = db_session.query(Alert).filter(
+                Alert.alert_id == alert_id
+            ).first()
+
+            if not alert:
+                return jsonify({'error': 'Alert not found'}), 404
+
+            # Build alert data dict
+            alert_data = {
+                'alert_id': alert.alert_id,
+                'title': alert.title,
+                'description': alert.description,
+                'severity': alert.severity,
+                'source': alert.source,
+                'device': alert.device,
+                'alert_data': alert.alert_data or {},
+            }
+
+        # Trigger AI processing
+        _trigger_ai_processing(alert_data)
+
+        return jsonify({
+            'message': 'AI processing triggered',
+            'alert_id': alert_id
+        })
+
+    except Exception as e:
+        log.error(f"Error processing alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@alerts_bp.route('/api/alerts/<alert_id>/sessions', methods=['GET'])
+@login_required
+def get_alert_sessions(alert_id):
+    """
+    Get AI processing sessions for an alert.
+
+    Returns the history of AI agent sessions that processed this alert.
+    """
+    try:
+        from models import AgentSession
+
+        with db.get_db() as db_session:
+            # Find sessions triggered by this alert
+            sessions = db_session.query(AgentSession).filter(
+                AgentSession.trigger_type == 'alert',
+            ).order_by(AgentSession.created_at.desc()).all()
+
+            # Filter to sessions for this alert
+            alert_sessions = []
+            for s in sessions:
+                trigger_data = s.trigger_data or {}
+                if trigger_data.get('alert_id') == alert_id:
+                    alert_sessions.append({
+                        'session_id': s.session_id,
+                        'status': s.status,
+                        'created_at': s.created_at.isoformat() if s.created_at else None,
+                        'ended_at': s.ended_at.isoformat() if s.ended_at else None,
+                        'trigger_data': s.trigger_data,
+                    })
+
+            return jsonify({
+                'alert_id': alert_id,
+                'sessions': alert_sessions
+            })
+
+    except Exception as e:
+        log.error(f"Error getting alert sessions: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -453,7 +549,11 @@ def _create_alert(title, description, severity, source, source_id, device=None, 
             return {
                 'alert_id': alert_id,
                 'title': title,
+                'description': description,
                 'severity': severity,
+                'source': source,
+                'device': device,
+                'alert_data': alert_data or {},
             }
 
     except Exception as e:
@@ -461,20 +561,25 @@ def _create_alert(title, description, severity, source, source_id, device=None, 
         raise
 
 
-def _trigger_triage_agent(alert_data):
-    """Trigger triage agent for an alert"""
+def _trigger_ai_processing(alert_data):
+    """
+    Trigger AI processing for an alert.
+
+    This runs the alert through the AI workflow:
+    1. Check for correlation with existing alerts/incidents
+    2. If correlated: attach to existing incident
+    3. If new: trigger triage agent for analysis
+    4. Triage agent decides whether to create incident, hand off, or resolve
+
+    Processing runs asynchronously so webhook responses are fast.
+    """
     try:
-        from ai.agents import create_agent
+        from ai.alert_processor import process_alert_async
 
-        agent = create_agent('triage')
-        context = {
-            'alert': alert_data,
-            'trigger_type': 'alert',
-        }
+        # Process asynchronously so we don't block the webhook response
+        process_alert_async(alert_data)
 
-        # Run agent asynchronously (would use Celery in production)
-        # For now, just log the intent
-        log.info(f"Would trigger triage agent for alert {alert_data['alert_id']}")
+        log.info(f"Triggered AI processing for alert {alert_data['alert_id']}")
 
     except Exception as e:
-        log.error(f"Error triggering triage agent: {e}")
+        log.error(f"Error triggering AI processing: {e}")

@@ -33,7 +33,7 @@
     </div>
     <div class="col-md-3">
         <a href="#" class="text-decoration-none stat-card-link" data-filter="warning">
-            <div class="card bg-warning text-white h-100">
+            <div class="card bg-warning text-dark h-100">
                 <div class="card-body">
                     <div class="d-flex justify-content-between">
                         <div>
@@ -49,16 +49,16 @@
         </a>
     </div>
     <div class="col-md-3">
-        <a href="#" class="text-decoration-none stat-card-link" data-filter="info">
-            <div class="card bg-info text-white h-100">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="processing">
+            <div class="card text-white h-100" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
                 <div class="card-body">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <h6 class="card-title">Info</h6>
-                            <h2 id="info-count">0</h2>
+                            <h6 class="card-title">AI Processing</h6>
+                            <h2 id="processing-count">0</h2>
                         </div>
                         <div class="align-self-center">
-                            <i class="fas fa-info-circle fa-2x opacity-50"></i>
+                            <i class="fas fa-robot fa-2x opacity-50"></i>
                         </div>
                     </div>
                 </div>
@@ -102,6 +102,7 @@
                     <select class="form-control form-control-sm" id="filter-severity">
                         <option value="">All Severities</option>
                         <option value="critical">Critical</option>
+                        <option value="error">Error</option>
                         <option value="warning">Warning</option>
                         <option value="info">Info</option>
                     </select>
@@ -111,6 +112,10 @@
                     <select class="form-control form-control-sm" id="filter-status">
                         <option value="">All Status</option>
                         <option value="new">New</option>
+                        <option value="processing">AI Processing</option>
+                        <option value="incident_created">Incident Created</option>
+                        <option value="correlated">Correlated</option>
+                        <option value="escalated">Escalated</option>
                         <option value="acknowledged">Acknowledged</option>
                         <option value="resolved">Resolved</option>
                     </select>
@@ -168,8 +173,8 @@
         </div>
         <div id="alerts-container" style="display: none;">
             <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                <table class="table table-hover table-striped table-sm">
-                    <thead class="sticky-top bg-light">
+                <table class="table table-hover table-sm">
+                    <thead class="sticky-top">
                         <tr>
                             <th style="width: 40px;">
                                 <input type="checkbox" id="select-all-alerts" class="form-check-input">
@@ -178,7 +183,7 @@
                             <th>Title</th>
                             <th>Device</th>
                             <th>Source</th>
-                            <th>Status</th>
+                            <th>AI Status</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
@@ -197,7 +202,7 @@
 
 <!-- Alert Details Modal -->
 <div class="modal fade" id="alertDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="fas fa-bell"></i> Alert Details</h5>
@@ -216,17 +221,21 @@
                 </div>
 
                 <div class="row mb-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <strong>Device:</strong><br>
                         <span id="detail-device">-</span>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <strong>Source:</strong><br>
                         <span id="detail-source">-</span>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <strong>Created:</strong><br>
                         <span id="detail-created">-</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>AI Processed:</strong><br>
+                        <span id="detail-ai-status">-</span>
                     </div>
                 </div>
 
@@ -241,24 +250,53 @@
                     </div>
                 </div>
 
+                <!-- AI Analysis Section -->
+                <div class="mb-4" id="ai-analysis-section" style="display: none;">
+                    <h6><i class="fas fa-robot text-primary"></i> AI Analysis</h6>
+                    <div class="ai-analysis-card p-3 rounded">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <small class="text-muted">Status:</small>
+                                <div id="ai-analysis-status"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <small class="text-muted">Outcome:</small>
+                                <div id="ai-analysis-outcome"></div>
+                            </div>
+                        </div>
+                        <div class="mt-3" id="ai-analysis-details" style="display: none;">
+                            <small class="text-muted">Analysis Details:</small>
+                            <pre id="ai-analysis-content" class="p-2 rounded mt-1 small" style="max-height: 150px; overflow-y: auto;"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Linked Incident Section -->
                 <div class="mb-3" id="incident-info" style="display: none;">
-                    <strong>Linked Incident:</strong><br>
-                    <a href="#" id="detail-incident-link" class="btn btn-sm btn-outline-primary mt-1">
-                        <i class="fas fa-external-link-alt"></i> View Incident
-                    </a>
+                    <h6><i class="fas fa-exclamation-triangle text-warning"></i> Linked Incident</h6>
+                    <div class="d-flex align-items-center gap-3 p-2 rounded incident-link-card">
+                        <div>
+                            <span id="detail-incident-title" class="fw-bold"></span>
+                            <br>
+                            <small class="text-muted">ID: <span id="detail-incident-id"></span></small>
+                        </div>
+                        <a href="#" id="detail-incident-link" class="btn btn-sm btn-outline-warning ms-auto">
+                            <i class="fas fa-external-link-alt"></i> View Incident
+                        </a>
+                    </div>
                 </div>
 
                 <div class="mb-3">
-                    <strong>Alert Data:</strong>
-                    <pre id="detail-data" class="bg-light p-2 rounded mt-1" style="max-height: 200px; overflow-y: auto;"></pre>
+                    <h6><i class="fas fa-code"></i> Alert Data</h6>
+                    <pre id="detail-data" class="p-2 rounded mt-1" style="max-height: 200px; overflow-y: auto;"></pre>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-warning" id="create-incident-btn">
                     <i class="fas fa-exclamation-triangle"></i> Create Incident
                 </button>
-                <button type="button" class="btn btn-outline-primary" id="triage-alert-btn">
-                    <i class="fas fa-robot"></i> Triage with AI
+                <button type="button" class="btn btn-outline-primary" id="reprocess-alert-btn">
+                    <i class="fas fa-robot"></i> Re-process with AI
                 </button>
                 <button type="button" class="btn btn-success" id="ack-alert-btn">
                     <i class="fas fa-check"></i> Acknowledge
@@ -273,7 +311,7 @@
 <div class="card mt-4">
     <div class="card-header d-flex justify-content-between align-items-center py-2">
         <h6 class="mb-0">
-            <i class="fas fa-webhook"></i> Webhook Endpoints
+            <i class="fas fa-plug"></i> Webhook Endpoints
         </h6>
         <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#webhook-panel">
             <i class="fas fa-chevron-down"></i>
@@ -281,7 +319,7 @@
     </div>
     <div class="collapse" id="webhook-panel">
         <div class="card-body">
-            <p class="text-muted small">Configure your monitoring systems to send alerts to these endpoints:</p>
+            <p class="text-muted small">Configure your monitoring systems to send alerts to these endpoints. All alerts are automatically processed by AI unless <code>skip_ai: true</code> is set.</p>
             <table class="table table-sm">
                 <thead>
                     <tr>
@@ -311,6 +349,60 @@
         </div>
     </div>
 </div>
+
+<style>
+/* Dark theme specific styles for alerts page */
+[data-bs-theme="dark"] .ai-analysis-card {
+    background-color: #2a2a2a;
+    border: 1px solid #404040;
+}
+
+[data-bs-theme="dark"] .incident-link-card {
+    background-color: #3a3520;
+    border: 1px solid #5a5530;
+}
+
+[data-bs-theme="light"] .ai-analysis-card {
+    background-color: #f0f4ff;
+    border: 1px solid #c4d4ff;
+}
+
+[data-bs-theme="light"] .incident-link-card {
+    background-color: #fff8e6;
+    border: 1px solid #ffe0a0;
+}
+
+/* AI status badges */
+.badge-ai-processing {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+}
+
+.badge-ai-incident {
+    background-color: #f97316;
+    color: white;
+}
+
+.badge-ai-correlated {
+    background-color: #0ea5e9;
+    color: white;
+}
+
+.badge-ai-escalated {
+    background-color: #ef4444;
+    color: white;
+}
+
+.badge-ai-analyzed {
+    background-color: #22c55e;
+    color: white;
+}
+
+.badge-ai-handed-off {
+    background-color: #a855f7;
+    color: white;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -377,7 +469,7 @@ $(document).ready(function() {
 
         filteredAlerts.forEach(function(alert) {
             const severityBadge = getSeverityBadge(alert.severity);
-            const statusBadge = getStatusBadge(alert.status);
+            const aiStatusBadge = getAIStatusBadge(alert.status, alert.incident_id);
 
             $tbody.append(`
                 <tr>
@@ -387,11 +479,11 @@ $(document).ready(function() {
                     <td>${severityBadge}</td>
                     <td>
                         <strong>${escapeHtml(alert.title)}</strong>
-                        ${alert.incident_id ? '<i class="fas fa-link text-info ms-1" title="Linked to incident"></i>' : ''}
+                        ${alert.incident_id ? '<i class="fas fa-link text-warning ms-1" title="Linked to incident"></i>' : ''}
                     </td>
                     <td>${escapeHtml(alert.device || '-')}</td>
                     <td><span class="badge bg-secondary">${escapeHtml(alert.source)}</span></td>
-                    <td>${statusBadge}</td>
+                    <td>${aiStatusBadge}</td>
                     <td>${formatDate(alert.created_at)}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
@@ -414,12 +506,12 @@ $(document).ready(function() {
     function updateStats() {
         const critical = alerts.filter(a => a.severity === 'critical' && a.status !== 'resolved').length;
         const warning = alerts.filter(a => a.severity === 'warning' && a.status !== 'resolved').length;
-        const info = alerts.filter(a => a.severity === 'info' && a.status !== 'resolved').length;
+        const processing = alerts.filter(a => ['processing', 'handed_off'].includes(a.status)).length;
         const ack = alerts.filter(a => a.status === 'acknowledged').length;
 
         $('#critical-count').text(critical);
         $('#warning-count').text(warning);
-        $('#info-count').text(info);
+        $('#processing-count').text(processing);
         $('#ack-count').text(ack);
     }
 
@@ -433,11 +525,18 @@ $(document).ready(function() {
         return badges[severity] || `<span class="badge bg-secondary">${severity}</span>`;
     }
 
-    function getStatusBadge(status) {
+    function getAIStatusBadge(status, incidentId) {
         const badges = {
-            'new': '<span class="badge bg-primary">New</span>',
-            'acknowledged': '<span class="badge bg-success">Acknowledged</span>',
-            'resolved': '<span class="badge bg-secondary">Resolved</span>'
+            'new': '<span class="badge bg-primary"><i class="fas fa-plus"></i> New</span>',
+            'processing': '<span class="badge badge-ai-processing"><i class="fas fa-spinner fa-spin"></i> AI Processing</span>',
+            'incident_created': '<span class="badge badge-ai-incident"><i class="fas fa-exclamation-triangle"></i> Incident Created</span>',
+            'correlated': '<span class="badge badge-ai-correlated"><i class="fas fa-link"></i> Correlated</span>',
+            'escalated': '<span class="badge badge-ai-escalated"><i class="fas fa-arrow-up"></i> Escalated</span>',
+            'analyzed': '<span class="badge badge-ai-analyzed"><i class="fas fa-check"></i> Analyzed</span>',
+            'handed_off': '<span class="badge badge-ai-handed-off"><i class="fas fa-hand-point-right"></i> Handed Off</span>',
+            'acknowledged': '<span class="badge bg-success"><i class="fas fa-check-circle"></i> Acknowledged</span>',
+            'resolved': '<span class="badge bg-secondary"><i class="fas fa-check-double"></i> Resolved</span>',
+            'error': '<span class="badge bg-danger"><i class="fas fa-times"></i> Error</span>'
         };
         return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
     }
@@ -455,10 +554,20 @@ $(document).ready(function() {
                 $('#detail-title').text(alert.title);
                 $('#detail-description').text(alert.description || 'No description');
                 $('#detail-severity').html(getSeverityBadge(alert.severity));
-                $('#detail-status').html(getStatusBadge(alert.status));
+                $('#detail-status').html(getAIStatusBadge(alert.status, alert.incident_id));
                 $('#detail-device').text(alert.device || '-');
                 $('#detail-source').text(alert.source);
                 $('#detail-created').text(formatDate(alert.created_at));
+
+                // AI Status display
+                const aiStatuses = ['processing', 'incident_created', 'correlated', 'escalated', 'analyzed', 'handed_off', 'error'];
+                if (aiStatuses.includes(alert.status)) {
+                    $('#detail-ai-status').html('<span class="text-success"><i class="fas fa-check"></i> Processed</span>');
+                    showAIAnalysis(alert);
+                } else {
+                    $('#detail-ai-status').html('<span class="text-muted">Pending</span>');
+                    $('#ai-analysis-section').hide();
+                }
 
                 if (alert.acknowledged_by) {
                     $('#ack-info').show();
@@ -470,7 +579,7 @@ $(document).ready(function() {
 
                 if (alert.incident_id) {
                     $('#incident-info').show();
-                    $('#detail-incident-link').attr('href', `/alerts/incidents?id=${alert.incident_id}`);
+                    loadIncidentInfo(alert.incident_id);
                 } else {
                     $('#incident-info').hide();
                 }
@@ -479,6 +588,7 @@ $(document).ready(function() {
 
                 // Update button states
                 $('#ack-alert-btn').prop('disabled', alert.status === 'acknowledged');
+                $('#create-incident-btn').prop('disabled', alert.incident_id !== null);
 
                 new bootstrap.Modal($('#alertDetailsModal')).show();
             },
@@ -487,6 +597,81 @@ $(document).ready(function() {
             }
         });
     });
+
+    function showAIAnalysis(alert) {
+        $('#ai-analysis-section').show();
+
+        // Status display
+        const statusMap = {
+            'processing': '<span class="text-info"><i class="fas fa-spinner fa-spin"></i> Processing...</span>',
+            'incident_created': '<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> Incident was created</span>',
+            'correlated': '<span class="text-info"><i class="fas fa-link"></i> Correlated to existing incident</span>',
+            'escalated': '<span class="text-danger"><i class="fas fa-arrow-up"></i> Escalated to operators</span>',
+            'analyzed': '<span class="text-success"><i class="fas fa-check"></i> Analyzed - no action needed</span>',
+            'handed_off': '<span class="text-purple"><i class="fas fa-hand-point-right"></i> Handed to specialist agent</span>',
+            'error': '<span class="text-danger"><i class="fas fa-times"></i> Processing failed</span>'
+        };
+        $('#ai-analysis-status').html(statusMap[alert.status] || '<span class="text-muted">Unknown</span>');
+
+        // Outcome description
+        const outcomeMap = {
+            'incident_created': 'AI determined this alert requires formal tracking as an incident.',
+            'correlated': 'AI found this alert relates to an existing open incident.',
+            'escalated': 'AI escalated this issue for human operator attention.',
+            'analyzed': 'AI analyzed the alert and determined no immediate action is required.',
+            'handed_off': 'AI handed this to a specialist agent for deeper analysis.',
+            'processing': 'AI is currently analyzing this alert...',
+            'error': 'AI processing encountered an error.'
+        };
+        $('#ai-analysis-outcome').html(outcomeMap[alert.status] || 'Status unknown');
+
+        // Load AI sessions if available
+        loadAISessions(alert.alert_id);
+    }
+
+    function loadAISessions(alertId) {
+        $.ajax({
+            url: `/alerts/api/alerts/${alertId}/sessions`,
+            method: 'GET',
+            success: function(response) {
+                if (response.sessions && response.sessions.length > 0) {
+                    $('#ai-analysis-details').show();
+                    let content = '';
+                    response.sessions.forEach(function(session) {
+                        content += `Session: ${session.session_id.substring(0, 8)}...\n`;
+                        content += `Status: ${session.status}\n`;
+                        content += `Started: ${formatDate(session.created_at)}\n`;
+                        if (session.ended_at) {
+                            content += `Ended: ${formatDate(session.ended_at)}\n`;
+                        }
+                        content += '\n';
+                    });
+                    $('#ai-analysis-content').text(content);
+                } else {
+                    $('#ai-analysis-details').hide();
+                }
+            },
+            error: function() {
+                $('#ai-analysis-details').hide();
+            }
+        });
+    }
+
+    function loadIncidentInfo(incidentId) {
+        $.ajax({
+            url: `/alerts/api/incidents/${incidentId}`,
+            method: 'GET',
+            success: function(incident) {
+                $('#detail-incident-title').text(incident.title);
+                $('#detail-incident-id').text(incidentId.substring(0, 8) + '...');
+                $('#detail-incident-link').attr('href', `/alerts/incidents?id=${incidentId}`);
+            },
+            error: function() {
+                $('#detail-incident-title').text('Unknown Incident');
+                $('#detail-incident-id').text(incidentId.substring(0, 8) + '...');
+            }
+        });
+    }
 
     // Acknowledge alert
     $(document).on('click', '.ack-btn', function() {
@@ -514,6 +699,24 @@ $(document).ready(function() {
             }
         });
     }
+
+    // Re-process with AI
+    $('#reprocess-alert-btn').on('click', function() {
+        if (!currentAlertId) return;
+
+        $.ajax({
+            url: `/alerts/api/alerts/${currentAlertId}/process`,
+            method: 'POST',
+            success: function(response) {
+                showToast('AI processing triggered', 'success');
+                bootstrap.Modal.getInstance($('#alertDetailsModal')).hide();
+                setTimeout(loadAlerts, 2000);
+            },
+            error: function(xhr) {
+                showToast('Error triggering AI: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
 
     // Bulk acknowledge
     $('#select-all-alerts').on('change', function() {
@@ -565,14 +768,6 @@ $(document).ready(function() {
         window.location.href = `/alerts/incidents?create=true&alert_id=${currentAlertId}&title=${encodeURIComponent(alert.title)}`;
     });
 
-    // Triage with AI
-    $('#triage-alert-btn').on('click', function() {
-        if (!currentAlertId) return;
-
-        // Redirect to agent chat with context
-        window.location.href = `/agents/chat?context=alert&alert_id=${currentAlertId}`;
-    });
-
     // Filters
     $('#apply-filter-btn').on('click', loadAlerts);
     $('#refresh-alerts-btn').on('click', loadAlerts);
@@ -609,9 +804,12 @@ $(document).ready(function() {
         e.preventDefault();
         const filter = $(this).data('filter');
 
-        if (filter === 'critical' || filter === 'warning' || filter === 'info') {
+        if (filter === 'critical' || filter === 'warning') {
             $('#filter-severity').val(filter);
             $('#filter-status').val('');
+        } else if (filter === 'processing') {
+            $('#filter-severity').val('');
+            $('#filter-status').val('processing');
         } else if (filter === 'acknowledged') {
             $('#filter-severity').val('');
             $('#filter-status').val('acknowledged');

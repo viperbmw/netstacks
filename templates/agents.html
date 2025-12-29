@@ -1017,6 +1017,16 @@ $(document).ready(function() {
             }
         });
 
+        // Fetch sessions today
+        $.ajax({
+            url: '/agents/api/stats',
+            method: 'GET',
+            success: function(response) {
+                $('#sessions-today').text(response.sessions_today || 0);
+            }
+        });
+
+        // Fetch pending approvals
         $.ajax({
             url: '/approvals/api/approvals?status=pending',
             method: 'GET',

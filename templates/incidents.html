@@ -8,7 +8,7 @@
         <h1 class="mb-4">
             <i class="fas fa-exclamation-triangle"></i> Incidents
         </h1>
-        <p class="text-muted">Manage and track network incidents</p>
+        <p class="text-muted">Manage and track network incidents created by AI or manually</p>
     </div>
 </div>
 
@@ -33,7 +33,7 @@
     </div>
     <div class="col-md-3">
         <a href="#" class="text-decoration-none stat-card-link" data-filter="open">
-            <div class="card bg-warning text-white h-100">
+            <div class="card bg-warning text-dark h-100">
                 <div class="card-body">
                     <div class="d-flex justify-content-between">
                         <div>
@@ -49,16 +49,16 @@
         </a>
     </div>
     <div class="col-md-3">
-        <a href="#" class="text-decoration-none stat-card-link" data-filter="in_progress">
-            <div class="card bg-info text-white h-100">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="ai_created">
+            <div class="card text-white h-100" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
                 <div class="card-body">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <h6 class="card-title">In Progress</h6>
-                            <h2 id="in-progress-count">0</h2>
+                            <h6 class="card-title">AI Created</h6>
+                            <h2 id="ai-created-count">0</h2>
                         </div>
                         <div class="align-self-center">
-                            <i class="fas fa-spinner fa-2x opacity-50"></i>
+                            <i class="fas fa-robot fa-2x opacity-50"></i>
                         </div>
                     </div>
                 </div>
@@ -106,14 +106,14 @@
                         <label for="incident-severity" class="form-label small mb-1">Severity <span class="text-danger">*</span></label>
                         <select class="form-control form-control-sm" id="incident-severity" required>
                             <option value="critical">Critical</option>
-                            <option value="high">High</option>
-                            <option value="medium" selected>Medium</option>
-                            <option value="low">Low</option>
+                            <option value="error">Error</option>
+                            <option value="warning" selected>Warning</option>
+                            <option value="info">Info</option>
                         </select>
                     </div>
                     <div class="col-md-2">
                         <label for="incident-source" class="form-label small mb-1">Source</label>
-                        <input type="text" class="form-control form-control-sm" id="incident-source" placeholder="e.g., monitoring">
+                        <input type="text" class="form-control form-control-sm" id="incident-source" placeholder="e.g., monitoring" value="manual">
                     </div>
                     <div class="col-md-4">
                         <label for="incident-description" class="form-label small mb-1">Description</label>
@@ -138,7 +138,9 @@
                 <select class="form-control form-control-sm" id="filter-status">
                     <option value="">All Status</option>
                     <option value="open">Open</option>
-                    <option value="in_progress">In Progress</option>
+                    <option value="investigating">Investigating</option>
+                    <option value="identified">Identified</option>
+                    <option value="escalated">Escalated</option>
                     <option value="resolved">Resolved</option>
                     <option value="closed">Closed</option>
                 </select>
@@ -147,15 +149,23 @@
                 <select class="form-control form-control-sm" id="filter-severity">
                     <option value="">All Severities</option>
                     <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
+                    <option value="error">Error</option>
+                    <option value="warning">Warning</option>
+                    <option value="info">Info</option>
                 </select>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-2">
+                <select class="form-control form-control-sm" id="filter-source">
+                    <option value="">All Sources</option>
+                    <option value="agent">AI Agent</option>
+                    <option value="agent_escalation">AI Escalation</option>
+                    <option value="manual">Manual</option>
+                </select>
+            </div>
+            <div class="col-md-3">
                 <input type="text" class="form-control form-control-sm" id="incident-search" placeholder="Search incidents...">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <select class="form-control form-control-sm" id="filter-limit">
                     <option value="25">25</option>
                     <option value="50" selected>50</option>
@@ -184,8 +194,8 @@
         </div>
         <div id="incidents-container" style="display: none;">
             <div class="table-responsive">
-                <table class="table table-hover table-striped table-sm">
-                    <thead class="sticky-top bg-light">
+                <table class="table table-hover table-sm">
+                    <thead class="sticky-top">
                         <tr>
                             <th style="width: 100px;">Severity</th>
                             <th>Title</th>
@@ -193,7 +203,7 @@
                             <th>Source</th>
                             <th>Alerts</th>
                             <th>Created</th>
-                            <th>Resolved</th>
+                            <th>Duration</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -221,19 +231,16 @@
                 <div class="row mb-4">
                     <div class="col-md-8">
                         <h4 id="detail-title"></h4>
-                        <p id="detail-description" class="text-muted"></p>
+                        <p id="detail-description"></p>
                     </div>
                     <div class="col-md-4 text-end">
                         <span id="detail-severity" class="badge"></span>
                         <span id="detail-status" class="badge ms-1"></span>
+                        <span id="detail-source-badge" class="badge ms-1"></span>
                     </div>
                 </div>
 
                 <div class="row mb-4">
-                    <div class="col-md-3">
-                        <strong>Source:</strong><br>
-                        <span id="detail-source">-</span>
-                    </div>
                     <div class="col-md-3">
                         <strong>Created:</strong><br>
                         <span id="detail-created">-</span>
@@ -246,25 +253,48 @@
                         <strong>Duration:</strong><br>
                         <span id="detail-duration">-</span>
                     </div>
+                    <div class="col-md-3">
+                        <strong>Linked Alerts:</strong><br>
+                        <span id="detail-alert-count">-</span>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Section (for AI-created incidents) -->
+                <div class="mb-4" id="ai-analysis-section" style="display: none;">
+                    <h6><i class="fas fa-robot text-primary"></i> AI Analysis</h6>
+                    <div class="ai-analysis-card p-3 rounded">
+                        <div class="mb-2">
+                            <small class="text-muted">AI determined this incident required tracking because:</small>
+                        </div>
+                        <div id="ai-reasoning" class="mb-3"></div>
+                        <div id="ai-timeline-section" style="display: none;">
+                            <small class="text-muted">Timeline:</small>
+                            <div id="ai-timeline" class="mt-2"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Linked Alerts -->
                 <div class="mb-4">
                     <h6><i class="fas fa-bell"></i> Linked Alerts</h6>
                     <div id="linked-alerts-container">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Severity</th>
-                                    <th>Title</th>
-                                    <th>Device</th>
-                                </tr>
-                            </thead>
-                            <tbody id="linked-alerts-body">
-                            </tbody>
-                        </table>
+                        <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Severity</th>
+                                        <th>Title</th>
+                                        <th>Device</th>
+                                        <th>Status</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="linked-alerts-body">
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div id="no-linked-alerts" class="text-muted" style="display: none;">
+                    <div id="no-linked-alerts" class="text-muted small" style="display: none;">
                         No linked alerts
                     </div>
                 </div>
@@ -273,23 +303,28 @@
                 <div class="mb-4" id="resolution-section">
                     <h6><i class="fas fa-clipboard-check"></i> Resolution</h6>
                     <div id="resolution-display" style="display: none;">
-                        <pre id="detail-resolution" class="bg-light p-2 rounded"></pre>
+                        <pre id="detail-resolution" class="p-3 rounded"></pre>
                     </div>
                     <div id="resolution-edit">
                         <textarea class="form-control" id="edit-resolution" rows="3" placeholder="Document the resolution steps..."></textarea>
                     </div>
                 </div>
 
-                <!-- Incident Data -->
+                <!-- Incident Data (collapsible) -->
                 <div class="mb-3">
-                    <h6><i class="fas fa-code"></i> Incident Data</h6>
-                    <pre id="detail-data" class="bg-light p-2 rounded small" style="max-height: 150px; overflow-y: auto;"></pre>
+                    <h6 class="d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#incident-data-collapse">
+                        <span><i class="fas fa-code"></i> Incident Data</span>
+                        <i class="fas fa-chevron-down small"></i>
+                    </h6>
+                    <div class="collapse" id="incident-data-collapse">
+                        <pre id="detail-data" class="p-2 rounded small" style="max-height: 150px; overflow-y: auto;"></pre>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <div class="me-auto">
-                    <button type="button" class="btn btn-outline-primary" id="triage-incident-btn">
-                        <i class="fas fa-robot"></i> Triage with AI
+                    <button type="button" class="btn btn-outline-primary" id="chat-incident-btn">
+                        <i class="fas fa-comments"></i> Chat with AI
                     </button>
                 </div>
                 <button type="button" class="btn btn-info" id="update-status-btn">
@@ -318,7 +353,9 @@
                         <label class="form-label">Status</label>
                         <select class="form-control" id="update-status">
                             <option value="open">Open</option>
-                            <option value="in_progress">In Progress</option>
+                            <option value="investigating">Investigating</option>
+                            <option value="identified">Identified</option>
+                            <option value="escalated">Escalated</option>
                             <option value="resolved">Resolved</option>
                             <option value="closed">Closed</option>
                         </select>
@@ -327,9 +364,9 @@
                         <label class="form-label">Severity</label>
                         <select class="form-control" id="update-severity">
                             <option value="critical">Critical</option>
-                            <option value="high">High</option>
-                            <option value="medium">Medium</option>
-                            <option value="low">Low</option>
+                            <option value="error">Error</option>
+                            <option value="warning">Warning</option>
+                            <option value="info">Info</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -347,6 +384,66 @@
         </div>
     </div>
 </div>
+
+<style>
+/* Dark theme specific styles for incidents page */
+[data-bs-theme="dark"] .ai-analysis-card {
+    background-color: #2a2a2a;
+    border: 1px solid #404040;
+}
+
+[data-bs-theme="light"] .ai-analysis-card {
+    background-color: #f0f4ff;
+    border: 1px solid #c4d4ff;
+}
+
+/* Source badges */
+.badge-source-agent {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+}
+
+.badge-source-escalation {
+    background-color: #ef4444;
+    color: white;
+}
+
+.badge-source-manual {
+    background-color: #6b7280;
+    color: white;
+}
+
+/* Timeline styling */
+.timeline-item {
+    padding: 8px 0 8px 20px;
+    border-left: 2px solid #404040;
+    position: relative;
+    margin-left: 10px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 12px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #6366f1;
+}
+
+.timeline-item.correlated::before {
+    background-color: #0ea5e9;
+}
+
+[data-bs-theme="dark"] .timeline-item {
+    border-left-color: #505050;
+}
+
+[data-bs-theme="light"] .timeline-item {
+    border-left-color: #e0e0e0;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -405,12 +502,14 @@ $(document).ready(function() {
 
         const searchTerm = $('#incident-search').val().toLowerCase();
         const severityFilter = $('#filter-severity').val();
+        const sourceFilter = $('#filter-source').val();
 
         const filteredIncidents = incidents.filter(i => {
             const matchesSearch = i.title.toLowerCase().includes(searchTerm) ||
                 (i.description || '').toLowerCase().includes(searchTerm);
             const matchesSeverity = !severityFilter || i.severity === severityFilter;
-            return matchesSearch && matchesSeverity;
+            const matchesSource = !sourceFilter || i.source === sourceFilter;
+            return matchesSearch && matchesSeverity && matchesSource;
         });
 
         $('#incident-count-label').text(`(${filteredIncidents.length} incidents)`);
@@ -418,16 +517,21 @@ $(document).ready(function() {
         filteredIncidents.forEach(function(incident) {
             const severityBadge = getSeverityBadge(incident.severity);
             const statusBadge = getStatusBadge(incident.status);
+            const sourceBadge = getSourceBadge(incident.source);
+            const duration = calculateDuration(incident.created_at, incident.resolved_at);
 
             $tbody.append(`
-                <tr class="${incident.severity === 'critical' && incident.status !== 'resolved' ? 'table-danger' : ''}">
+                <tr class="${incident.severity === 'critical' && !['resolved', 'closed'].includes(incident.status) ? 'table-danger' : ''}">
                     <td>${severityBadge}</td>
-                    <td><strong>${escapeHtml(incident.title)}</strong></td>
+                    <td>
+                        <strong>${escapeHtml(incident.title)}</strong>
+                        ${isAICreated(incident.source) ? '<i class="fas fa-robot text-primary ms-1" title="AI Created"></i>' : ''}
+                    </td>
                     <td>${statusBadge}</td>
-                    <td>${escapeHtml(incident.source || '-')}</td>
+                    <td>${sourceBadge}</td>
                     <td><span class="badge bg-secondary">${incident.alert_count || 0}</span></td>
                     <td>${formatDate(incident.created_at)}</td>
-                    <td>${incident.resolved_at ? formatDate(incident.resolved_at) : '-'}</td>
+                    <td>${duration}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
                             <button class="btn btn-outline-info view-btn" data-id="${incident.incident_id}" title="View">
@@ -436,7 +540,7 @@ $(document).ready(function() {
                             <button class="btn btn-outline-primary update-btn" data-id="${incident.incident_id}" title="Update">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button class="btn btn-outline-success resolve-quick-btn" data-id="${incident.incident_id}" title="Quick Resolve" ${incident.status === 'resolved' ? 'disabled' : ''}>
+                            <button class="btn btn-outline-success resolve-quick-btn" data-id="${incident.incident_id}" title="Quick Resolve" ${['resolved', 'closed'].includes(incident.status) ? 'disabled' : ''}>
                                 <i class="fas fa-check"></i>
                             </button>
                         </div>
@@ -452,7 +556,7 @@ $(document).ready(function() {
     function updateStats() {
         const openCritical = incidents.filter(i => i.status === 'open' && i.severity === 'critical').length;
         const openOther = incidents.filter(i => i.status === 'open' && i.severity !== 'critical').length;
-        const inProgress = incidents.filter(i => i.status === 'in_progress').length;
+        const aiCreated = incidents.filter(i => isAICreated(i.source) && !['resolved', 'closed'].includes(i.status)).length;
 
         const today = new Date().toDateString();
         const resolvedToday = incidents.filter(i => {
@@ -462,16 +566,20 @@ $(document).ready(function() {
 
         $('#open-critical-count').text(openCritical);
         $('#open-other-count').text(openOther);
-        $('#in-progress-count').text(inProgress);
+        $('#ai-created-count').text(aiCreated);
         $('#resolved-today-count').text(resolvedToday);
+    }
+
+    function isAICreated(source) {
+        return source === 'agent' || source === 'agent_escalation';
     }
 
     function getSeverityBadge(severity) {
         const badges = {
             'critical': '<span class="badge bg-danger"><i class="fas fa-fire"></i> Critical</span>',
-            'high': '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> High</span>',
-            'medium': '<span class="badge bg-info"><i class="fas fa-exclamation-circle"></i> Medium</span>',
-            'low': '<span class="badge bg-secondary"><i class="fas fa-info-circle"></i> Low</span>'
+            'error': '<span class="badge bg-danger"><i class="fas fa-times-circle"></i> Error</span>',
+            'warning': '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> Warning</span>',
+            'info': '<span class="badge bg-info"><i class="fas fa-info-circle"></i> Info</span>'
         };
         return badges[severity] || `<span class="badge bg-secondary">${severity}</span>`;
     }
@@ -479,11 +587,41 @@ $(document).ready(function() {
     function getStatusBadge(status) {
         const badges = {
             'open': '<span class="badge bg-danger">Open</span>',
-            'in_progress': '<span class="badge bg-info">In Progress</span>',
+            'investigating': '<span class="badge bg-warning text-dark">Investigating</span>',
+            'identified': '<span class="badge bg-info">Identified</span>',
+            'escalated': '<span class="badge bg-danger">Escalated</span>',
             'resolved': '<span class="badge bg-success">Resolved</span>',
             'closed': '<span class="badge bg-secondary">Closed</span>'
         };
         return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+
+    function getSourceBadge(source) {
+        if (source === 'agent') {
+            return '<span class="badge badge-source-agent"><i class="fas fa-robot"></i> AI Agent</span>';
+        } else if (source === 'agent_escalation') {
+            return '<span class="badge badge-source-escalation"><i class="fas fa-arrow-up"></i> AI Escalation</span>';
+        } else {
+            return '<span class="badge badge-source-manual"><i class="fas fa-user"></i> Manual</span>';
+        }
+    }
+
+    function calculateDuration(createdAt, resolvedAt) {
+        if (!createdAt) return '-';
+
+        const start = new Date(createdAt);
+        const end = resolvedAt ? new Date(resolvedAt) : new Date();
+        const duration = end - start;
+
+        const hours = Math.floor(duration / 3600000);
+        const minutes = Math.floor((duration % 3600000) / 60000);
+
+        if (hours > 24) {
+            const days = Math.floor(hours / 24);
+            return `${days}d ${hours % 24}h`;
+        }
+
+        return resolvedAt ? `${hours}h ${minutes}m` : `${hours}h ${minutes}m <span class="text-warning">(ongoing)</span>`;
     }
 
     // Create incident
@@ -505,6 +643,7 @@ $(document).ready(function() {
             success: function(response) {
                 showToast('Incident created', 'success');
                 $('#create-incident-form')[0].reset();
+                $('#incident-source').val('manual');
                 loadIncidents();
             },
             error: function(xhr) {
@@ -524,24 +663,26 @@ $(document).ready(function() {
                 currentIncidentId = incidentId;
 
                 $('#detail-title').text(incident.title);
-                $('#detail-description').text(incident.description || 'No description');
+                $('#detail-description').text(incident.description || 'No description provided');
                 $('#detail-severity').html(getSeverityBadge(incident.severity));
                 $('#detail-status').html(getStatusBadge(incident.status));
-                $('#detail-source').text(incident.source || '-');
+                $('#detail-source-badge').html(getSourceBadge(incident.source));
                 $('#detail-created').text(formatDate(incident.created_at));
                 $('#detail-resolved').text(incident.resolved_at ? formatDate(incident.resolved_at) : '-');
 
                 // Calculate duration
-                if (incident.resolved_at) {
-                    const duration = new Date(incident.resolved_at) - new Date(incident.created_at);
-                    const hours = Math.floor(duration / 3600000);
-                    const minutes = Math.floor((duration % 3600000) / 60000);
-                    $('#detail-duration').text(`${hours}h ${minutes}m`);
+                const duration = calculateDuration(incident.created_at, incident.resolved_at);
+                $('#detail-duration').html(duration);
+
+                // Alert count
+                const alertCount = incident.alerts ? incident.alerts.length : 0;
+                $('#detail-alert-count').text(alertCount);
+
+                // AI Analysis section
+                if (isAICreated(incident.source)) {
+                    showAIAnalysis(incident);
                 } else {
-                    const duration = new Date() - new Date(incident.created_at);
-                    const hours = Math.floor(duration / 3600000);
-                    const minutes = Math.floor((duration % 3600000) / 60000);
-                    $('#detail-duration').text(`${hours}h ${minutes}m (ongoing)`);
+                    $('#ai-analysis-section').hide();
                 }
 
                 // Resolution
@@ -552,6 +693,7 @@ $(document).ready(function() {
                 } else {
                     $('#resolution-display').hide();
                     $('#resolution-edit').show();
+                    $('#edit-resolution').val('');
                 }
 
                 // Linked alerts
@@ -568,6 +710,8 @@ $(document).ready(function() {
                                 <td>${getSeverityBadge(alert.severity)}</td>
                                 <td>${escapeHtml(alert.title)}</td>
                                 <td>${escapeHtml(alert.device || '-')}</td>
+                                <td><span class="badge bg-secondary">${alert.status || 'linked'}</span></td>
+                                <td><small>${alert.created_at ? formatDate(alert.created_at) : '-'}</small></td>
                             </tr>
                         `);
                     });
@@ -579,7 +723,8 @@ $(document).ready(function() {
                 $('#detail-data').text(JSON.stringify(incident.incident_data || {}, null, 2));
 
                 // Update button states
-                $('#resolve-incident-btn').prop('disabled', incident.status === 'resolved');
+                const isResolved = ['resolved', 'closed'].includes(incident.status);
+                $('#resolve-incident-btn').prop('disabled', isResolved);
 
                 new bootstrap.Modal($('#incidentDetailsModal')).show();
             },
@@ -588,6 +733,56 @@ $(document).ready(function() {
             }
         });
     });
+
+    function showAIAnalysis(incident) {
+        $('#ai-analysis-section').show();
+
+        // AI Reasoning from description
+        let reasoning = incident.description || 'No details provided by AI.';
+        $('#ai-reasoning').text(reasoning);
+
+        // Timeline from incident_data
+        const incidentData = incident.incident_data || {};
+        const timeline = incidentData.timeline || [];
+
+        if (timeline.length > 0) {
+            $('#ai-timeline-section').show();
+            let timelineHtml = '';
+
+            timeline.forEach(function(event) {
+                const eventClass = event.type === 'alert_correlated' ? 'correlated' : '';
+                const eventIcon = event.type === 'alert_correlated' ? 'fa-link' : 'fa-robot';
+                const eventTime = event.timestamp ? formatDate(event.timestamp) : '';
+
+                timelineHtml += `
+                    <div class="timeline-item ${eventClass}">
+                        <div class="d-flex justify-content-between">
+                            <strong><i class="fas ${eventIcon}"></i> ${formatEventType(event.type)}</strong>
+                            <small class="text-muted">${eventTime}</small>
+                        </div>
+                        <div class="small">
+                            ${event.alert_title ? 'Alert: ' + escapeHtml(event.alert_title) : ''}
+                            ${event.correlation_reason ? '<br>Reason: ' + escapeHtml(event.correlation_reason) : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            $('#ai-timeline').html(timelineHtml);
+        } else {
+            $('#ai-timeline-section').hide();
+        }
+    }
+
+    function formatEventType(type) {
+        const types = {
+            'alert_correlated': 'Alert Correlated',
+            'created': 'Incident Created',
+            'escalated': 'Escalated',
+            'resolved': 'Resolved'
+        };
+        return types[type] || type;
+    }
 
     // Update status button in details modal
     $('#update-status-btn').on('click', function() {
@@ -685,14 +880,14 @@ $(document).ready(function() {
         });
     });
 
-    // Triage with AI
-    $('#triage-incident-btn').on('click', function() {
+    // Chat with AI
+    $('#chat-incident-btn').on('click', function() {
         if (!currentIncidentId) return;
         window.location.href = `/agents/chat?context=incident&incident_id=${currentIncidentId}`;
     });
 
     // Filters
-    $('#filter-status, #filter-severity, #filter-limit').on('change', loadIncidents);
+    $('#filter-status, #filter-severity, #filter-source, #filter-limit').on('change', loadIncidents);
     $('#incident-search').on('input', renderIncidents);
     $('#refresh-btn').on('click', loadIncidents);
 
@@ -704,15 +899,19 @@ $(document).ready(function() {
         if (filter === 'critical') {
             $('#filter-status').val('open');
             $('#filter-severity').val('critical');
+            $('#filter-source').val('');
         } else if (filter === 'open') {
             $('#filter-status').val('open');
             $('#filter-severity').val('');
-        } else if (filter === 'in_progress') {
-            $('#filter-status').val('in_progress');
+            $('#filter-source').val('');
+        } else if (filter === 'ai_created') {
+            $('#filter-status').val('');
             $('#filter-severity').val('');
+            $('#filter-source').val('agent');
         } else if (filter === 'resolved') {
             $('#filter-status').val('resolved');
             $('#filter-severity').val('');
+            $('#filter-source').val('');
         }
 
         loadIncidents();

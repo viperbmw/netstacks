@@ -43,6 +43,8 @@ function loadDashboard() {
     loadCompletedSchedules();
     loadServiceStacksSummary();
     loadBackupSchedule();
+    loadAgentsSummary();
+    loadAlertsSummary();
 }
 
 function loadWorkerCount() {
@@ -1055,3 +1057,182 @@ function escapeHtml(text) {
     };
     return text.replace(/[&<>"']/g, m => map[m]);
 }
+
+// ============================================================================
+// AI Agents Summary
+// ============================================================================
+
+function loadAgentsSummary() {
+    $.get('/agents/api/agents')
+        .done(function(data) {
+            $('#agents-loading').hide();
+
+            if (data.agents && data.agents.length > 0) {
+                const agents = data.agents;
+                const activeAgents = agents.filter(a => a.is_active);
+
+                // Update top card
+                $('#agent-count').text(agents.length);
+                $('#active-agents-text').text(`${activeAgents.length} active`);
+
+                // Also update stack count card if not already set
+                if ($('#stack-count').text() === '-') {
+                    $('#stack-count').text('0');
+                    $('#deployed-services-text').text('0 services');
+                }
+
+                // Populate agents table
+                const tbody = $('#agents-body');
+                tbody.empty();
+
+                agents.slice(0, 5).forEach(agent => {
+                    const statusBadge = agent.is_active
+                        ? '<span class="badge bg-success">Active</span>'
+                        : '<span class="badge bg-secondary">Inactive</span>';
+
+                    const agentType = agent.agent_type || 'custom';
+                    const typeBadge = getAgentTypeBadge(agentType);
+
+                    tbody.append(`
+                        <tr>
+                            <td>
+                                <strong>${escapeHtml(agent.agent_name || 'Unnamed')}</strong>
+                            </td>
+                            <td>${typeBadge}</td>
+                            <td>${statusBadge}</td>
+                            <td>
+                                <a href="/agents/${agent.agent_id}/chat" class="btn btn-sm btn-outline-primary" title="Chat">
+                                    <i class="fas fa-comments"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    `);
+                });
+
+                $('#agents-container').show();
+            } else {
+                // Update counts
+                $('#agent-count').text('0');
+                $('#active-agents-text').text('No agents');
+                $('#no-agents').show();
+            }
+        })
+        .fail(function() {
+            $('#agents-loading').hide();
+            $('#agent-count').text('0');
+            $('#active-agents-text').text('Error loading');
+            $('#no-agents').show();
+        });
+}
+
+function getAgentTypeBadge(type) {
+    const badges = {
+        'triage': '<span class="badge bg-warning text-dark">Triage</span>',
+        'diagnostic': '<span class="badge bg-info">Diagnostic</span>',
+        'remediation': '<span class="badge bg-danger">Remediation</span>',
+        'automation': '<span class="badge bg-primary">Automation</span>',
+        'monitoring': '<span class="badge bg-success">Monitoring</span>',
+        'custom': '<span class="badge bg-secondary">Custom</span>'
+    };
+    return badges[type] || badges['custom'];
+}
+
+// ============================================================================
+// Alerts Summary
+// ============================================================================
+
+function loadAlertsSummary() {
+    // Load both alerts and incidents
+    Promise.all([
+        $.get('/alerts/api/alerts?status=new&limit=10'),
+        $.get('/alerts/api/incidents?status=open&limit=10')
+    ])
+    .then(function([alertsData, incidentsData]) {
+        $('#alerts-loading').hide();
+
+        const alerts = alertsData.alerts || [];
+        const incidents = incidentsData.incidents || [];
+
+        // Update top card
+        const openIncidents = incidents.length;
+        const criticalAlerts = alerts.filter(a => a.severity === 'critical').length;
+
+        $('#incident-count').text(openIncidents);
+        if (criticalAlerts > 0) {
+            $('#critical-alerts-text').text(`${criticalAlerts} critical alerts`);
+            $('#incidents-card').css('animation', 'pulse 2s infinite');
+        } else if (alerts.length > 0) {
+            $('#critical-alerts-text').text(`${alerts.length} new alerts`);
+        } else {
+            $('#critical-alerts-text').text('No active alerts');
+            // Change card to green if no incidents/alerts
+            if (openIncidents === 0) {
+                $('#incidents-card').css('background', 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)');
+            }
+        }
+
+        // Populate alerts table
+        if (alerts.length > 0) {
+            const tbody = $('#alerts-body');
+            tbody.empty();
+
+            alerts.slice(0, 5).forEach(alert => {
+                const severityBadge = getSeverityBadge(alert.severity);
+                const device = alert.device || 'N/A';
+                const time = alert.created_at ? formatRelativeTime(alert.created_at) : 'N/A';
+
+                tbody.append(`
+                    <tr class="alert-row" data-alert-id="${alert.alert_id}" style="cursor: pointer;">
+                        <td>
+                            <small>${escapeHtml(alert.title || 'Unknown')}</small>
+                        </td>
+                        <td>${severityBadge}</td>
+                        <td><small>${escapeHtml(device)}</small></td>
+                        <td><small>${time}</small></td>
+                    </tr>
+                `);
+            });
+
+            $('#alerts-container').show();
+        } else {
+            $('#no-alerts').show();
+        }
+    })
+    .catch(function() {
+        $('#alerts-loading').hide();
+        $('#incident-count').text('?');
+        $('#critical-alerts-text').text('Error loading');
+        $('#no-alerts').show();
+    });
+}
+
+function getSeverityBadge(severity) {
+    const badges = {
+        'critical': '<span class="badge bg-danger">Critical</span>',
+        'error': '<span class="badge bg-danger">Error</span>',
+        'warning': '<span class="badge bg-warning text-dark">Warning</span>',
+        'info': '<span class="badge bg-info">Info</span>'
+    };
+    return badges[severity] || badges['info'];
+}
+
+function formatRelativeTime(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) return `${diffDays}d ago`;
+    if (diffHours > 0) return `${diffHours}h ago`;
+    if (diffMins > 0) return `${diffMins}m ago`;
+    return 'just now';
+}
+
+// Alert row click handler
+$(document).on('click', '.alert-row', function() {
+    const alertId = $(this).data('alert-id');
+    window.location.href = `/alerts?alert=${alertId}`;
+});

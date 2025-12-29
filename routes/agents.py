@@ -9,10 +9,11 @@ import logging
 import uuid
 from flask import Blueprint, render_template, request, jsonify, session
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy import func
 
 import database as db
-from models import Agent
+from models import Agent, AgentSession
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,15 @@ def list_agents():
     try:
         with db.get_db() as db_session:
             agents = db_session.query(Agent).all()
+
+            # Get session counts per agent
+            session_counts = dict(
+                db_session.query(
+                    AgentSession.agent_id,
+                    func.count(AgentSession.session_id)
+                ).group_by(AgentSession.agent_id).all()
+            )
+
             return jsonify({
                 'agents': [
                     {
@@ -78,6 +88,7 @@ def list_agents():
                         'llm_provider': a.llm_provider,
                         'llm_model': a.llm_model,
                         'created_at': a.created_at.isoformat() if a.created_at else None,
+                        'session_count': session_counts.get(a.agent_id, 0),
                     }
                     for a in agents
                 ]
@@ -307,6 +318,38 @@ def get_available_tools():
 
     except Exception as e:
         log.error(f"Error getting tools: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@agents_bp.route('/api/stats', methods=['GET'])
+@login_required
+def get_agent_stats():
+    """Get agent statistics including sessions today"""
+    try:
+        with db.get_db() as db_session:
+            # Get sessions created today
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            sessions_today = db_session.query(func.count(AgentSession.session_id)).filter(
+                AgentSession.created_at >= today_start
+            ).scalar() or 0
+
+            # Get total sessions
+            total_sessions = db_session.query(func.count(AgentSession.session_id)).scalar() or 0
+
+            # Get active agents count
+            active_agents = db_session.query(func.count(Agent.agent_id)).filter(
+                Agent.is_enabled == True
+            ).scalar() or 0
+
+            return jsonify({
+                'sessions_today': sessions_today,
+                'total_sessions': total_sessions,
+                'active_agents': active_agents,
+            })
+
+    except Exception as e:
+        log.error(f"Error getting agent stats: {e}")
         return jsonify({'error': str(e)}), 500
 
 

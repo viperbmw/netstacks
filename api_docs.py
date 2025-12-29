@@ -532,6 +532,543 @@ def swagger_spec():
                         "200": {"description": "Template deleted"}
                     }
                 }
+            },
+            # ============================================================================
+            # Alerts API
+            # ============================================================================
+            "/alerts/api/webhooks/generic": {
+                "post": {
+                    "tags": ["alerts"],
+                    "summary": "Generic alert webhook",
+                    "description": "Receive alerts from any monitoring system. Alerts are automatically processed by AI triage unless skip_ai=true.",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {
+                            "type": "object",
+                            "required": ["title", "severity"],
+                            "properties": {
+                                "title": {"type": "string", "description": "Alert title"},
+                                "severity": {"type": "string", "enum": ["info", "warning", "error", "critical"]},
+                                "description": {"type": "string"},
+                                "source": {"type": "string", "description": "Source system name"},
+                                "device": {"type": "string", "description": "Affected device name"},
+                                "skip_ai": {"type": "boolean", "description": "Skip AI processing", "default": False}
+                            }
+                        }
+                    }],
+                    "responses": {
+                        "201": {
+                            "description": "Alert received",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "status": {"type": "string"},
+                                    "alert_id": {"type": "string"},
+                                    "ai_processing": {"type": "boolean"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/alerts/api/webhooks/prometheus": {
+                "post": {
+                    "tags": ["alerts"],
+                    "summary": "Prometheus AlertManager webhook",
+                    "description": "Receive alerts from Prometheus AlertManager. All alerts are automatically processed by AI triage.",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "alerts": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "labels": {"type": "object"},
+                                            "annotations": {"type": "object"},
+                                            "status": {"type": "string"},
+                                            "startsAt": {"type": "string"},
+                                            "endsAt": {"type": "string"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }],
+                    "responses": {
+                        "201": {"description": "Alerts received"}
+                    }
+                }
+            },
+            "/alerts/api/webhooks/solarwinds": {
+                "post": {
+                    "tags": ["alerts"],
+                    "summary": "SolarWinds webhook",
+                    "description": "Receive alerts from SolarWinds. All alerts are automatically processed by AI triage.",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "AlertName": {"type": "string"},
+                                "AlertMessage": {"type": "string"},
+                                "Severity": {"type": "string"},
+                                "NodeName": {"type": "string"},
+                                "AlertObjectID": {"type": "string"}
+                            }
+                        }
+                    }],
+                    "responses": {
+                        "201": {"description": "Alert received"}
+                    }
+                }
+            },
+            "/alerts/api/alerts": {
+                "get": {
+                    "tags": ["alerts"],
+                    "summary": "List alerts",
+                    "description": "Get all alerts with optional filtering",
+                    "parameters": [
+                        {"name": "severity", "in": "query", "type": "string", "description": "Filter by severity"},
+                        {"name": "status", "in": "query", "type": "string", "description": "Filter by status"},
+                        {"name": "source", "in": "query", "type": "string", "description": "Filter by source"},
+                        {"name": "limit", "in": "query", "type": "integer", "default": 100}
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "alerts": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/Alert"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/alerts/api/alerts/{alert_id}": {
+                "get": {
+                    "tags": ["alerts"],
+                    "summary": "Get alert details",
+                    "parameters": [{
+                        "name": "alert_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/Alert"}
+                        }
+                    }
+                }
+            },
+            "/alerts/api/alerts/{alert_id}/acknowledge": {
+                "post": {
+                    "tags": ["alerts"],
+                    "summary": "Acknowledge an alert",
+                    "parameters": [{
+                        "name": "alert_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Alert acknowledged"}
+                    }
+                }
+            },
+            "/alerts/api/alerts/{alert_id}/process": {
+                "post": {
+                    "tags": ["alerts"],
+                    "summary": "Trigger AI processing for alert",
+                    "description": "Manually trigger AI processing for an alert. Use to re-process or process skipped alerts.",
+                    "parameters": [{
+                        "name": "alert_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Processing triggered",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string"},
+                                    "alert_id": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/alerts/api/alerts/{alert_id}/sessions": {
+                "get": {
+                    "tags": ["alerts"],
+                    "summary": "Get AI sessions for alert",
+                    "description": "Get the history of AI agent sessions that processed this alert",
+                    "parameters": [{
+                        "name": "alert_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "alert_id": {"type": "string"},
+                                    "sessions": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/AgentSession"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            # ============================================================================
+            # Incidents API
+            # ============================================================================
+            "/alerts/api/incidents": {
+                "get": {
+                    "tags": ["incidents"],
+                    "summary": "List incidents",
+                    "description": "Get all incidents with optional filtering",
+                    "parameters": [
+                        {"name": "status", "in": "query", "type": "string"},
+                        {"name": "severity", "in": "query", "type": "string"},
+                        {"name": "source", "in": "query", "type": "string"},
+                        {"name": "limit", "in": "query", "type": "integer", "default": 100}
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "incidents": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/Incident"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["incidents"],
+                    "summary": "Create incident",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {"$ref": "#/definitions/Incident"}
+                    }],
+                    "responses": {
+                        "201": {"description": "Incident created"}
+                    }
+                }
+            },
+            "/alerts/api/incidents/{incident_id}": {
+                "get": {
+                    "tags": ["incidents"],
+                    "summary": "Get incident details",
+                    "parameters": [{
+                        "name": "incident_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/Incident"}
+                        }
+                    }
+                },
+                "patch": {
+                    "tags": ["incidents"],
+                    "summary": "Update incident",
+                    "parameters": [
+                        {
+                            "name": "incident_id",
+                            "in": "path",
+                            "required": True,
+                            "type": "string"
+                        },
+                        {
+                            "in": "body",
+                            "name": "body",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "status": {"type": "string"},
+                                    "resolution": {"type": "string"}
+                                }
+                            }
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Incident updated"}
+                    }
+                }
+            },
+            # ============================================================================
+            # Agents API
+            # ============================================================================
+            "/agents/api/agents": {
+                "get": {
+                    "tags": ["agents"],
+                    "summary": "List agents",
+                    "description": "Get all configured AI agents with session counts",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "agents": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/Agent"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["agents"],
+                    "summary": "Create agent",
+                    "parameters": [{
+                        "in": "body",
+                        "name": "body",
+                        "schema": {"$ref": "#/definitions/Agent"}
+                    }],
+                    "responses": {
+                        "201": {"description": "Agent created"}
+                    }
+                }
+            },
+            "/agents/api/agents/{agent_id}": {
+                "get": {
+                    "tags": ["agents"],
+                    "summary": "Get agent details",
+                    "parameters": [{
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/Agent"}
+                        }
+                    }
+                },
+                "patch": {
+                    "tags": ["agents"],
+                    "summary": "Update agent",
+                    "parameters": [
+                        {
+                            "name": "agent_id",
+                            "in": "path",
+                            "required": True,
+                            "type": "string"
+                        },
+                        {
+                            "in": "body",
+                            "name": "body",
+                            "schema": {"$ref": "#/definitions/Agent"}
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Agent updated"}
+                    }
+                },
+                "delete": {
+                    "tags": ["agents"],
+                    "summary": "Delete agent",
+                    "parameters": [{
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Agent deleted"}
+                    }
+                }
+            },
+            "/agents/api/agents/{agent_id}/toggle": {
+                "post": {
+                    "tags": ["agents"],
+                    "summary": "Toggle agent active status",
+                    "parameters": [{
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Agent toggled"}
+                    }
+                }
+            },
+            "/agents/api/agents/tools": {
+                "get": {
+                    "tags": ["agents"],
+                    "summary": "Get available tools",
+                    "description": "Get list of tools available for agent configuration",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "tools": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/Tool"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/agents/api/stats": {
+                "get": {
+                    "tags": ["agents"],
+                    "summary": "Get agent statistics",
+                    "description": "Get aggregate statistics including sessions today, total sessions, and active agents",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "sessions_today": {"type": "integer"},
+                                    "total_sessions": {"type": "integer"},
+                                    "active_agents": {"type": "integer"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/agents/api/sessions": {
+                "get": {
+                    "tags": ["agents"],
+                    "summary": "List agent sessions",
+                    "parameters": [
+                        {"name": "agent_id", "in": "query", "type": "string", "description": "Filter by agent ID"},
+                        {"name": "status", "in": "query", "type": "string"},
+                        {"name": "limit", "in": "query", "type": "integer", "default": 50}
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "sessions": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/AgentSession"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/agents/api/sessions/{session_id}": {
+                "get": {
+                    "tags": ["agents"],
+                    "summary": "Get session details",
+                    "description": "Get session details including messages and actions",
+                    "parameters": [{
+                        "name": "session_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {"$ref": "#/definitions/AgentSession"}
+                        }
+                    }
+                }
+            },
+            # ============================================================================
+            # Approvals API
+            # ============================================================================
+            "/approvals/api/approvals": {
+                "get": {
+                    "tags": ["approvals"],
+                    "summary": "List pending approvals",
+                    "parameters": [
+                        {"name": "status", "in": "query", "type": "string", "description": "Filter by status (pending, approved, rejected)"}
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "approvals": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/definitions/Approval"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/approvals/api/approvals/{approval_id}/approve": {
+                "post": {
+                    "tags": ["approvals"],
+                    "summary": "Approve a pending action",
+                    "parameters": [{
+                        "name": "approval_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Action approved"}
+                    }
+                }
+            },
+            "/approvals/api/approvals/{approval_id}/reject": {
+                "post": {
+                    "tags": ["approvals"],
+                    "summary": "Reject a pending action",
+                    "parameters": [{
+                        "name": "approval_id",
+                        "in": "path",
+                        "required": True,
+                        "type": "string"
+                    }],
+                    "responses": {
+                        "200": {"description": "Action rejected"}
+                    }
+                }
             }
         },
         "definitions": {
@@ -643,6 +1180,95 @@ def swagger_spec():
                     "updated_at": {"type": "string", "format": "date-time"},
                     "created_by": {"type": "string"}
                 }
+            },
+            "Alert": {
+                "type": "object",
+                "properties": {
+                    "alert_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["info", "warning", "error", "critical"]},
+                    "status": {"type": "string", "enum": ["new", "acknowledged", "processing", "incident_created", "correlated", "escalated", "analyzed", "handed_off", "resolved"]},
+                    "source": {"type": "string"},
+                    "device": {"type": "string"},
+                    "incident_id": {"type": "string", "description": "Linked incident ID if correlated"},
+                    "alert_data": {"type": "object", "description": "Raw alert data from source"},
+                    "created_at": {"type": "string", "format": "date-time"}
+                }
+            },
+            "Incident": {
+                "type": "object",
+                "properties": {
+                    "incident_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["info", "warning", "error", "critical"]},
+                    "status": {"type": "string", "enum": ["open", "investigating", "identified", "monitoring", "resolved", "escalated"]},
+                    "source": {"type": "string", "enum": ["agent", "agent_escalation", "manual", "noc", "helpdesk", "security", "change-management"]},
+                    "resolution": {"type": "string"},
+                    "incident_data": {"type": "object", "description": "Additional incident metadata"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "resolved_at": {"type": "string", "format": "date-time"}
+                }
+            },
+            "Agent": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string"},
+                    "agent_name": {"type": "string"},
+                    "agent_type": {"type": "string", "enum": ["triage", "bgp", "ospf", "isis", "general", "custom"]},
+                    "description": {"type": "string"},
+                    "is_active": {"type": "boolean"},
+                    "is_persistent": {"type": "boolean"},
+                    "status": {"type": "string", "enum": ["idle", "running", "error"]},
+                    "llm_provider": {"type": "string", "enum": ["anthropic", "openai", "openrouter"]},
+                    "llm_model": {"type": "string"},
+                    "temperature": {"type": "number"},
+                    "max_tokens": {"type": "integer"},
+                    "system_prompt": {"type": "string"},
+                    "tools": {"type": "array", "items": {"type": "string"}},
+                    "session_count": {"type": "integer", "description": "Number of sessions for this agent"},
+                    "created_at": {"type": "string", "format": "date-time"}
+                }
+            },
+            "AgentSession": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "agent_id": {"type": "string"},
+                    "status": {"type": "string", "enum": ["active", "completed", "failed", "handoff"]},
+                    "trigger_type": {"type": "string", "enum": ["user", "alert", "scheduled", "mop"]},
+                    "trigger_data": {"type": "object"},
+                    "parent_session_id": {"type": "string", "description": "If handed off from another session"},
+                    "handoff_to": {"type": "string", "description": "If handed off to another session"},
+                    "user_id": {"type": "string"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "ended_at": {"type": "string", "format": "date-time"}
+                }
+            },
+            "Tool": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string"},
+                    "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "requires_approval": {"type": "boolean"},
+                    "input_schema": {"type": "object"}
+                }
+            },
+            "Approval": {
+                "type": "object",
+                "properties": {
+                    "approval_id": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "action_type": {"type": "string"},
+                    "action_data": {"type": "object"},
+                    "status": {"type": "string", "enum": ["pending", "approved", "rejected", "expired"]},
+                    "requested_at": {"type": "string", "format": "date-time"},
+                    "responded_at": {"type": "string", "format": "date-time"},
+                    "responded_by": {"type": "string"}
+                }
             }
         },
         "tags": [
@@ -653,7 +1279,11 @@ def swagger_spec():
             {"name": "stacks", "description": "Service stack operations"},
             {"name": "stack-templates", "description": "Reusable stack templates with API variables"},
             {"name": "schedules", "description": "Scheduled operations"},
-            {"name": "deploy", "description": "Configuration deployment"}
+            {"name": "deploy", "description": "Configuration deployment"},
+            {"name": "alerts", "description": "Alert management and webhooks - Alerts are automatically processed by AI triage"},
+            {"name": "incidents", "description": "Incident management - AI-created and manual incidents"},
+            {"name": "agents", "description": "AI agent configuration and management"},
+            {"name": "approvals", "description": "Approval workflow for high-risk agent actions"}
         ]
     }
     return jsonify(spec)
