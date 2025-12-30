@@ -587,6 +587,14 @@ def inject_theme():
 # Settings routes migrated to routes/settings.py
 # Menu items and API resources migrated to routes/api.py
 
+@app.route('/api/platform/stats', methods=['GET'])
+@login_required
+def get_platform_statistics():
+    """Get aggregated platform statistics for agent self-awareness."""
+    from services.platform_stats_service import get_platform_stats
+    return jsonify(get_platform_stats())
+
+
 @app.route('/api/proxy-api-call', methods=['POST'])
 @login_required
 def proxy_api_call():
