@@ -62,12 +62,16 @@ def get_platform_stats() -> Dict[str, Any]:
 
 def _get_device_stats(db) -> Dict:
     """Device statistics."""
-    devices = db.get_all_devices() or []
-    return {
-        'total': len(devices),
-        'by_type': _count_by_field(devices, 'device_type'),
-        'by_status': _count_by_field(devices, 'status'),
-    }
+    try:
+        # Use get_all_manual_devices which is the actual function name
+        devices = db.get_all_manual_devices() or []
+        return {
+            'total': len(devices),
+            'by_type': _count_by_field(devices, 'device_type'),
+            'by_status': _count_by_field(devices, 'status'),
+        }
+    except Exception:
+        return {'total': 0, 'by_type': {}, 'by_status': {}}
 
 
 def _get_template_stats(db) -> Dict:
@@ -91,35 +95,53 @@ def _get_stack_stats(db) -> Dict:
 
 def _get_incident_stats(db) -> Dict:
     """Incident statistics."""
-    incidents = db.get_all_incidents() or []
-    return {
-        'total': len(incidents),
-        'open': len([i for i in incidents if i.get('status') == 'open']),
-        'by_severity': _count_by_field(incidents, 'severity'),
-        'by_status': _count_by_field(incidents, 'status'),
-    }
+    try:
+        # Incidents may not be implemented yet - handle gracefully
+        if hasattr(db, 'get_all_incidents'):
+            incidents = db.get_all_incidents() or []
+        else:
+            incidents = []
+        return {
+            'total': len(incidents),
+            'open': len([i for i in incidents if i.get('status') == 'open']),
+            'by_severity': _count_by_field(incidents, 'severity'),
+            'by_status': _count_by_field(incidents, 'status'),
+        }
+    except Exception:
+        return {'total': 0, 'open': 0, 'by_severity': {}, 'by_status': {}}
 
 
 def _get_agent_stats(db) -> Dict:
     """Agent statistics."""
-    agents = db.get_all_agents() or []
-    return {
-        'total': len(agents),
-        'active': len([a for a in agents if a.get('is_active')]),
-        'by_type': _count_by_field(agents, 'agent_type'),
-    }
+    try:
+        # Agents may not be implemented yet - handle gracefully
+        if hasattr(db, 'get_all_agents'):
+            agents = db.get_all_agents() or []
+        else:
+            agents = []
+        return {
+            'total': len(agents),
+            'active': len([a for a in agents if a.get('is_active')]),
+            'by_type': _count_by_field(agents, 'agent_type'),
+        }
+    except Exception:
+        return {'total': 0, 'active': 0, 'by_type': {}}
 
 
 def _get_backup_stats(db) -> Dict:
     """Backup statistics."""
     try:
         schedule = db.get_backup_schedule() or {}
-        recent_backups = db.get_recent_backups(limit=100) or []
+        # Use get_config_backups instead of get_recent_backups
+        if hasattr(db, 'get_config_backups'):
+            recent_backups = db.get_config_backups(limit=100) or []
+        else:
+            recent_backups = []
         return {
             'schedule_enabled': schedule.get('enabled', False),
             'recent_count': len(recent_backups),
         }
-    except:
+    except Exception:
         return {'schedule_enabled': False, 'recent_count': 0}
 
 
