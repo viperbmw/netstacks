@@ -913,7 +913,7 @@ def check_scheduled_operations(self):
 
     try:
         # Import database functions (avoid circular imports)
-        import database_postgres as db
+        import database as db
 
         pending_schedules = db.get_pending_scheduled_operations()
         log.info(f"Found {len(pending_schedules)} pending scheduled operations")
@@ -961,7 +961,7 @@ def check_scheduled_operations(self):
 def execute_scheduled_deploy(self, schedule_id: str, stack_id: str):
     """Execute a scheduled stack deployment"""
     from datetime import datetime as dt, timedelta
-    import database_postgres as db
+    import database as db
 
     log.info(f"Executing scheduled deploy for stack {stack_id}")
 
@@ -1067,7 +1067,7 @@ def execute_scheduled_deploy(self, schedule_id: str, stack_id: str):
 def execute_scheduled_backup(self, schedule_id: str, target_id: str):
     """Execute a scheduled backup operation"""
     from datetime import datetime as dt
-    import database_postgres as db
+    import database as db
 
     log.info(f"Executing scheduled backup for target {target_id}")
 
@@ -1120,7 +1120,7 @@ def execute_scheduled_backup(self, schedule_id: str, target_id: str):
 def execute_scheduled_mop(self, schedule_id: str, mop_id: str):
     """Execute a scheduled MOP"""
     from datetime import datetime as dt
-    import database_postgres as db
+    import database as db
     from mop_engine import MOPEngine
 
     log.info(f"Executing scheduled MOP {mop_id}")
@@ -1172,7 +1172,7 @@ def execute_scheduled_mop(self, schedule_id: str, mop_id: str):
 def cleanup_old_backups(self):
     """Celery Beat task to clean up old backup files based on retention policy"""
     from datetime import datetime as dt, timedelta
-    import database_postgres as db
+    import database as db
 
     log.info("Celery Beat: Running backup cleanup...")
 
