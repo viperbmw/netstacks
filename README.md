@@ -1,77 +1,135 @@
 # NetStacks
 
-**Web-based Service Stack Management for Network Automation**
+**Web-based Network Automation Platform**
 
-NetStacks is an open-source web application that provides a modern interface for managing network device configurations using template-based service stacks. It simplifies network automation with an intuitive UI for deploying, validating, and managing configuration services across your network infrastructure.
+NetStacks is an open-source platform for network device management, configuration automation, and AI-assisted operations. It provides a modern web interface for deploying configurations, managing devices, running automated procedures, and leveraging AI agents for network operations.
 
-**Note**: The Netstacker backend platform included with NetStacks is a fork of [Netpalm](https://github.com/tbotnz/netpalm), providing enhanced features and integration for network automation.
-
-## 🚀 Features
+## Features
 
 ### Network Configuration Management
 - **Template-Based Services**: Deploy configurations using Jinja2 templates with variable substitution
 - **Service Stacks**: Group related services and deploy them as a stack with dependency management
+- **Configuration Backups**: Automated and on-demand device configuration backups with diff comparison
 - **Validation**: Automatically validate deployed configurations against device running configs
-- **Delete Operations**: Clean removal of configurations using delete templates
 - **Multi-Device Support**: Deploy services to multiple devices simultaneously
 - **Netbox Integration**: Automatically fetch device inventory from Netbox
-- **Real-time Monitoring**: Track deployment progress and job status
-- **Template Metadata**: Link validation and delete templates to service templates
 
-### 🔄 MOP (Method of Procedures) Engine
-- **Visual MOP Builder**: Drag-and-drop interface for creating complex procedures without writing YAML
-- **Intelligent Step Types**: Auto-discovered from Python code - add new step types by adding functions
-- **Dynamic Forms**: Parameter fields adapt based on selected step type
-- **Conditional Logic**: Define success/failure paths for each step (on_success/on_failure)
-- **Bidirectional Editing**: Switch seamlessly between Visual Builder and YAML editor
+### MOP (Method of Procedures) Engine
+- **Visual MOP Builder**: Drag-and-drop interface for creating complex procedures
+- **Intelligent Step Types**: Auto-discovered from Python code - extensible by adding functions
+- **Conditional Logic**: Define success/failure paths for each step
 - **Execution Tracking**: Complete history and status tracking for all MOP executions
-- **Multiple Step Types**: SSH commands, delays, email notifications, HTTP requests, Python validation, and more
+- **Multiple Step Types**: SSH commands, delays, email notifications, HTTP requests, Python validation
 
-### 🔐 Authentication & User Management
-- **🔐 Enterprise Authentication**: Flexible multi-method authentication system
-  - **Local Authentication**: Database-backed username/password authentication
-  - **LDAP / Active Directory**: Enterprise directory integration with STARTTLS support
-  - **OAuth2 / OpenID Connect (OIDC)**: Single Sign-On with Google, Azure AD, Okta, etc.
-  - **Priority-Based Authentication**: Configure authentication order (try local first, LDAP second, etc.)
-  - **Auto-Provisioning**: Automatic user account creation for LDAP/OIDC users
-  - **Per-User Auth Tracking**: Visual badges show authentication source (Local/LDAP/SSO)
-- **👥 User Management**: Comprehensive user administration
-  - Create and manage local user accounts
-  - Delete user accounts (except admin)
-  - Password management for local users (LDAP/OIDC users managed externally)
-  - User authentication source tracking and display
-- **🌐 Offline Operation**: Fully functional without internet connectivity
+### AI Agents & Automation
+- **AI-Powered Agents**: Configurable AI agents for network operations
+- **Multiple LLM Providers**: Support for Anthropic, OpenAI, and OpenRouter
+- **Tool Integration**: Built-in tools, custom tools, and MCP server support
+- **Knowledge Base**: Document storage for agent context
+- **Alert Processing**: AI-assisted incident management and remediation
 
-## 📸 Screenshots
+### Authentication & Security
+- **Multi-Method Authentication**:
+  - Local database authentication
+  - LDAP / Active Directory with STARTTLS
+  - OAuth2 / OpenID Connect (Google, Azure AD, Okta, etc.)
+- **Priority-Based Auth**: Configure authentication order
+- **Credential Encryption**: Secure storage of device credentials
+- **User Management**: Role-based access control
 
-### Dashboard - Service Overview
-![Dashboard Screenshot](static/images/DashBoardScreenshot.png)
-*Real-time view of deployed services, validation status, and recent activity*
+## Architecture
 
-### Deploy Configuration - Template-Based Deployment
-![Deploy Config Screenshot](static/images/DeployConfigScreenshot.png)
-*Deploy network configurations using Jinja2 templates with variable substitution*
+NetStacks uses a modular Flask architecture with Blueprint-based routing and a service layer pattern:
 
-### Service Stacks - Multi-Service Orchestration
-![Service Stacks Screenshot](static/images/ServiceStacksScreenshot.png)
-*Create and manage service stacks with dependency ordering and bulk operations*
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    NetStacks Platform                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │              Flask Application (app.py)               │   │
+│  │  - Blueprint Registration                             │   │
+│  │  - Celery Task Endpoints                              │   │
+│  │  - Device Operations (SSH/Netmiko)                    │   │
+│  └──────────────────────────────────────────────────────┘   │
+│           │                                                  │
+│  ┌────────┴─────────┐  ┌───────────────┐  ┌─────────────┐  │
+│  │    Blueprints    │  │   Services    │  │    Utils    │  │
+│  │  routes/*.py     │  │ services/*.py │  │  utils/*.py │  │
+│  │  - pages         │  │  - auth       │  │  - decorators│ │
+│  │  - auth          │  │  - settings   │  │  - exceptions│ │
+│  │  - devices       │  │  - stack      │  │  - responses │ │
+│  │  - templates     │  │  - user       │  │              │  │
+│  │  - stacks        │  │  - device     │  └─────────────┘  │
+│  │  - mop           │  │  - platform   │                    │
+│  │  - agents        │  └───────────────┘                    │
+│  │  - settings      │                                        │
+│  │  - api           │                                        │
+│  └──────────────────┘                                        │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │                  Background Workers                   │   │
+│  │  Celery + Redis + PostgreSQL                          │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                              │                               │
+└──────────────────────────────┼───────────────────────────────┘
+                               │ SSH/Netmiko
+                               ▼
+                      Network Devices
+```
 
-### Config Templates - Template Management
-![Config Templates Screenshot](static/images/ConfigTemplatesScreenshot.png)
-*Create, edit, and manage Jinja2 configuration templates with metadata linking*
+### Directory Structure
 
-## 📋 Prerequisites
+```
+netstacks/
+├── app.py                      # Flask application + Celery endpoints
+├── database.py                 # PostgreSQL database layer (SQLAlchemy)
+├── models.py                   # SQLAlchemy ORM models
+├── mop_engine.py               # MOP execution engine
+├── auth_ldap.py                # LDAP authentication
+├── auth_oidc.py                # OIDC/OAuth2 authentication
+├── netbox_client.py            # Netbox API client
+├── credential_encryption.py    # Credential encryption utilities
+├── timezone_utils.py           # Timezone handling
+├── docker-compose.yml          # Platform deployment
+│
+├── routes/                     # Flask Blueprints
+│   ├── __init__.py             # Blueprint registration
+│   ├── pages.py                # Dashboard, deploy, monitor pages
+│   ├── auth.py                 # Login, logout, password management
+│   ├── admin.py                # User CRUD, auth config
+│   ├── devices.py              # Device CRUD operations
+│   ├── templates.py            # Template management
+│   ├── stacks.py               # Stack templates and stacks
+│   ├── mop.py                  # MOP CRUD and execution
+│   ├── agents.py               # AI agent management
+│   ├── settings.py             # Application settings, LLM providers
+│   ├── api.py                  # API resources, config backups
+│   ├── alerts.py               # Alert and incident management
+│   └── knowledge.py            # Knowledge base documents
+│
+├── services/                   # Business Logic Layer
+│   ├── auth_service.py         # Authentication logic
+│   ├── user_service.py         # User management
+│   ├── settings_service.py     # Settings management
+│   ├── stack_service.py        # Stack operations
+│   ├── device_service.py       # Device operations
+│   ├── platform_stats_service.py  # Platform statistics
+│   └── microservice_client.py  # Service health checks
+│
+├── utils/                      # Shared Utilities
+│   ├── decorators.py           # @handle_exceptions, @require_json
+│   ├── exceptions.py           # ValidationError, NotFoundError, etc.
+│   └── responses.py            # success_response, error_response
+│
+├── templates/                  # Jinja2 HTML templates
+├── static/                     # CSS, JavaScript, images
+├── tasks/                      # Celery task definitions
+├── ai/                         # AI agent implementations
+└── docs/                       # Documentation and plans
+```
 
-1. **Docker & Docker Compose**: For containerized deployment
-2. **(Optional) Netbox**: For automatic device inventory management
-
-## 🚀 Quick Start
-
-**NetStacks deploys as a hybrid platform**:
-- **NetStacks Web UI + legacy API (Flask)** (published on **http://localhost:8089**)
-- **Microservices (FastAPI)** for `auth`, `devices`, and `config` (internal container ports **8011/8004/8002**)
-- **Celery workers** for network operations
-- **PostgreSQL + Redis** for persistence and task queue
+## Quick Start
 
 ### 1. Clone the Repository
 
@@ -80,11 +138,11 @@ git clone https://github.com/viperbmw/netstacks.git
 cd netstacks
 ```
 
-### 2. (Optional) Customize Configuration
+### 2. Configure Environment
 
 ```bash
 cp .env.example .env
-# Edit .env to customize API keys and ports if needed
+# Edit .env to customize settings
 ```
 
 ### 3. Deploy the Platform
@@ -93,224 +151,114 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-This will start these containers:
-- `netstacks` - Web UI + legacy API (Flask)
-- `netstacks-auth` - Auth microservice (FastAPI)
-- `netstacks-devices` - Devices microservice (FastAPI)
-- `netstacks-config` - Config microservice (FastAPI)
-- `netstacks-workers` - Celery worker
+This starts the following containers:
+- `netstacks` - Web UI + API (Flask)
+- `netstacks-workers` - Celery workers for device operations
 - `netstacks-workers-beat` - Celery beat scheduler
-- `netstacks-postgres` - PostgreSQL
-- `netstacks-redis` - Redis
-- `netstacks-traefik` - Reverse proxy (optional / dev oriented)
+- `netstacks-postgres` - PostgreSQL database
+- `netstacks-redis` - Redis for task queue
+- `netstacks-traefik` - Reverse proxy (optional)
 
 ### 4. Access the Platform
 
-- **NetStacks Web UI**: `http://localhost:8089`
-- **Traefik (if used)**: `http://localhost` (port 80)
-- **Traefik dashboard (dev)**: `http://localhost:8080`
+- **Web UI**: `http://localhost:8089`
+- **Default Login**: `admin` / `admin`
 
-The Web UI container is published on port **8089** and maps internally to port **8088**.
+**Important**: Change the default password after first login!
 
-### 5. Default Login
+## Configuration
 
-- **Username**: `admin`
-- **Password**: `admin`
+### Environment Variables
 
-**⚠️ Important**: Change the default password immediately after first login!
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | PostgreSQL connection | Database connection string |
+| `REDIS_URL` | `redis://redis:6379/0` | Redis connection for Celery |
+| `TZ` | `America/New_York` | Timezone for scheduled operations |
+| `SECRET_KEY` | Auto-generated | Flask session secret |
+| `JWT_SECRET_KEY` | Auto-generated | JWT token secret |
 
-### 6. (Optional) Configure Authentication
-
-NetStacks supports multiple authentication methods. Configure them via **Settings → Users & Auth → Authentication Settings**:
+### Authentication Setup
 
 #### Local Authentication (Default)
-- Database-backed username/password authentication
+- Database-backed username/password
 - Change password via user settings
-- Set priority order relative to other auth methods
 
 #### LDAP / Active Directory
-1. Navigate to **Authentication Settings** tab
+1. Navigate to **Settings → Authentication**
 2. Configure LDAP settings:
-   - **Server**: LDAP server hostname/IP (e.g., `ldap.example.com`)
-   - **Port**: 389 (LDAP) or 636 (LDAPS)
-   - **Base DN**: Search base (e.g., `dc=example,dc=com`)
-   - **User Filter**: LDAP filter (e.g., `(uid={username})`)
-   - **Bind DN**: Admin bind DN (optional)
-   - **Use SSL/TLS**: Enable for secure connections
-   - **Priority**: Set authentication order (lower = higher priority)
-3. Click **Test Connection** to validate settings
-4. Enable LDAP authentication
+   - Server hostname/IP
+   - Port (389/636)
+   - Base DN
+   - User filter
+   - SSL/TLS options
+3. Test connection and enable
 
-#### OAuth2 / OpenID Connect (OIDC)
-1. Configure your identity provider (Google, Azure AD, Okta, etc.)
-2. Navigate to **Authentication Settings** → **OIDC Configuration**
-3. Enter OIDC settings:
-   - **Issuer URL**: Your IdP's issuer URL (e.g., `https://accounts.google.com`)
-   - **Client ID**: OAuth2 client ID from your IdP
-   - **Client Secret**: OAuth2 client secret
-   - **Redirect URI**: `http://your-server:8089/login/oidc/callback`
-   - **Priority**: Set authentication order
-4. Click **Test Configuration** to validate
-5. Enable OIDC authentication
-6. A "Sign in with SSO" button will appear on the login page
+#### OAuth2 / OIDC
+1. Configure your identity provider (Google, Azure AD, Okta)
+2. Navigate to **Settings → Authentication → OIDC**
+3. Enter Client ID, Client Secret, Issuer URL
+4. Set redirect URI: `http://your-server:8089/login/oidc/callback`
+5. Test and enable
 
-#### Authentication Priority
-Configure which authentication method is tried first:
-- Lower priority numbers = tried first
-- Example: Local (priority 10), LDAP (priority 20), OIDC (priority 30)
-- Users are authenticated by the first successful method
+### Netbox Integration
 
-### 7. (Optional) Configure Netbox Integration
+1. Go to **Settings**
+2. Enter Netbox URL and API token
+3. Configure device filters (optional)
+4. Click **Sync Devices** to import inventory
 
-1. Go to `http://localhost:8089/settings`
-2. Add your Netbox connection details:
-   - **Netbox URL**: Your Netbox server URL
-   - **Netbox Token**: Your Netbox API token
+### AI/LLM Configuration
 
-## 🌐 Architecture
+1. Navigate to **Settings → AI Settings**
+2. Add LLM providers (Anthropic, OpenAI, OpenRouter)
+3. Enter API keys and configure defaults
+4. Test connection to verify
 
-NetStacks is evolving from a monolith to a microservice architecture. The current docker-compose deployment is a **hybrid**:
+## Usage
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    NetStacks Platform                    │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌──────────────┐         ┌──────────────────────────┐ │
-│  │  NetStacks   │  HTTP   │  Microservices (FastAPI) │ │
-│  │   Web UI     │ ◄─────► │  ┌────────────────────┐  │ │
-│  │  (Flask)     │         │  │ Auth (8011)        │  │ │
-│  │  + Postgres  │         │  ├────────────────────┤  │ │
-│  └──────────────┘         │  │ Devices (8004)     │  │ │
-│       8089→8088           │  ├────────────────────┤  │ │
-│                           │  │ Config (8002)      │  │ │
-│                           │  └────────────────────┘  │ │
-│                           └──────────────────────────┘ │
-│                 ┌────────────────────────────────────┐ │
-│                 │ Celery Workers + Beat + Redis       │ │
-│                 └────────────────────────────────────┘ │
-│                                       │                 │
-└───────────────────────────────────────┼─────────────────┘
-                                        │ SSH/Telnet
-                                        ▼
-                              Network Devices
+### Managing Devices
 
-                 Optional: Netbox Integration ◄────────┘
-```
-
-**Key Points:**
-- **Hybrid**: Flask still serves the UI and some APIs while services are being migrated.
-- **Async device operations**: handled via Celery + Redis.
-- **Persistent storage**: PostgreSQL (default in docker-compose).
-- **Reverse proxy**: Traefik is present, but service routing is currently conservative/disabled in compose labels.
-
-## 📁 Directory Structure
-
-```
-netstacks/
-├── app.py                      # Flask application (Web UI)
-├── database.py                 # SQLite database layer
-├── mop_engine.py               # MOP execution engine
-├── step_types_introspect.py   # Auto-discovery of step types
-├── auth_ldap.py                # LDAP authentication module
-├── auth_oidc.py                # OIDC/OAuth2 authentication module
-├── netbox_client.py            # Netbox API client
-├── requirements.txt            # Python dependencies
-├── Dockerfile                  # NetStacks Web UI container
-├── docker-compose.yml          # Complete platform deployment
-├── .env.example                # Environment variable template
-├── templates/                  # HTML templates (Flask)
-│   ├── base.html
-│   ├── index.html
-│   ├── services.html
-│   ├── service-stacks.html
-│   ├── mop.html                # MOP management page
-│   └── ...
-├── static/                     # Static assets (CSS, JS)
-│   ├── css/
-│   │   └── style.css
-│   └── js/
-│       ├── services.js
-│       ├── service-stacks.js
-│       ├── mops.js             # MOP management
-│       ├── visual-builder.js   # Visual MOP Builder
-│       └── ...
-└── services/                   # Microservices (FastAPI)
-    ├── auth/
-    ├── devices/
-    └── config/
-```
-
-**Note**: Jinja2 configuration templates are stored in the Netstacker backend under `netstacker/netstacker/backend/plugins/extensibles/j2_config_templates/`
-
-## 🛠️ Usage
+1. Navigate to **Devices**
+2. Add devices manually or sync from Netbox
+3. Configure credentials (stored encrypted)
+4. Test connectivity
 
 ### Creating Templates
 
-1. Navigate to **Templates** page
-2. Create a new Jinja2 template (e.g., `add_snmp.j2`)
-3. Define template variables using `{{ variable_name }}` syntax
-4. Optionally link validation and delete templates
-5. Click **Save to Netstacker** - templates are stored in Netstacker
+1. Go to **Templates**
+2. Create Jinja2 templates with `{{ variable }}` syntax
+3. Link validation and delete templates
+4. Save template
 
-**Example Template:**
+Example template:
 ```jinja2
 snmp-server community {{ snmp_community }} {{ snmp_mode }}
 snmp-server location {{ snmp_location }}
 snmp-server contact {{ snmp_contact }}
 ```
 
-**Note**: Templates are stored in Netstacker, not locally. NetStacks uses Netstacker's template rendering engine for all deployments.
+### Deploying Configurations
 
-### Deploying Services
+1. Navigate to **Deploy**
+2. Select template and target devices
+3. Fill in template variables
+4. Execute deployment
+5. Monitor progress in real-time
 
-1. Go to **Services** page
-2. Click **Deploy New Service**
-3. Select a template
-4. Fill in template variables
-5. Select target device(s)
-6. Click **Deploy**
+### Creating MOPs (Method of Procedures)
 
-### Creating Service Stacks
+1. Go to **MOPs**
+2. Create new MOP with Visual Builder or YAML editor
+3. Add steps with conditional logic
+4. Save and execute
 
-1. Navigate to **Service Stacks** page
-2. Click **Create Stack**
-3. Add services to the stack
-4. Define dependencies between services
-5. Save and deploy the stack
-
-### Creating and Running MOPs (Method of Procedures)
-
-MOPs allow you to automate complex, multi-step network procedures with conditional logic.
-
-#### Using the Visual Builder
-
-1. Navigate to **Procedures (MOP)** page
-2. Click **New** to create a new MOP
-3. Enter MOP name and description
-4. Click the **Visual Builder** tab
-5. Add target devices using the device selector
-6. Click **Add Step** to add procedure steps:
-   - Choose a step type (SSH Command, Delay, Email, HTTP Request, etc.)
-   - Fill in the dynamic parameter form
-   - Define success/failure transitions (optional)
-7. Click **Generate YAML** to convert to YAML format
-8. Click **Save** to store the MOP
-9. Click **Execute** to run the MOP on target devices
-
-#### Using the YAML Editor
-
-1. Navigate to **Procedures (MOP)** page
-2. Click **New** to create a new MOP
-3. Click the **YAML Editor** tab
-4. Write your MOP in YAML format:
-
+Example MOP:
 ```yaml
-name: "Maintenance Window Example"
-description: "Disable BGP, perform maintenance, re-enable BGP"
+name: "BGP Maintenance"
+description: "Graceful BGP shutdown and restore"
 devices:
   - router1.example.com
-  - router2.example.com
 
 steps:
   - name: "Disable BGP"
@@ -330,273 +278,156 @@ steps:
     id: enable_bgp
     type: ssh_command
     command: "configure terminal\nrouter bgp 65000\nno shutdown"
-    on_success: send_success
-    on_failure: send_alert
-
-  - name: "Send Success Email"
-    id: send_success
-    type: email
-    to: "network-team@example.com"
-    subject: "Maintenance Complete"
-    body: "BGP maintenance completed successfully"
-
-  - name: "Send Alert"
-    id: send_alert
-    type: email
-    to: "oncall@example.com"
-    subject: "Maintenance Failed"
-    body: "BGP maintenance encountered an error"
 ```
 
-5. Click **Save** and then **Execute**
+### Configuration Backups
 
-#### Available Step Types
+1. Navigate to **Backups**
+2. Configure backup schedule (interval, retention)
+3. Run on-demand backups
+4. Compare configurations with diff view
 
-The MOP engine automatically discovers step types from Python code. Current step types include:
+### AI Agents
 
-- **ssh_command** - Execute SSH commands on devices
-- **delay** - Wait for a specified duration
-- **email** - Send email notifications
-- **http_request** - Make HTTP/HTTPS requests
-- **validate_python** - Run custom Python validation code
-- **log** - Log messages for debugging
+1. Go to **Agents**
+2. Create agent with specific capabilities
+3. Assign tools and knowledge base
+4. Configure LLM provider
+5. Start agent for automated operations
 
-To add new step types, simply add an `execute_<type>` method to `mop_engine.py`.
+## API Reference
 
-### Validating Configurations
+### Authentication
+- `POST /login` - Authenticate user
+- `POST /logout` - End session
+- `GET /api/auth/me` - Current user info
 
-1. Find a deployed service or stack
-2. Click **Validate**
-3. NetStacks will check if the configuration exists on the device
-4. View validation results
+### Devices
+- `GET /api/devices` - List devices
+- `POST /api/devices` - Create device
+- `GET /api/devices/<id>` - Get device
+- `PUT /api/devices/<id>` - Update device
+- `DELETE /api/devices/<id>` - Delete device
+- `POST /api/devices/<id>/test` - Test connectivity
 
-### Deleting Services
+### Templates
+- `GET /api/v2/templates` - List templates
+- `POST /api/v2/templates` - Create template
+- `GET /api/v2/templates/<id>` - Get template
+- `PUT /api/v2/templates/<id>` - Update template
+- `DELETE /api/v2/templates/<id>` - Delete template
 
-1. Find a deployed service
-2. Click **Delete**
-3. NetStacks will:
-   - Render the delete template (if configured)
-   - Execute delete commands on the device
-   - Remove the service from tracking
+### MOPs
+- `GET /api/mops` - List MOPs
+- `POST /api/mops` - Create MOP
+- `GET /api/mops/<id>` - Get MOP
+- `PUT /api/mops/<id>` - Update MOP
+- `DELETE /api/mops/<id>` - Delete MOP
+- `POST /api/mops/<id>/execute` - Execute MOP
 
-## 🔌 Service integration
+### Agents
+- `GET /api/agents` - List agents
+- `POST /api/agents` - Create agent
+- `PATCH /api/agents/<id>` - Update agent
+- `POST /api/agents/<id>/start` - Start agent
+- `POST /api/agents/<id>/stop` - Stop agent
 
-Device operations are primarily executed via **Celery workers** (Redis broker) and the Flask API submits those jobs.
+### Settings
+- `GET /api/settings` - Get settings
+- `POST /api/settings` - Save settings
+- `GET /api/llm/providers` - List LLM providers
+- `POST /api/llm/providers` - Configure provider
 
-Microservices expose their own `/health` endpoints and (optionally) can be placed behind Traefik.
+## Development
 
-## 🐳 Docker Configuration
-
-### Timezone Configuration
-
-NetStacks uses the host system's timezone for all scheduled operations and time displays. This ensures that scheduled tasks run at the expected local time rather than UTC.
-
-**To configure the timezone:**
-
-1. Edit `docker-compose.yml`
-2. Update the `TZ` environment variable in the `netstacks` service:
-
-```yaml
-services:
-  netstacks:
-    environment:
-      - TZ=America/Los_Angeles  # Change to your timezone
-```
-
-3. Restart the container:
+### Running Locally
 
 ```bash
-docker compose restart netstacks
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export DATABASE_URL="postgresql://user:pass@localhost:5432/netstacks"
+export REDIS_URL="redis://localhost:6379/0"
+
+# Run Flask
+python app.py
+
+# Run Celery worker (separate terminal)
+celery -A tasks worker -l info
+
+# Run Celery beat (separate terminal)
+celery -A tasks beat -l info
 ```
 
-**Common Timezone Values:**
+### Adding New Routes
 
-| Region | Timezone | Description |
-|--------|----------|-------------|
-| US East | `America/New_York` | Eastern Time (ET) |
-| US Central | `America/Chicago` | Central Time (CT) |
-| US Mountain | `America/Denver` | Mountain Time (MT) |
-| US Arizona | `America/Phoenix` | Mountain Time - Arizona (no DST) |
-| US Pacific | `America/Los_Angeles` | Pacific Time (PT) |
-| US Alaska | `America/Anchorage` | Alaska Time (AKT) |
-| US Hawaii | `Pacific/Honolulu` | Hawaii Time (HST) |
-| UTC | `UTC` | Coordinated Universal Time |
-| UK | `Europe/London` | London (GMT/BST) |
-| Europe | `Europe/Paris` | Paris (CET/CEST) |
-| Japan | `Asia/Tokyo` | Tokyo (JST) |
-| Australia | `Australia/Sydney` | Sydney (AEDT/AEST) |
+1. Create blueprint in `routes/`
+2. Register in `routes/__init__.py`
+3. Use decorators from `utils/decorators.py`
+4. Use responses from `utils/responses.py`
 
-For a complete list of timezone names, see: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+### Adding New Services
 
-**What is affected by timezone:**
-- All displayed timestamps in the UI
-- Scheduled operation execution times (deploy, validate, delete)
-- Log timestamps
-- Task monitoring timestamps
+1. Create service class in `services/`
+2. Import and use in blueprints
+3. Keep business logic in services, not routes
 
-**Example:** If you schedule a deployment for 4:30 PM and your timezone is set to `America/New_York`, the deployment will run at 4:30 PM Eastern Time, not 4:30 PM UTC.
+## Troubleshooting
 
-### Environment Variables
-
-Create a `.env` file from the template:
+### Container Logs
 
 ```bash
-cp .env.example .env
+docker-compose logs -f netstacks
+docker-compose logs -f netstacks-workers
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NETSTACKER_API_KEY` | `2a84465a-cf38-46b2-9d86-b84Q7d57f288` | API key for backend authentication |
-| `DB_FILE` | `/data/netstacks.db` | SQLite database file path |
-| `TZ` | `America/New_York` | Timezone for scheduled operations and UI displays |
-
-**Note**: The Web UI is pre-configured to connect to the backend API at `http://netstacker-controller:9000`. Netbox connections are configured via the GUI at `/settings`.
-
-### Ports
-
-| Service | Port | Description |
-|---------|------|-------------|
-| NetStacks Web UI | 8089 | Main web interface |
-| Netstacker API | 9000 | Backend REST API / Swagger UI |
-
-### Volumes
-
-- `netstacks-data:/data` - Persistent SQLite database storage for settings and service data
-
-### Services
-
-The unified docker-compose deploys 5 services:
-
-1. **netstacks** - Flask web UI for managing configurations
-2. **netstacker-controller** - FastAPI backend server
-3. **netstacker-worker-pinned** - RQ worker for pinned tasks
-4. **netstacker-worker-fifo** - RQ worker for FIFO tasks
-5. **redis** - Task queue and caching layer
-
-## 🔄 Updating
-
-To update NetStacks:
+### Database Issues
 
 ```bash
-cd netstacks
-git pull
-docker-compose down
-docker-compose up -d --build
+# Connect to PostgreSQL
+docker-compose exec netstacks-postgres psql -U netstacks
+
+# Check tables
+\dt
 ```
 
-## 🐛 Troubleshooting
+### Celery Issues
 
-### Cannot connect to Netstacker
-
-**Use the Test Connection button:**
-1. Go to `http://localhost:8088/settings`
-2. Enter your Netstacker URL and API key
-3. Click "Test Netstacker Connection"
-4. Review the error message
-
-**Common issues:**
-- Incorrect Netstacker URL (check protocol: http vs https)
-- Invalid API key
-- Firewall blocking NetStacks → Netstacker connection
-- Netstacker server not running
-
-**Check NetStacks logs:**
 ```bash
-docker logs netstacks
+# Check worker status
+docker-compose exec netstacks celery -A tasks inspect active
+
+# Check scheduled tasks
+docker-compose exec netstacks celery -A tasks inspect scheduled
 ```
 
-### Cannot connect to Netbox
+### Timezone Issues
 
-**Use the Test Connection button:**
-1. Go to `http://localhost:8088/settings`
-2. Enter your Netbox URL and token
-3. Click "Test Netbox Connection"
-
-### Templates not loading
-
-Templates are stored in Netstacker. Check:
-1. Netstacker connection is working (test via `/settings`)
-2. Templates exist in Netstacker (`curl http://netstacker:9000/j2template/config/` with API key)
-3. Check NetStacks logs: `docker logs netstacks`
-
-### Settings not persisting
-
-Verify the SQLite database volume exists:
+Verify timezone configuration:
 ```bash
-docker volume ls | grep netstacks-data
-docker exec netstacks ls -la /data
+docker-compose exec netstacks printenv TZ
+docker-compose exec netstacks date
 ```
 
-### Scheduled operations not running or running at wrong time
+## Contributing
 
-**Check if scheduler is running:**
-```bash
-docker compose logs netstacks | grep -i scheduler
-```
+1. Fork the repository
+2. Create a feature branch
+3. Follow existing code patterns
+4. Test thoroughly
+5. Submit a pull request
 
-You should see log entries like:
-- "Scheduler thread started"
-- "Checking for pending scheduled operations..."
+## License
 
-**If scheduled operations run at unexpected times:**
+MIT License - see LICENSE file for details.
 
-1. Verify the timezone configuration in `docker-compose.yml`:
-```bash
-docker compose exec netstacks printenv TZ
-```
+## Related Projects
 
-2. Check the container's current time:
-```bash
-docker compose exec netstacks date
-```
-
-3. Compare with your local system time:
-```bash
-date
-```
-
-4. If timezone is incorrect, update `docker-compose.yml` and restart:
-```bash
-docker compose restart netstacks
-```
-
-**Note:** Scheduled operations use the container's local time, not UTC. Ensure the `TZ` environment variable matches your desired timezone.
-
-## 📝 Template Metadata
-
-NetStacks stores template metadata in SQLite database:
-
-- **Description**: Human-readable template description
-- **Validation Template**: Template used to validate deployments
-- **Delete Template**: Template used to remove configurations
-
-This metadata enhances the template system by linking related templates together.
-
-## 🤝 Contributing
-
-When contributing:
-
-1. Ensure compatibility with Netstacker API
-2. Test against multiple configurations
-3. Document new features
-4. Follow existing code style
-
-## 📄 License
-
-NetStacks is open-source software released under the MIT License. See LICENSE file for details.
-
-## 🔗 Related Projects
-
-- **[Netpalm](https://github.com/tbotnz/netpalm)** - The original upstream project that Netstacker is forked from
-- **[Netbox](https://github.com/netbox-community/netbox)** - Network inventory system for device management
-
-## 💬 Support
-
-For issues related to:
-- **NetStacks UI**: Open an issue in this repository
-- **Netstacker API**: See Netstacker documentation
-- **Network devices**: Consult your device vendor documentation
+- [Netbox](https://github.com/netbox-community/netbox) - Network inventory management
+- [NAPALM](https://github.com/napalm-automation/napalm) - Network automation library
+- [Netmiko](https://github.com/ktbyers/netmiko) - SSH library for network devices
 
 ---
 
-**Built with ❤️ for network automation**
+**Built for network automation**
