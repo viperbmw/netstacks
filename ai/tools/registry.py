@@ -86,6 +86,13 @@ class ToolRegistry:
         """Get all registered tools"""
         return list(self._tools.values())
 
+    def get_ui_tools(self) -> List[BaseTool]:
+        """Get tools visible in UI (excludes internal tools)"""
+        return [
+            tool for tool in self._tools.values()
+            if not getattr(tool, 'is_internal', False)
+        ]
+
     def get_by_category(self, category: str) -> List[BaseTool]:
         """
         Get all tools in a category.

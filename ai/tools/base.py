@@ -50,6 +50,7 @@ class BaseTool(ABC):
     category: str = "general"
     risk_level: str = "low"  # 'low', 'medium', 'high', 'critical'
     requires_approval: bool = False
+    is_internal: bool = False  # Internal tools are hidden from UI but available to agents
 
     def __init__(self, session_context: Optional[Dict] = None):
         """
