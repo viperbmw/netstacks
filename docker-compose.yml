@@ -116,6 +116,7 @@ services:
     environment:
       # Security Configuration
       - SECRET_KEY=${SECRET_KEY:-a1f4a6308d52837fd4fe48ad3ce9dc9c3fe0f6f58763541678edd725b981f589}
+      - NETSTACKS_ENCRYPTION_KEY=${NETSTACKS_ENCRYPTION_KEY:-10110c186f250177264c5498dc3ebd7efaffd40021aa6bc73ac871af5a30b871}
       # Database Configuration
       - DB_FILE=/data/netstacks.db
       - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
@@ -159,6 +160,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - NETSTACKS_ENCRYPTION_KEY=${NETSTACKS_ENCRYPTION_KEY:-10110c186f250177264c5498dc3ebd7efaffd40021aa6bc73ac871af5a30b871}
       - TZ=${TZ:-America/New_York}
     networks:
       - netstacks-network
