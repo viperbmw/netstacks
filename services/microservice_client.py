@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', 'http://auth:8011')
 DEVICES_SERVICE_URL = os.environ.get('DEVICES_SERVICE_URL', 'http://devices:8004')
 CONFIG_SERVICE_URL = os.environ.get('CONFIG_SERVICE_URL', 'http://config:8002')
+AI_SERVICE_URL = os.environ.get('AI_SERVICE_URL', 'http://ai:8003')
 
 # Request timeout in seconds (short timeout since we fall back to local auth)
 REQUEST_TIMEOUT = 2
@@ -313,6 +314,7 @@ class MicroserviceClient:
             'auth': f"{AUTH_SERVICE_URL}/health",
             'devices': f"{DEVICES_SERVICE_URL}/health",
             'config': f"{CONFIG_SERVICE_URL}/health",
+            'ai': f"{AI_SERVICE_URL}/health",
         }
 
         url = url_map.get(service)
@@ -366,7 +368,7 @@ class MicroserviceClient:
             results['flask'] = self._check_flask_health()
         else:
             # Microservices mode - check external services
-            for service in ['auth', 'devices', 'config']:
+            for service in ['auth', 'devices', 'config', 'ai']:
                 results[service] = self.check_service_health(service)
 
         # Check Redis

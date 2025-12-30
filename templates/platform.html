@@ -40,6 +40,45 @@
     </div>
 </div>
 
+<!-- Platform Statistics Section -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Platform Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row" id="platform-stats">
+                    <div class="col-md-2 col-sm-4 text-center mb-3">
+                        <div class="h3 mb-0" id="stat-devices">-</div>
+                        <small class="text-muted">Devices</small>
+                    </div>
+                    <div class="col-md-2 col-sm-4 text-center mb-3">
+                        <div class="h3 mb-0" id="stat-templates">-</div>
+                        <small class="text-muted">Templates</small>
+                    </div>
+                    <div class="col-md-2 col-sm-4 text-center mb-3">
+                        <div class="h3 mb-0" id="stat-stacks">-</div>
+                        <small class="text-muted">Stacks</small>
+                    </div>
+                    <div class="col-md-2 col-sm-4 text-center mb-3">
+                        <div class="h3 mb-0" id="stat-incidents">-</div>
+                        <small class="text-muted">Open Incidents</small>
+                    </div>
+                    <div class="col-md-2 col-sm-4 text-center mb-3">
+                        <div class="h3 mb-0" id="stat-agents">-</div>
+                        <small class="text-muted">Active Agents</small>
+                    </div>
+                    <div class="col-md-2 col-sm-4 text-center mb-3">
+                        <div class="h3 mb-0" id="stat-backups">-</div>
+                        <small class="text-muted">Recent Backups</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Interactive Architecture Diagram -->
 <div class="row mb-4">
     <div class="col-12">
@@ -95,6 +134,7 @@
                             <path id="conn-traefik-auth" class="connection-line" d="M 450,80 L 200,160" stroke="#4b5563" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
                             <path id="conn-traefik-devices" class="connection-line" d="M 450,80 L 450,160" stroke="#4b5563" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
                             <path id="conn-traefik-config" class="connection-line" d="M 450,80 L 700,160" stroke="#4b5563" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+                            <path id="conn-traefik-ai" class="connection-line" d="M 550,80 L 700,300" stroke="#4b5563" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
 
                             <!-- Services to Database -->
                             <path id="conn-auth-db" class="connection-line" d="M 200,230 L 350,320" stroke="#4b5563" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
@@ -151,6 +191,18 @@
                             </text>
                             <text x="100" y="42" text-anchor="middle" fill="#9ca3af" font-size="10">Templates & MOPs</text>
                             <text x="100" y="58" text-anchor="middle" fill="#9ca3af" font-size="10">Port 8002</text>
+                            <circle cx="180" cy="10" r="8" fill="#6b7280" class="status-indicator"/>
+                        </g>
+
+                        <!-- AI Service -->
+                        <g id="node-ai" class="service-node" data-service="ai" transform="translate(600, 300)">
+                            <rect x="0" y="0" width="200" height="70" rx="8" fill="url(#unknownGradient)" filter="url(#shadow)" class="node-bg"/>
+                            <rect x="0" y="0" width="200" height="70" rx="8" fill="none" stroke="#10b981" stroke-width="2" class="node-border"/>
+                            <text x="100" y="25" text-anchor="middle" fill="white" font-weight="bold" font-size="14">
+                                <tspan class="fas">&#xf544;</tspan> AI Service
+                            </text>
+                            <text x="100" y="42" text-anchor="middle" fill="#9ca3af" font-size="10">Agents & Alerts</text>
+                            <text x="100" y="58" text-anchor="middle" fill="#9ca3af" font-size="10">Port 8003</text>
                             <circle cx="180" cy="10" r="8" fill="#6b7280" class="status-indicator"/>
                         </g>
 
@@ -313,6 +365,40 @@
             </div>
             <div class="card-footer">
                 <button class="btn btn-sm btn-outline-primary w-100" onclick="showServiceDetails('config')">
+                    <i class="fas fa-search"></i> View Details
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Service Card -->
+    <div class="col-md-4">
+        <div class="card service-card h-100" id="ai-card" data-service="ai">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-robot text-success"></i> AI Service</span>
+                <span class="badge bg-secondary" id="ai-status">...</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <div class="metric-box">
+                            <small class="text-muted">Response Time</small>
+                            <div class="fs-5" id="ai-response-time">--</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="metric-box">
+                            <small class="text-muted">Port</small>
+                            <div class="fs-5">8003</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="small text-muted" id="ai-details">
+                    <i class="fas fa-info-circle"></i> Agents, alerts, incidents, knowledge
+                </div>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-sm btn-outline-primary w-100" onclick="showServiceDetails('ai')">
                     <i class="fas fa-search"></i> View Details
                 </button>
             </div>
@@ -574,11 +660,29 @@ $(document).ready(function() {
     });
 
     // Initial load
+    loadPlatformStats();
     refreshHealth();
 
     // Auto-refresh every 30 seconds
     setInterval(refreshHealth, 30000);
+    setInterval(loadPlatformStats, 60000);  // Stats refresh every 60 seconds
 });
+
+async function loadPlatformStats() {
+    try {
+        const response = await fetch('/api/platform/stats');
+        const data = await response.json();
+
+        document.getElementById('stat-devices').textContent = data.devices?.total ?? '-';
+        document.getElementById('stat-templates').textContent = data.templates?.total ?? '-';
+        document.getElementById('stat-stacks').textContent = `${data.stacks?.deployed ?? 0}/${data.stacks?.total ?? 0}`;
+        document.getElementById('stat-incidents').textContent = data.incidents?.open ?? '-';
+        document.getElementById('stat-agents').textContent = data.agents?.active ?? '-';
+        document.getElementById('stat-backups').textContent = data.backups?.recent_count ?? '-';
+    } catch (error) {
+        console.error('Error loading platform stats:', error);
+    }
+}
 
 function updateSVGNode(serviceName, status) {
     const node = document.getElementById(`node-${serviceName}`);
@@ -725,6 +829,7 @@ function updateOverallStatus(status, services) {
     const authHealthy = services.auth?.status === 'healthy';
     const devicesHealthy = services.devices?.status === 'healthy';
     const configHealthy = services.config?.status === 'healthy';
+    const aiHealthy = services.ai?.status === 'healthy';
     const postgresHealthy = services.postgres?.status === 'healthy';
     const redisHealthy = services.redis?.status === 'healthy';
     const workersHealthy = services.workers?.status === 'healthy';
@@ -732,6 +837,7 @@ function updateOverallStatus(status, services) {
     updateConnectionLine('conn-traefik-auth', authHealthy);
     updateConnectionLine('conn-traefik-devices', devicesHealthy);
     updateConnectionLine('conn-traefik-config', configHealthy);
+    updateConnectionLine('conn-traefik-ai', aiHealthy);
     updateConnectionLine('conn-auth-db', authHealthy && postgresHealthy);
     updateConnectionLine('conn-devices-db', devicesHealthy && postgresHealthy);
     updateConnectionLine('conn-config-db', configHealthy && postgresHealthy);
@@ -745,7 +851,7 @@ function refreshHealth() {
     refreshIcon.classList.add('fa-spin-click');
 
     // Reset all to loading state
-    ['auth', 'devices', 'config', 'postgres', 'redis', 'workers'].forEach(service => {
+    ['auth', 'devices', 'config', 'ai', 'postgres', 'redis', 'workers'].forEach(service => {
         const statusBadge = document.getElementById(`${service}-status`);
         if (statusBadge) {
             statusBadge.className = 'badge bg-secondary';
@@ -781,7 +887,7 @@ function refreshHealth() {
         },
         error: function(xhr, status, error) {
             console.error('Error fetching health:', error);
-            ['auth', 'devices', 'config', 'postgres', 'redis', 'workers'].forEach(service => {
+            ['auth', 'devices', 'config', 'ai', 'postgres', 'redis', 'workers'].forEach(service => {
                 updateServiceCard(service, { status: 'unknown', error: 'API Error' });
             });
             updateOverallStatus('degraded', {});
@@ -828,6 +934,21 @@ function showServiceDetails(serviceName) {
                 { method: 'GET', path: '/api/stacks', desc: 'List service stacks' },
                 { method: 'GET', path: '/api/mops', desc: 'List MOPs' },
                 { method: 'POST', path: '/api/templates/{id}/render', desc: 'Render template' },
+            ]
+        },
+        ai: {
+            title: 'AI Service',
+            icon: 'fa-robot',
+            color: '#10b981',
+            port: 8003,
+            description: 'Manages AI agents, alert processing, incidents, and knowledge base documents.',
+            endpoints: [
+                { method: 'GET', path: '/api/agents', desc: 'List AI agents' },
+                { method: 'GET', path: '/api/alerts', desc: 'List alerts' },
+                { method: 'POST', path: '/api/alerts', desc: 'Create alert (webhook)' },
+                { method: 'GET', path: '/api/incidents', desc: 'List incidents' },
+                { method: 'GET', path: '/api/knowledge', desc: 'List knowledge docs' },
+                { method: 'POST', path: '/api/knowledge/search', desc: 'Vector search' },
             ]
         },
         postgres: {

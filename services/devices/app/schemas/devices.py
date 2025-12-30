@@ -72,3 +72,34 @@ class DeviceListResponse(BaseModel):
     success: bool = True
     message: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+
+
+class DeviceFilterRequest(BaseModel):
+    """Request body for filtered device listing"""
+    filters: List[Dict[str, Any]] = Field(default_factory=list, description="NetBox filters to apply")
+
+
+class DeviceCreateOrFilter(BaseModel):
+    """
+    Union schema for POST /api/devices.
+
+    If 'filters' is present, this is a filter request.
+    Otherwise, it's a device creation request requiring name, host, device_type.
+    """
+    # Filter fields
+    filters: Optional[List[Dict[str, Any]]] = None
+
+    # Device creation fields (all optional here, validated in route)
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    host: Optional[str] = Field(None, min_length=1, max_length=255)
+    device_type: Optional[str] = Field(None, min_length=1, max_length=100)
+    port: int = Field(default=22, ge=1, le=65535)
+    description: Optional[str] = Field(None, max_length=1000)
+    manufacturer: Optional[str] = Field(None, max_length=255)
+    model: Optional[str] = Field(None, max_length=255)
+    platform: Optional[str] = Field(None, max_length=100)
+    site: Optional[str] = Field(None, max_length=255)
+    tags: List[str] = Field(default_factory=list)
+    username: Optional[str] = Field(None, max_length=255)
+    password: Optional[str] = Field(None, max_length=255)
+    enable_password: Optional[str] = Field(None, max_length=255)

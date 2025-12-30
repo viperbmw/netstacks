@@ -43,11 +43,11 @@ services:
       retries: 3
       start_period: 10s
     labels:
-      - "traefik.enable=false"
-      # Disabled - Flask handles UI for now
-      # - "traefik.http.routers.auth.rule=PathPrefix(`/api/auth`) || PathPrefix(`/api/settings`)"
-      # - "traefik.http.routers.auth.entrypoints=web"
-      # - "traefik.http.services.auth.loadbalancer.server.port=8011"
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/api/auth`) || PathPrefix(`/api/settings`)"
+      - "traefik.http.routers.auth.entrypoints=web"
+      - "traefik.http.routers.auth.priority=10"
+      - "traefik.http.services.auth.loadbalancer.server.port=8011"
 
   # Devices Service (Microservice)
   devices:
@@ -72,11 +72,11 @@ services:
       retries: 3
       start_period: 10s
     labels:
-      - "traefik.enable=false"
-      # Disabled - Flask handles UI for now
-      # - "traefik.http.routers.devices.rule=PathPrefix(`/api/devices`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`)"
-      # - "traefik.http.routers.devices.entrypoints=web"
-      # - "traefik.http.services.devices.loadbalancer.server.port=8004"
+      - "traefik.enable=true"
+      - "traefik.http.routers.devices.rule=PathPrefix(`/api/devices`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`)"
+      - "traefik.http.routers.devices.entrypoints=web"
+      - "traefik.http.routers.devices.priority=10"
+      - "traefik.http.services.devices.loadbalancer.server.port=8004"
 
   # Config Service (Microservice)
   config:
@@ -101,11 +101,43 @@ services:
       retries: 3
       start_period: 10s
     labels:
-      - "traefik.enable=false"
-      # Disabled - Flask handles UI for now
-      # - "traefik.http.routers.config.rule=PathPrefix(`/api/templates`) || PathPrefix(`/api/service-stacks`) || PathPrefix(`/api/mops`) || PathPrefix(`/api/step-types`) || PathPrefix(`/api/scheduled-operations`)"
-      # - "traefik.http.routers.config.entrypoints=web"
-      # - "traefik.http.services.config.loadbalancer.server.port=8002"
+      - "traefik.enable=true"
+      - "traefik.http.routers.config.rule=PathPrefix(`/api/templates`) || PathPrefix(`/api/service-stacks`) || PathPrefix(`/api/mops`) || PathPrefix(`/api/step-types`) || PathPrefix(`/api/scheduled-operations`)"
+      - "traefik.http.routers.config.entrypoints=web"
+      - "traefik.http.routers.config.priority=10"
+      - "traefik.http.services.config.loadbalancer.server.port=8002"
+
+  # AI Service (Microservice)
+  ai:
+    build:
+      context: .
+      dockerfile: services/ai/Dockerfile
+    container_name: netstacks-ai
+    environment:
+      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
+      - REDIS_URL=redis://redis:6379/0
+      - TZ=${TZ:-America/New_York}
+    networks:
+      - netstacks-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai.rule=PathPrefix(`/api/agents`) || PathPrefix(`/api/alerts`) || PathPrefix(`/api/incidents`) || PathPrefix(`/api/knowledge`)"
+      - "traefik.http.routers.ai.entrypoints=web"
+      - "traefik.http.routers.ai.priority=10"
+      - "traefik.http.services.ai.loadbalancer.server.port=8003"
 
   # NetStacks Web UI (Frontend + API) - Legacy monolith
   netstacks:
@@ -128,10 +160,10 @@ services:
       - AUTH_SERVICE_URL=http://auth:8011
       - DEVICES_SERVICE_URL=http://devices:8004
       - CONFIG_SERVICE_URL=http://config:8002
+      - AI_SERVICE_URL=http://ai:8003
       # Timezone Configuration
       - TZ=${TZ:-America/New_York}
-    ports:
-      - "8089:8088"
+    # No external port - all traffic goes through Traefik on port 80
     volumes:
       - netstacks-data:/data
       - /etc/localtime:/etc/localtime:ro

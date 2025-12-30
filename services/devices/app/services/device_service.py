@@ -63,6 +63,24 @@ class DeviceService:
 
         return [self._to_dict(d) for d in devices]
 
+    def get_all_with_filters(self, filters: List[Dict] = None) -> List[Dict]:
+        """
+        Get all devices with optional NetBox-style filters.
+
+        This method is for compatibility with the frontend that sends
+        filters via POST body.
+
+        Args:
+            filters: List of filter dictionaries (currently ignored, returns all)
+
+        Returns:
+            List of device dicts
+        """
+        # TODO: Implement actual NetBox filter integration
+        # For now, just return all devices
+        devices = self.session.query(Device).order_by(Device.name).all()
+        return [self._to_dict(d) for d in devices]
+
     def get_cached(self) -> List[Dict]:
         """Get devices from cache only."""
         global _device_cache

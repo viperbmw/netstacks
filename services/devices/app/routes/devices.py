@@ -19,6 +19,8 @@ from app.schemas.devices import (
     DeviceUpdate,
     DeviceResponse,
     DeviceListResponse,
+    DeviceFilterRequest,
+    DeviceCreateOrFilter,
 )
 from app.services.device_service import DeviceService
 
@@ -55,6 +57,26 @@ async def list_devices(
     })
 
 
+@router.post("/list", response_model=DeviceListResponse)
+async def list_devices_with_filters(
+    request: DeviceFilterRequest,
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    List devices with optional NetBox filters.
+
+    This endpoint accepts a POST body with filters for compatibility with
+    the legacy frontend that sends filters via POST.
+    """
+    service = DeviceService(session)
+    devices = service.get_all_with_filters(filters=request.filters)
+    return success_response(data={
+        "devices": devices,
+        "count": len(devices),
+    })
+
+
 @router.get("/cached")
 async def get_cached_devices(
     session: Session = Depends(get_db),
@@ -81,6 +103,31 @@ async def clear_device_cache(
     return success_response(message="Cache cleared successfully")
 
 
+@router.post("/sync")
+async def sync_devices_from_netbox(
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Sync devices from NetBox to the database.
+
+    This is the same as POST /api/netbox/sync but available at /api/devices/sync
+    for convenience (e.g., from the devices page "Reload" button).
+    """
+    from app.services.netbox_service import NetBoxService
+
+    service = NetBoxService(session)
+    result = service.sync_devices()
+
+    if result.get('success'):
+        return success_response(
+            data=result,
+            message=f"Synced {result.get('synced', 0)} devices from NetBox"
+        )
+    else:
+        return success_response(data=result)
+
+
 @router.get("/{device_name}", response_model=DeviceResponse)
 async def get_device(
     device_name: str,
@@ -95,28 +142,66 @@ async def get_device(
     return success_response(data={"device": device})
 
 
-@router.post("", response_model=DeviceResponse)
-async def create_device(
-    device: DeviceCreate,
+@router.post("")
+async def create_or_list_devices(
+    request: DeviceCreateOrFilter,
     session: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    """Create a new manual device."""
+    """
+    Handle POST to /api/devices.
+
+    If request body contains 'filters', return filtered device list.
+    Otherwise, create a new manual device.
+    """
     service = DeviceService(session)
 
+    # Check if this is a filter request (from dashboard)
+    if request.filters is not None:
+        devices = service.get_all_with_filters(filters=request.filters)
+        return success_response(data={
+            "devices": devices,
+            "count": len(devices),
+        })
+
+    # Otherwise, it's a device creation request
+    # Validate required fields for device creation
+    if not request.name or not request.host or not request.device_type:
+        raise HTTPException(
+            status_code=422,
+            detail="Device creation requires name, host, and device_type fields"
+        )
+
     # Check if device already exists
-    existing = service.get(device.name)
+    existing = service.get(request.name)
     if existing:
         raise HTTPException(
             status_code=409,
-            detail=f"Device {device.name} already exists"
+            detail=f"Device {request.name} already exists"
         )
 
-    created = service.create(device)
-    log.info(f"Device {device.name} created by {current_user.sub}")
+    # Convert to DeviceCreate for service
+    device_data = DeviceCreate(
+        name=request.name,
+        host=request.host,
+        device_type=request.device_type,
+        port=request.port,
+        description=request.description,
+        manufacturer=request.manufacturer,
+        model=request.model,
+        platform=request.platform,
+        site=request.site,
+        tags=request.tags,
+        username=request.username,
+        password=request.password,
+        enable_password=request.enable_password,
+    )
+
+    created = service.create(device_data)
+    log.info(f"Device {request.name} created by {current_user.sub}")
     return success_response(
         data={"device": created},
-        message=f"Device {device.name} created successfully"
+        message=f"Device {request.name} created successfully"
     )
 
 

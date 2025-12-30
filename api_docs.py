@@ -1069,6 +1069,112 @@ def swagger_spec():
                         "200": {"description": "Action rejected"}
                     }
                 }
+            },
+            # ============================================================================
+            # Platform API
+            # ============================================================================
+            "/platform/stats": {
+                "get": {
+                    "tags": ["platform"],
+                    "summary": "Get platform statistics",
+                    "description": "Returns aggregated platform metrics including device counts, template counts, incident counts, and system health. Cached for 60 seconds.",
+                    "responses": {
+                        "200": {
+                            "description": "Platform statistics",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "timestamp": {"type": "string", "format": "date-time"},
+                                    "devices": {
+                                        "type": "object",
+                                        "properties": {
+                                            "total": {"type": "integer"},
+                                            "by_type": {"type": "object"},
+                                            "by_status": {"type": "object"}
+                                        }
+                                    },
+                                    "templates": {
+                                        "type": "object",
+                                        "properties": {
+                                            "total": {"type": "integer"},
+                                            "by_type": {"type": "object"}
+                                        }
+                                    },
+                                    "stacks": {
+                                        "type": "object",
+                                        "properties": {
+                                            "total": {"type": "integer"},
+                                            "deployed": {"type": "integer"},
+                                            "by_state": {"type": "object"}
+                                        }
+                                    },
+                                    "incidents": {
+                                        "type": "object",
+                                        "properties": {
+                                            "total": {"type": "integer"},
+                                            "open": {"type": "integer"}
+                                        }
+                                    },
+                                    "agents": {
+                                        "type": "object",
+                                        "properties": {
+                                            "total": {"type": "integer"},
+                                            "active": {"type": "integer"}
+                                        }
+                                    },
+                                    "backups": {
+                                        "type": "object",
+                                        "properties": {
+                                            "schedule_enabled": {"type": "boolean"},
+                                            "recent_count": {"type": "integer"}
+                                        }
+                                    },
+                                    "system": {
+                                        "type": "object",
+                                        "properties": {
+                                            "redis_connected": {"type": "boolean"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/platform/health": {
+                "get": {
+                    "tags": ["platform"],
+                    "summary": "Get platform health status",
+                    "description": "Returns health status of all platform services including microservices, Redis, PostgreSQL, and Celery workers.",
+                    "responses": {
+                        "200": {
+                            "description": "Platform health status",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "success": {"type": "boolean"},
+                                    "data": {
+                                        "type": "object",
+                                        "properties": {
+                                            "overall_status": {"type": "string", "enum": ["healthy", "degraded"]},
+                                            "services": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "status": {"type": "string"},
+                                                        "response_ms": {"type": "integer"},
+                                                        "details": {"type": "object"}
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "definitions": {
@@ -1283,7 +1389,8 @@ def swagger_spec():
             {"name": "alerts", "description": "Alert management and webhooks - Alerts are automatically processed by AI triage"},
             {"name": "incidents", "description": "Incident management - AI-created and manual incidents"},
             {"name": "agents", "description": "AI agent configuration and management"},
-            {"name": "approvals", "description": "Approval workflow for high-risk agent actions"}
+            {"name": "approvals", "description": "Approval workflow for high-risk agent actions"},
+            {"name": "platform", "description": "Platform health and statistics"}
         ]
     }
     return jsonify(spec)

@@ -83,9 +83,12 @@ function loadDevicesList() {
             const devicesListBody = $('#devices-list-body');
             devicesListBody.empty();
 
-            if (data.success && data.devices && data.devices.length > 0) {
+            // Handle both response formats: data.devices (legacy) or data.data.devices (microservice)
+            const devices = data.devices || (data.data && data.data.devices) || [];
+
+            if (data.success && devices.length > 0) {
                 // Show first 30 devices
-                data.devices.slice(0, 30).forEach(function(device) {
+                devices.slice(0, 30).forEach(function(device) {
                     devicesListBody.append(`
                         <a href="/deploy" class="list-group-item list-group-item-action py-2">
                             <i class="fas fa-server text-primary"></i> ${device.name}
@@ -264,11 +267,36 @@ function loadDeviceCount() {
         data: JSON.stringify({ filters: filters })
     })
         .done(function(data) {
-            const deviceCount = data.devices ? data.devices.length : 0;
+            // Handle both response formats: data.devices (legacy) or data.data.devices (microservice)
+            const devices = data.devices || (data.data && data.data.devices) || [];
+            const deviceCount = data.data?.count || devices.length || 0;
             $('#device-count').text(deviceCount);
+
+            // Count devices by source
+            let netboxCount = 0;
+            let manualCount = 0;
+            devices.forEach(function(device) {
+                if (device.source === 'netbox') {
+                    netboxCount++;
+                } else {
+                    manualCount++;
+                }
+            });
+
+            // Update source text
+            if (netboxCount > 0 && manualCount > 0) {
+                $('#device-sources-text').text(`${netboxCount} NetBox, ${manualCount} Manual`);
+            } else if (netboxCount > 0) {
+                $('#device-sources-text').text(`${netboxCount} from NetBox`);
+            } else if (manualCount > 0) {
+                $('#device-sources-text').text(`${manualCount} Manual`);
+            } else {
+                $('#device-sources-text').text('No devices');
+            }
         })
         .fail(function() {
             $('#device-count').text('?');
+            $('#device-sources-text').text('Error loading');
         });
 }
 

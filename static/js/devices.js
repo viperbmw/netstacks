@@ -168,13 +168,18 @@ function loadDevices() {
 
     // Make POST request with filters
     $.ajax({
-        url: '/api/devices',
+        url: '/api/devices/list',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ filters: filters })
     })
         .done(function(data) {
-            if (data.success && data.devices) {
+            if (data.success && data.data && data.data.devices) {
+                allDevices = data.data.devices;
+                displayDevices(allDevices);
+                $('#device-count-display').text(allDevices.length);
+            } else if (data.success && data.devices) {
+                // Legacy format support
                 allDevices = data.devices;
                 displayDevices(allDevices);
                 $('#device-count-display').text(allDevices.length);

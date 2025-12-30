@@ -32,12 +32,42 @@ auth_config_service = AuthConfigService()
 # ============================================================================
 
 def login_required(f):
-    """Decorator to require login for routes."""
+    """
+    Decorator to require login for routes.
+
+    Supports both:
+    - Flask session-based auth (for browser sessions)
+    - JWT token auth via Authorization header (for API calls)
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            return redirect(url_for('auth.login', next=request.url))
-        return f(*args, **kwargs)
+        # Check Flask session first
+        if 'username' in session:
+            return f(*args, **kwargs)
+
+        # Check for JWT token in Authorization header
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+            if token:
+                # Validate JWT token via auth microservice
+                try:
+                    import jwt
+                    import os
+                    secret = os.environ.get('JWT_SECRET_KEY', 'netstacks-dev-secret-change-in-production')
+                    payload = jwt.decode(token, secret, algorithms=['HS256'])
+                    # Token is valid - set username in request context
+                    request.jwt_user = payload.get('sub')
+                    return f(*args, **kwargs)
+                except jwt.ExpiredSignatureError:
+                    log.warning("JWT token expired")
+                except jwt.InvalidTokenError as e:
+                    log.warning(f"Invalid JWT token: {e}")
+
+        # No valid auth - redirect to login for HTML, return 401 for API
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return redirect(url_for('auth.login', next=request.url))
     return decorated_function
 
 
@@ -74,6 +104,7 @@ def login():
     # Try auth microservice first
     ms_success, ms_user_info = microservice_client.login(username, password)
 
+    jwt_tokens = None
     if ms_success:
         # Login successful via microservice - JWT tokens stored in session
         session['username'] = username
@@ -81,6 +112,12 @@ def login():
         session['login_time'] = datetime.now().isoformat()
         if ms_user_info:
             session['user_info'] = ms_user_info
+        # Get JWT tokens from session to pass to frontend
+        jwt_tokens = {
+            'access_token': microservice_client.get_jwt_token(),
+            'refresh_token': microservice_client.get_refresh_token(),
+            'expires_in': 1800  # 30 minutes default
+        }
         log.info(f"User {username} logged in successfully via auth microservice")
     else:
         # Fallback to local auth service if microservice unavailable
@@ -103,6 +140,14 @@ def login():
             session['user_info'] = user_info
 
         log.info(f"User {username} logged in successfully via local {auth_method}")
+
+    # If we have JWT tokens, render a page that stores them and redirects
+    if jwt_tokens and jwt_tokens.get('access_token'):
+        return render_template(
+            'login_redirect.html',
+            jwt_tokens=jwt_tokens,
+            redirect_url=url_for('pages.index')
+        )
 
     # Redirect to dashboard
     return redirect(url_for('pages.index'))

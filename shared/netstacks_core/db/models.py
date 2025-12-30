@@ -478,16 +478,21 @@ class Agent(Base):
     is_enabled = Column(Boolean, default=True)
     is_persistent = Column(Boolean, default=False)  # Runs continuously watching for issues
     is_default = Column(Boolean, default=False)  # Default agent for this type
+    status = Column(String(20), default='idle')  # 'idle', 'running', 'error'
     llm_provider = Column(String(50), default='anthropic')
     llm_model = Column(String(100), nullable=True)
     temperature = Column(Float, default=0.1)
     max_tokens = Column(Integer, default=4096)
     max_iterations = Column(Integer, default=10)  # Max ReAct loop iterations
+    tools = Column(JSONB, default=list)  # Legacy tools column
     allowed_tools = Column(JSONB, default=list)  # Tool names this agent can use
     allowed_devices = Column(JSONB, default=list)  # Device name patterns/filters
     autonomy_level = Column(String(20), default='diagnose')  # 'diagnose', 'recommend', 'execute'
     config = Column(JSONB, default=dict)  # Additional configuration
     stats = Column(JSONB, default=dict)  # Usage statistics
+    total_sessions = Column(Integer, default=0)
+    total_messages = Column(Integer, default=0)
+    last_active = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = Column(String(255), nullable=True)

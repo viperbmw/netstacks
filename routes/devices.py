@@ -50,23 +50,15 @@ def create_or_filter_devices():
     """
     Handle POST to /api/devices.
 
-    If request body contains 'filters', this is a device list request (legacy dashboard).
-    Otherwise, it's a device creation request which gets proxied.
+    If request body contains 'filters', proxy to /api/devices/list endpoint.
+    Otherwise, it's a device creation request which gets proxied to /api/devices.
     """
     data = request.get_json() or {}
 
     # Check if this is a filter request (from dashboard)
     if 'filters' in data:
-        # Use local device service to get devices with filters
-        from services.device_service import get_devices as device_service_get_devices
-        filters = data.get('filters', [])
-        result = device_service_get_devices(filters=filters)
-        return jsonify({
-            'success': result.get('success', True),
-            'devices': result.get('devices', []),
-            'cached': result.get('cached', False),
-            'sources': result.get('sources', [])
-        })
+        # Proxy to devices microservice list endpoint
+        return proxy_devices_request('/api/devices/list')
 
     # Otherwise, proxy to devices microservice for device creation
     return proxy_devices_request('/api/devices')
@@ -80,6 +72,16 @@ def clear_device_cache():
     Proxied to devices:8004/api/devices/clear-cache
     """
     return proxy_devices_request('/api/devices/clear-cache')
+
+
+@devices_bp.route('/api/devices/sync', methods=['POST'])
+@login_required
+def sync_devices():
+    """
+    Sync devices from NetBox.
+    Proxied to devices:8004/api/devices/sync
+    """
+    return proxy_devices_request('/api/devices/sync')
 
 
 @devices_bp.route('/api/devices/cached', methods=['GET'])
@@ -131,16 +133,45 @@ def test_device(device_name):
     This dispatches a real Netmiko connection test to the Celery workers.
     Returns a task_id that can be polled for results.
     """
-    from services.device_service import get_device_connection_info
+    import requests
+    import os
+    from services.microservice_client import microservice_client
     from services.celery_device_service import celery_device_service
 
-    # Get connection info for device (includes credentials)
-    conn_info = get_device_connection_info(device_name)
+    # Get device from microservice
+    response, error = microservice_client.call_devices('GET', f'/api/devices/{device_name}')
 
-    if not conn_info:
+    if error or not response or response.status_code != 200:
         return error_response(f"Device not found: {device_name}", status_code=404)
 
-    connection_args = conn_info['connection_args']
+    device_data = response.json().get('data', {}).get('device', {})
+
+    if not device_data:
+        return error_response(f"Device not found: {device_name}", status_code=404)
+
+    # Get credentials (try device-specific overrides first, then defaults from settings)
+    override_resp, _ = microservice_client.call_devices('GET', f'/api/device-overrides/{device_name}')
+    override = {}
+    if override_resp and override_resp.status_code == 200:
+        override = override_resp.json().get('data', {}).get('override', {})
+
+    # Get default credentials from settings
+    settings_resp, _ = microservice_client.call_auth('GET', '/api/settings')
+    settings = {}
+    if settings_resp and settings_resp.status_code == 200:
+        settings = settings_resp.json().get('data', {})
+
+    # Build connection args
+    connection_args = {
+        'device_type': device_data.get('device_type', 'cisco_ios'),
+        'host': device_data.get('host'),
+        'port': override.get('port') or device_data.get('port', 22),
+        'username': override.get('username') or settings.get('default_username', ''),
+        'password': override.get('password') or settings.get('default_password', ''),
+    }
+
+    if override.get('enable_password'):
+        connection_args['secret'] = override['enable_password']
 
     # Check if credentials are configured
     if not connection_args.get('username') or not connection_args.get('password'):

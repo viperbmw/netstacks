@@ -78,7 +78,8 @@ def mask_sensitive(settings: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-@router.get("/settings", response_model=SettingsResponse)
+@router.get("/", response_model=SettingsResponse)
+@router.get("", response_model=SettingsResponse)
 async def get_settings(current_user: TokenData = Depends(get_current_user)):
     """
     Get all application settings.
@@ -102,14 +103,12 @@ async def get_settings(current_user: TokenData = Depends(get_current_user)):
         session.close()
 
 
-@router.put("/settings", response_model=SettingsResponse)
-@router.post("/settings", response_model=SettingsResponse)
-async def update_settings(
+async def _do_update_settings(
     request: SettingsUpdate,
-    current_user: TokenData = Depends(get_current_user)
-):
+    current_user: TokenData
+) -> SettingsResponse:
     """
-    Update application settings.
+    Internal function to update application settings.
     """
     session = get_session()
     try:
@@ -149,7 +148,27 @@ async def update_settings(
         session.close()
 
 
-@router.get("/settings/{category}")
+@router.put("/", response_model=SettingsResponse)
+@router.put("", response_model=SettingsResponse)
+async def update_settings_put(
+    request: SettingsUpdate,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """Update application settings via PUT."""
+    return await _do_update_settings(request, current_user)
+
+
+@router.post("/", response_model=SettingsResponse)
+@router.post("", response_model=SettingsResponse)
+async def update_settings_post(
+    request: SettingsUpdate,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """Update application settings via POST."""
+    return await _do_update_settings(request, current_user)
+
+
+@router.get("/{category}")
 async def get_settings_by_category(
     category: str,
     current_user: TokenData = Depends(get_current_user)
