@@ -153,6 +153,7 @@ class MicroserviceClient:
         url: str,
         include_auth: bool = True,
         retry_on_401: bool = True,
+        extra_headers: Dict[str, str] = None,
         **kwargs
     ) -> Tuple[Optional[requests.Response], Optional[str]]:
         """
@@ -161,10 +162,19 @@ class MicroserviceClient:
         Returns:
             Tuple of (response, error_message)
         """
-        if include_auth and not self._ensure_valid_token():
+        # Check if Authorization is provided via extra_headers (from proxy)
+        has_proxy_auth = extra_headers and 'Authorization' in extra_headers
+
+        # Only check session token if no proxy auth provided
+        if include_auth and not has_proxy_auth and not self._ensure_valid_token():
             return None, "No valid authentication token"
 
-        headers = self._get_headers(include_auth)
+        headers = self._get_headers(include_auth and not has_proxy_auth)
+
+        # Apply extra headers (these override session-based auth if present)
+        if extra_headers:
+            headers.update(extra_headers)
+
         kwargs['headers'] = headers
         kwargs['timeout'] = kwargs.get('timeout', self.timeout)
 
@@ -232,6 +242,7 @@ class MicroserviceClient:
         self,
         method: str,
         path: str,
+        extra_headers: Dict[str, str] = None,
         **kwargs
     ) -> Tuple[Optional[requests.Response], Optional[str]]:
         """
@@ -240,13 +251,14 @@ class MicroserviceClient:
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
             path: API path (e.g., '/api/auth/users')
+            extra_headers: Additional headers to include (e.g., Authorization from proxy)
             **kwargs: Additional request arguments
 
         Returns:
             Tuple of (response, error_message)
         """
         url = f"{AUTH_SERVICE_URL}{path}"
-        return self._make_request(method, url, **kwargs)
+        return self._make_request(method, url, extra_headers=extra_headers, **kwargs)
 
     # ========================================================================
     # Devices Service Methods

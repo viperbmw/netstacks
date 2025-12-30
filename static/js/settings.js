@@ -488,9 +488,10 @@ function testNetboxConnection() {
 // Theme management functions
 function loadTheme() {
     $.get('/api/user/theme')
-        .done(function(data) {
-            if (data.success) {
-                $('#theme-select').val(data.theme);
+        .done(function(response) {
+            if (response.success && response.data) {
+                // API returns theme in response.data.theme
+                $('#theme-select').val(response.data.theme || 'dark');
             }
         })
         .fail(function() {

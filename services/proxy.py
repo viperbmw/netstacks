@@ -94,11 +94,18 @@ def _proxy_request(
         except Exception:
             pass
 
+    # Check for Authorization header from incoming request
+    auth_header = request.headers.get('Authorization')
+    extra_headers = {}
+    if auth_header:
+        extra_headers['Authorization'] = auth_header
+
     # Make the proxied request
     response, error = call_func(
         method=request.method,
         path=actual_path,
-        json=json_data
+        json=json_data,
+        extra_headers=extra_headers
     )
 
     if error:

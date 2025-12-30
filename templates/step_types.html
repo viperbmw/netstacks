@@ -505,7 +505,7 @@ function renderStepTypeRow(st, tbody, isBuiltin) {
             <td><code>${escapeHtml(st.step_type_id)}</code></td>
             <td><i class="fas fa-${escapeHtml(st.icon || 'cog')} text-primary me-2"></i>${escapeHtml(st.name)}</td>
             <td>${actionBadge}</td>
-            <td><span class="badge bg-light text-dark">${escapeHtml(st.category || 'General')}</span></td>
+            <td><span class="badge bg-secondary">${escapeHtml(st.category || 'General')}</span></td>
             <td><small>${escapeHtml(st.description || '-')}</small></td>
             <td>${statusBadge}</td>
             <td>${actions}</td>
@@ -682,11 +682,11 @@ function viewStepType(stepTypeId) {
 
     // Show configuration
     const config = st.config || {};
-    html += `<div class="mb-3"><strong>Configuration:</strong><pre class="bg-light p-2 rounded mt-2">${escapeHtml(JSON.stringify(config, null, 2))}</pre></div>`;
+    html += `<div class="mb-3"><strong>Configuration:</strong><pre class="bg-body-tertiary p-2 rounded mt-2">${escapeHtml(JSON.stringify(config, null, 2))}</pre></div>`;
 
     // Show parameters schema
     if (st.parameters_schema && Object.keys(st.parameters_schema).length > 0) {
-        html += `<div class="mb-3"><strong>Parameters Schema:</strong><pre class="bg-light p-2 rounded mt-2">${escapeHtml(JSON.stringify(st.parameters_schema, null, 2))}</pre></div>`;
+        html += `<div class="mb-3"><strong>Parameters Schema:</strong><pre class="bg-body-tertiary p-2 rounded mt-2">${escapeHtml(JSON.stringify(st.parameters_schema, null, 2))}</pre></div>`;
     }
 
     // YAML usage example

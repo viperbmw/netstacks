@@ -111,7 +111,7 @@ def encrypt_value(plaintext: str) -> str:
     return encrypt_credential(plaintext)
 
 
-def decrypt_credential(encrypted: str) -> str:
+def decrypt_credential(encrypted: str, raise_on_error: bool = False) -> str:
     """
     Decrypt a credential value.
 
@@ -119,9 +119,11 @@ def decrypt_credential(encrypted: str) -> str:
 
     Args:
         encrypted: The encrypted credential (with 'enc:' prefix) or plaintext
+        raise_on_error: If True, raise ValueError on decryption failure.
+                        If False (default), return empty string on failure.
 
     Returns:
-        str: Decrypted plaintext value
+        str: Decrypted plaintext value, or empty string if decryption fails
     """
     if not encrypted:
         return encrypted
@@ -138,11 +140,16 @@ def decrypt_credential(encrypted: str) -> str:
         decrypted = fernet.decrypt(encrypted_data.encode())
         return decrypted.decode()
     except InvalidToken:
-        log.error("Failed to decrypt credential - invalid token or wrong key")
-        raise ValueError("Failed to decrypt credential - check NETSTACKS_ENCRYPTION_KEY")
+        log.warning("Failed to decrypt credential - invalid token or wrong key. "
+                   "This may be stale data from a different encryption key.")
+        if raise_on_error:
+            raise ValueError("Failed to decrypt credential - check NETSTACKS_ENCRYPTION_KEY")
+        return ''  # Return empty string instead of raising
     except Exception as e:
-        log.error(f"Error decrypting credential: {e}")
-        raise
+        log.warning(f"Error decrypting credential: {e}")
+        if raise_on_error:
+            raise
+        return ''  # Return empty string instead of raising
 
 
 def decrypt_value(encrypted: str) -> str:

@@ -153,7 +153,7 @@ async def delete_user(
         session.close()
 
 
-@router.post("/{username}/password")
+@router.api_route("/{username}/password", methods=["POST", "PUT"])
 async def change_password(
     username: str,
     request: PasswordChange,
@@ -192,6 +192,36 @@ async def change_password(
         log.info(f"Password changed for user {username}")
 
         return success_response(message="Password changed successfully")
+
+    finally:
+        session.close()
+
+
+@router.get("/{username}/theme")
+async def get_theme(
+    username: str,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """
+    Get user theme preference.
+    """
+    # Users can only get their own theme
+    if current_user.sub != username:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Can only access your own theme"
+        )
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User {username} not found"
+            )
+
+        return success_response(data={"theme": user.theme or "dark"})
 
     finally:
         session.close()

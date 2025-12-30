@@ -588,7 +588,7 @@
         <div id="agents-container" style="display: none;">
             <div class="table-responsive">
                 <table class="table table-hover table-striped table-sm">
-                    <thead class="sticky-top bg-light">
+                    <thead class="sticky-top bg-body-tertiary">
                         <tr>
                             <th>Status</th>
                             <th>Name</th>
@@ -905,7 +905,7 @@ $(document).ready(function() {
         if (refreshIcon) refreshIcon.classList.add('fa-spin-click');
 
         NetStacksAPI.ajax({
-            url: '/api/agents',
+            url: '/agents/api/agents',
             method: 'GET',
             success: function(response) {
                 agents = response.agents || [];
@@ -1019,7 +1019,7 @@ $(document).ready(function() {
 
         // Fetch sessions today
         NetStacksAPI.ajax({
-            url: '/api/agents/stats',
+            url: '/agents/api/stats',
             method: 'GET',
             success: function(response) {
                 $('#sessions-today').text(response.sessions_today || 0);
@@ -1250,7 +1250,7 @@ $(document).ready(function() {
         };
 
         NetStacksAPI.ajax({
-            url: '/api/agents',
+            url: '/agents/api/agents',
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify(data),
@@ -1289,7 +1289,7 @@ $(document).ready(function() {
 
     function loadAvailableTools(enabledTools) {
         NetStacksAPI.ajax({
-            url: '/api/agents/tools/available',
+            url: '/agents/api/agents/tools',
             method: 'GET',
             success: function(response) {
                 const $container = $('#edit-tools-list');

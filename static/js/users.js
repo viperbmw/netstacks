@@ -38,11 +38,12 @@ function showStatus(type, message) {
 // Load users list
 function loadUsers() {
     $.get('/api/users')
-        .done(function(data) {
-            if (data.success) {
-                renderUsers(data.users);
+        .done(function(response) {
+            if (response.success) {
+                // API returns users in response.data array
+                renderUsers(response.data || []);
             } else {
-                showStatus('error', 'Failed to load users: ' + (data.error || 'Unknown error'));
+                showStatus('error', 'Failed to load users: ' + (response.error || 'Unknown error'));
             }
         })
         .fail(function() {
