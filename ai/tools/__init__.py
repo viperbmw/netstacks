@@ -34,6 +34,17 @@ from .workflow_tools import (
     UpdateIncidentTool,
 )
 
+# Platform tools (internal - for agent self-awareness)
+from .platform_tools import (
+    PlatformStatusTool,
+    StackInfoTool,
+    TemplateInfoTool,
+    IncidentStatusTool,
+    SystemHealthTool,
+    PlatformConceptsTool,
+    PLATFORM_TOOLS,
+)
+
 __all__ = [
     # Base classes
     'BaseTool',
@@ -57,6 +68,14 @@ __all__ = [
     'CreateIncidentTool',
     'ExecuteMOPTool',
     'UpdateIncidentTool',
+    # Platform tools (internal)
+    'PlatformStatusTool',
+    'StackInfoTool',
+    'TemplateInfoTool',
+    'IncidentStatusTool',
+    'SystemHealthTool',
+    'PlatformConceptsTool',
+    'PLATFORM_TOOLS',
     # Registration helper
     'register_all_tools',
 ]
@@ -92,5 +111,9 @@ def register_all_tools(registry: ToolRegistry = None) -> ToolRegistry:
     registry.register(CreateIncidentTool())
     registry.register(ExecuteMOPTool())
     registry.register(UpdateIncidentTool())
+
+    # Platform tools (internal - hidden from UI, available to agents)
+    for tool_class in PLATFORM_TOOLS:
+        registry.register(tool_class())
 
     return registry
