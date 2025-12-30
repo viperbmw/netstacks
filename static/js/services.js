@@ -24,8 +24,10 @@ function loadServiceTemplates() {
     $.get('/api/templates')
         .done(function(data) {
             $('#service-templates-loading').hide();
-            if (data.success && data.templates && data.templates.length > 0) {
-                renderServiceTemplates(data.templates);
+            // Handle both legacy format (data.templates) and microservice format (data.data.templates)
+            const templates = data.templates || (data.data && data.data.templates) || [];
+            if (data.success && templates.length > 0) {
+                renderServiceTemplates(templates);
                 $('#service-templates-list').show();
             } else {
                 $('#service-templates-error').html('<i class="fas fa-exclamation-triangle"></i> No config templates found').show();
@@ -329,8 +331,10 @@ function loadDevicesForService() {
         contentType: 'application/json',
         data: JSON.stringify({ filters: filters })
     }).then(function(data) {
-        if (data.success && data.devices) {
-            return data.devices;
+        // Handle both legacy format (data.devices) and microservice format (data.data.devices)
+        const devices = data.devices || (data.data && data.data.devices) || [];
+        if (data.success) {
+            return devices;
         }
         return [];
     }).catch(function() {

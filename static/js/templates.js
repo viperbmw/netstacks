@@ -80,9 +80,11 @@ function loadTemplates() {
 
     $.get('/api/templates')
         .done(function(data) {
-            if (data.success && data.templates && data.templates.length > 0) {
-                allTemplatesWithMetadata = data.templates;
-                displayTemplateGroups(data.templates);
+            // Handle both legacy format (data.templates) and microservice format (data.data.templates)
+            const templates = data.templates || (data.data && data.data.templates) || [];
+            if (data.success && templates.length > 0) {
+                allTemplatesWithMetadata = templates;
+                displayTemplateGroups(templates);
             } else {
                 $('#template-groups-container').html('<div class="alert alert-info">No templates found. Create your first template to get started.</div>');
                 $('#template-groups-container').show();

@@ -199,8 +199,10 @@ function loadDevices() {
         data: JSON.stringify({ filters: filters })
     })
     .done(function(data) {
-        if (data.success && data.devices) {
-            allDevices = data.devices;
+        // Handle both legacy format (data.devices) and microservice format (data.data.devices)
+        const devices = data.devices || (data.data && data.data.devices) || [];
+        if (data.success) {
+            allDevices = devices;
         }
     })
     .fail(function() {
@@ -214,8 +216,10 @@ function loadDevices() {
 function loadTemplates() {
     $.get('/api/templates')
         .done(function(data) {
-            if (data.success && data.templates) {
-                allTemplates = data.templates;
+            // Handle both legacy format (data.templates) and microservice format (data.data.templates)
+            const templates = data.templates || (data.data && data.data.templates) || [];
+            if (data.success) {
+                allTemplates = templates;
             }
         })
         .fail(function() {

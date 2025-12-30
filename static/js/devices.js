@@ -379,8 +379,10 @@ function loadBulkTemplates() {
             select.empty();
             select.append('<option value="">Select a template...</option>');
 
-            if (data.success && data.templates && data.templates.length > 0) {
-                data.templates.forEach(function(template) {
+            // Handle both legacy format (data.templates) and microservice format (data.data.templates)
+            const templates = data.templates || (data.data && data.data.templates) || [];
+            if (data.success && templates.length > 0) {
+                templates.forEach(function(template) {
                     const templateName = template.name || template;
                     select.append(`<option value="${templateName}">${templateName}</option>`);
                 });

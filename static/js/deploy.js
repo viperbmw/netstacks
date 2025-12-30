@@ -113,8 +113,12 @@ function loadDevices() {
         data: JSON.stringify({ filters: filters })
     })
         .done(function(data) {
-            if (data.success && data.devices) {
-                populateDeviceDropdowns(data.devices);
+            // Handle both legacy format (data.devices) and microservice format (data.data.devices)
+            const devices = data.devices || (data.data && data.data.devices) || [];
+            if (data.success && devices.length > 0) {
+                populateDeviceDropdowns(devices);
+            } else if (data.success && devices.length === 0) {
+                $('#get-device, #set-device, #template-device').html('<option value="">No devices found</option>');
             } else {
                 $('#get-device, #set-device, #template-device').html('<option value="">Error loading devices</option>');
             }
@@ -216,11 +220,13 @@ function loadTemplates() {
             select.empty();
             select.append('<option value="">Select a template...</option>');
 
-            if (data.success && data.templates && data.templates.length > 0) {
+            // Handle both legacy format (data.templates) and microservice format (data.data.templates)
+            const templates = data.templates || (data.data && data.data.templates) || [];
+            if (data.success && templates.length > 0) {
                 // Store templates globally
-                allTemplates = data.templates;
+                allTemplates = templates;
 
-                data.templates.forEach(function(template) {
+                templates.forEach(function(template) {
                     const templateName = template.name || template;
                     const vendorTypes = template.vendor_types || [];
                     // Store vendor_types as JSON in data attribute
