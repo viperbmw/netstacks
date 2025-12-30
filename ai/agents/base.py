@@ -19,6 +19,32 @@ from ai.tools import ToolRegistry, get_registry, register_all_tools, ToolResult
 log = logging.getLogger(__name__)
 
 
+def get_platform_context_summary() -> str:
+    """
+    Generate a brief platform context summary for agent system prompts.
+    Injected automatically so agents understand current platform state.
+    """
+    try:
+        from services.platform_stats_service import get_platform_stats
+        stats = get_platform_stats()
+
+        summary = f"""
+## Current NetStacks Platform State
+
+- **Devices:** {stats.get('devices', {}).get('total', 0)} total
+- **Templates:** {stats.get('templates', {}).get('total', 0)} available
+- **Service Stacks:** {stats.get('stacks', {}).get('deployed', 0)} deployed / {stats.get('stacks', {}).get('total', 0)} total
+- **Open Incidents:** {stats.get('incidents', {}).get('open', 0)}
+- **Active Agents:** {stats.get('agents', {}).get('active', 0)}
+
+You have access to internal platform tools: platform_status, stack_info, template_info, incident_status, system_health, platform_concepts.
+"""
+        return summary.strip()
+    except Exception as e:
+        log.warning(f"Platform context unavailable: {e}")
+        return ""
+
+
 class AgentEventType(Enum):
     """Types of events emitted during agent execution"""
     THOUGHT = "thought"
@@ -170,9 +196,15 @@ class BaseAgent(ABC):
 
         # Add system message if first interaction
         if not self.messages:
+            # Build system prompt with platform context
+            platform_context = get_platform_context_summary()
+            full_system_prompt = self.system_prompt
+            if platform_context:
+                full_system_prompt = f"{self.system_prompt}\n\n{platform_context}"
+
             self.messages.append({
                 "role": "system",
-                "content": self.system_prompt
+                "content": full_system_prompt
             })
 
         # Add context as system reminder if provided
