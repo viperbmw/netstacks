@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Snapshots - NetStacks{% endblock %}
+{% block title %}Devices - NetStacks{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -17,9 +17,9 @@
 <div class="row">
     <div class="col-md-12">
         <h1 class="mb-4">
-            <i class="fas fa-camera"></i> Snapshots
+            <i class="fas fa-server"></i> Devices
         </h1>
-        <p class="text-muted">Network configuration snapshots and device backups</p>
+        <p class="text-muted">Manage network devices and configuration snapshots</p>
     </div>
 </div>
 
@@ -64,6 +64,12 @@
             </div>
             <div class="card-body">
                 <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-sm" id="add-manual-device-btn">
+                        <i class="fas fa-plus-circle"></i> Add Manual Device
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" id="clear-cache-btn">
+                        <i class="fas fa-sync-alt"></i> Reload Devices
+                    </button>
                     <button class="btn btn-outline-warning btn-sm" id="fix-stale-btn">
                         <i class="fas fa-first-aid"></i> Fix Stuck Snapshots
                     </button>
@@ -72,7 +78,7 @@
                     </button>
                 </div>
                 <small class="text-muted mt-2 d-block">
-                    Fix snapshots stuck in "In Progress" state.
+                    Add devices manually or reload from NetBox.
                 </small>
             </div>
         </div>
@@ -156,7 +162,7 @@
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead class="table-light">
+                        <thead class="table-dark">
                             <tr>
                                 <th>Snapshot</th>
                                 <th style="width: 200px;">Progress</th>
@@ -177,39 +183,84 @@
             </div>
         </div>
 
-        <!-- Recent Backups -->
+        <!-- Devices Table -->
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-history"></i> Recent Backups</h5>
+                <h5 class="mb-0"><i class="fas fa-list"></i> Device List <small id="filter-info" class="text-muted"></small></h5>
                 <div class="d-flex gap-2">
-                    <select class="form-select form-select-sm" id="device-filter" style="width: 200px;">
-                        <option value="">All Devices</option>
-                    </select>
-                    <button class="btn btn-sm btn-outline-secondary" id="refresh-backups-btn">
+                    <input type="text" id="device-search" class="form-control form-control-sm" placeholder="Search devices..." style="width: 200px;">
+                    <button class="btn btn-sm btn-outline-secondary" id="refresh-devices-btn">
                         <i class="fas fa-sync"></i>
                     </button>
                 </div>
             </div>
             <div class="card-body p-0">
-                <div class="table-responsive" style="max-height: 400px;">
-                    <table class="table table-sm table-hover mb-0">
-                        <thead class="table-light sticky-top">
-                            <tr>
-                                <th>Device</th>
-                                <th>Time</th>
-                                <th>Size</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="backups-tbody">
-                            <tr>
-                                <td colspan="5" class="text-center text-muted py-4">
-                                    <i class="fas fa-spinner fa-spin"></i> Loading...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- Bulk Actions Bar -->
+                <div id="bulk-actions-bar" class="alert alert-info m-2 d-flex justify-content-between align-items-center" style="display: none !important;">
+                    <div>
+                        <i class="fas fa-check-square"></i>
+                        <strong id="selected-count">0</strong> devices selected
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-info me-1" id="bulk-test-btn" title="Test connectivity">
+                            <i class="fas fa-plug"></i> Test
+                        </button>
+                        <button class="btn btn-sm btn-primary me-1" id="bulk-getconfig-btn" title="Get config">
+                            <i class="fas fa-download"></i> Get Config
+                        </button>
+                        <button class="btn btn-sm btn-warning me-1" id="bulk-setconfig-btn" title="Set config">
+                            <i class="fas fa-upload"></i> Set Config
+                        </button>
+                        <button class="btn btn-sm btn-success me-1" id="bulk-backup-btn" title="Backup selected">
+                            <i class="fas fa-save"></i> Backup
+                        </button>
+                        <button class="btn btn-sm btn-danger me-1" id="bulk-delete-btn" title="Delete selected manual devices">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                        <button class="btn btn-sm btn-secondary" id="clear-selection-btn">
+                            <i class="fas fa-times"></i> Clear
+                        </button>
+                    </div>
+                </div>
+
+                <div id="devices-loading" class="text-center py-4">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="devices-container" style="display: none;">
+                    <div class="px-2 pt-2">
+                        <button class="btn btn-sm btn-outline-secondary me-2" id="select-all-btn">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="select-none-btn">
+                            <i class="fas fa-times"></i> Select None
+                        </button>
+                    </div>
+                    <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="table-dark sticky-top">
+                                <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="select-all-checkbox" class="form-check-input">
+                                    </th>
+                                    <th>Device Name</th>
+                                    <th>Management IP</th>
+                                    <th>Type</th>
+                                    <th>Source</th>
+                                    <th>Last Backup</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="devices-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-2 border-top">
+                        <p class="text-muted mb-0">
+                            <strong id="device-count-display">0</strong> devices total
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -288,7 +339,7 @@
                 <!-- Backups Table -->
                 <div class="table-responsive" style="max-height: 350px;">
                     <table class="table table-sm table-hover">
-                        <thead class="table-light sticky-top">
+                        <thead class="table-dark sticky-top">
                             <tr>
                                 <th>Device</th>
                                 <th>IP</th>
@@ -520,7 +571,7 @@
                     <!-- Comparison Table -->
                     <div class="table-responsive" style="max-height: 400px;">
                         <table class="table table-sm table-hover">
-                            <thead class="table-light sticky-top">
+                            <thead class="table-dark sticky-top">
                                 <tr>
                                     <th>Device</th>
                                     <th>Status</th>
@@ -614,40 +665,468 @@
     </div>
 </div>
 
+<!-- Add Manual Device Modal -->
+<div class="modal fade" id="addDeviceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle"></i> Add Manual Device</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="add-device-form">
+                    <div class="mb-3">
+                        <label for="device-name" class="form-label">Device Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="device-name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="device-type" class="form-label">Device Type <span class="text-danger">*</span></label>
+                        <select class="form-control" id="device-type" required>
+                            <option value="">Select type...</option>
+                            <option value="cisco_ios">Cisco IOS</option>
+                            <option value="cisco_nxos">Cisco NX-OS</option>
+                            <option value="cisco_xe">Cisco IOS XE</option>
+                            <option value="cisco_xr">Cisco IOS XR</option>
+                            <option value="arista_eos">Arista EOS</option>
+                            <option value="juniper_junos">Juniper Junos</option>
+                            <option value="linux">Linux</option>
+                            <option value="paloalto_panos">Palo Alto PAN-OS</option>
+                            <option value="fortinet">Fortinet FortiOS</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-8">
+                            <div class="mb-3">
+                                <label for="device-host" class="form-label">Host/IP <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="device-host" required>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="mb-3">
+                                <label for="device-port" class="form-label">Port</label>
+                                <input type="number" class="form-control" id="device-port" value="22">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="device-username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="device-username" placeholder="Optional - use defaults">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="device-password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="device-password" placeholder="Optional - use defaults">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="save-device-btn">
+                    <i class="fas fa-save"></i> Save Device
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Device Modal -->
+<div class="modal fade" id="editDeviceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Device Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-device-form">
+                    <input type="hidden" id="edit-device-name">
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Device:</strong> <span id="edit-device-display-name"></span>
+                        <br><small class="text-muted">Override settings for this device. Leave fields blank to use defaults.</small>
+                    </div>
+
+                    <!-- Connection Settings -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-plug"></i> Connection Settings</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-type" class="form-label">Device Type (Platform)</label>
+                                <select class="form-control" id="edit-device-type">
+                                    <option value="">Use default</option>
+                                    <option value="cisco_ios">Cisco IOS</option>
+                                    <option value="cisco_nxos">Cisco NX-OS</option>
+                                    <option value="cisco_xe">Cisco IOS XE</option>
+                                    <option value="cisco_xr">Cisco IOS XR</option>
+                                    <option value="arista_eos">Arista EOS</option>
+                                    <option value="juniper_junos">Juniper Junos</option>
+                                    <option value="linux">Linux</option>
+                                    <option value="paloalto_panos">Palo Alto PAN-OS</option>
+                                    <option value="fortinet">Fortinet FortiOS</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-host" class="form-label">Host/IP Override</label>
+                                <input type="text" class="form-control" id="edit-device-host" placeholder="Leave blank to use default">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-port" class="form-label">Port Override</label>
+                                <input type="number" class="form-control" id="edit-device-port" placeholder="22">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Credentials -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-key"></i> Credential Overrides</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="edit-device-username" placeholder="Leave blank to use service creds">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="edit-device-password" placeholder="Leave blank to use service creds">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="edit-device-secret" class="form-label">Enable Secret</label>
+                                <input type="password" class="form-control" id="edit-device-secret" placeholder="Leave blank if not needed">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timeouts -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-clock"></i> Timeout Settings (seconds)</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-timeout" class="form-label">Command Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-conn-timeout" class="form-label">Connection Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-conn-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-auth-timeout" class="form-label">Auth Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-auth-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="edit-device-banner-timeout" class="form-label">Banner Timeout</label>
+                                <input type="number" class="form-control" id="edit-device-banner-timeout" placeholder="Default">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Settings -->
+                    <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-cog"></i> Additional Settings</h6>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label for="edit-device-notes" class="form-label">Notes</label>
+                                <textarea class="form-control" id="edit-device-notes" rows="2" placeholder="Optional notes about this device..."></textarea>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" id="edit-device-disabled">
+                                    <label class="form-check-label" for="edit-device-disabled">Disable device</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger me-auto" id="delete-device-override-btn">
+                    <i class="fas fa-trash"></i> Clear Overrides
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-device-override-btn">
+                    <i class="fas fa-save"></i> Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Get Config Modal -->
+<div class="modal fade" id="bulkGetConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-download"></i> Bulk Get Config</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bulk-getconfig-form">
+                    <div class="mb-3">
+                        <label for="bulk-get-command" class="form-label">Command</label>
+                        <input type="text" class="form-control" id="bulk-get-command" placeholder="show running-config" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label class="form-label mb-0">Credentials</label>
+                            <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-get-credentials-section">
+                                <i class="fas fa-chevron-down"></i> <span>Using defaults</span>
+                            </button>
+                        </div>
+                        <div class="collapse" id="bulk-get-credentials-section">
+                            <div class="card card-body mt-2">
+                                <div class="mb-3">
+                                    <label for="bulk-get-username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="bulk-get-username">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="bulk-get-password" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="bulk-get-password">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="bulk-get-use-textfsm">
+                        <label class="form-check-label" for="bulk-get-use-textfsm">Use TextFSM</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="execute-bulk-getconfig-btn">Execute</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Set Config Modal -->
+<div class="modal fade" id="bulkSetConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-upload"></i> Bulk Set Config</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bulk-setconfig-form">
+                    <div class="mb-3">
+                        <label class="form-label">Configuration Source</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="bulk-set-config-source" id="bulk-set-manual" value="manual" checked>
+                            <label class="form-check-label" for="bulk-set-manual">Manual Commands</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="bulk-set-config-source" id="bulk-set-template" value="template">
+                            <label class="form-check-label" for="bulk-set-template">J2 Template</label>
+                        </div>
+                    </div>
+
+                    <div id="bulk-set-manual-container">
+                        <div class="mb-3">
+                            <label for="bulk-set-config" class="form-label">Configuration Commands</label>
+                            <textarea class="form-control font-monospace" id="bulk-set-config" rows="6"></textarea>
+                        </div>
+                    </div>
+
+                    <div id="bulk-set-template-container" style="display: none;">
+                        <div class="mb-3">
+                            <label for="bulk-set-template-select" class="form-label">Select Template</label>
+                            <select class="form-select" id="bulk-set-template-select">
+                                <option value="">Loading templates...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="bulk-set-template-vars-container" style="display: none;">
+                            <label class="form-label">Template Variables (JSON)</label>
+                            <textarea class="form-control font-monospace" id="bulk-set-template-vars" rows="6" placeholder='{"interface_name": "GigabitEthernet0/1"}'></textarea>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label class="form-label mb-0">Credentials</label>
+                            <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-set-credentials-section">
+                                <i class="fas fa-chevron-down"></i> <span>Using defaults</span>
+                            </button>
+                        </div>
+                        <div class="collapse" id="bulk-set-credentials-section">
+                            <div class="card card-body mt-2">
+                                <div class="mb-3">
+                                    <label for="bulk-set-username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="bulk-set-username">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="bulk-set-password" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="bulk-set-password">
+                                    <small class="form-text text-muted">Leave blank to use default from settings</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="bulk-set-dry-run">
+                        <label class="form-check-label" for="bulk-set-dry-run">Dry Run (test only)</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="execute-bulk-setconfig-btn">Execute</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Status Modal -->
+<div class="modal fade" id="bulkStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-tasks"></i> Bulk Operation Progress</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="progress" style="height: 25px;">
+                        <div id="bulk-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h4 id="bulk-completed-count" class="text-primary">0</h4>
+                        <small class="text-muted">Completed</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 id="bulk-success-count" class="text-success">0</h4>
+                        <small class="text-muted">Successful</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 id="bulk-failed-count" class="text-danger">0</h4>
+                        <small class="text-muted">Failed</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="/monitor" class="btn btn-primary">View Jobs</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Backup Modal (for device table) -->
+<div class="modal fade" id="viewBackupModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-file-code"></i> <span id="view-backup-device-name">Device</span> - Configuration Backup</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <small class="text-muted">Created:</small>
+                            <span id="view-backup-created" class="ms-2">-</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">Format:</small>
+                            <span id="view-backup-format" class="ms-2">-</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">Size:</small>
+                            <span id="view-backup-size" class="ms-2">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="view-backup-loading" class="text-center py-4">
+                    <div class="spinner-border" role="status"></div>
+                    <p class="mt-2 text-muted">Loading backup...</p>
+                </div>
+                <div id="view-backup-content-container" style="display: none;">
+                    <textarea id="view-backup-config" class="form-control font-monospace" rows="20" readonly style="font-size: 12px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="copy-backup-btn">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="download-backup-btn">
+                    <i class="fas fa-download"></i> Download
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/form-utils.js') }}"></script>
 <script>
-// State
+// State - Snapshots
 let activeSnapshotId = null;
 let pollInterval = null;
 let snapshotStartTime = null;
-let cachedDevices = [];
 let currentModalSnapshot = null;
 let currentModalBackups = [];
 let snapshotsList = [];  // Store loaded snapshots for comparison
 let currentComparisonData = [];  // Store comparison results for filtering
 
+// State - Devices
+let allDevices = [];
+let selectedDevices = [];
+let deviceBackups = {};  // Map of device_name -> latest backup info
+let deviceOverrides = {};  // Map of device_name -> override settings
+let runningTasks = [];
+let taskPollInterval = null;
+
 // Initialize
 $(document).ready(function() {
+    // Load data
     loadSnapshots();
-    loadBackups();
     loadSummary();
-    loadDevices();
+    loadDevicesTable();
+    loadDeviceBackupStatus();
+    loadDeviceOverrides();
 
     // Check for active snapshots
     checkActiveSnapshots();
 
-    // Check for URL parameters (e.g., ?backup=123 from devices page)
+    // Check for URL parameters (e.g., ?backup=123)
     checkUrlParams();
 
-    // Event handlers
+    // Snapshot event handlers
     $('#create-snapshot-btn').click(createSnapshot);
     $('#run-single-backup-btn').click(showSingleBackupModal);
     $('#start-single-backup-btn').click(startSingleBackup);
     $('#refresh-snapshots-btn').click(loadSnapshots);
-    $('#refresh-backups-btn').click(loadBackups);
-    $('#device-filter').change(loadBackups);
     $('#fix-stale-btn').click(fixStaleSnapshots);
     $('#cleanup-btn').click(showCleanupModal);
     $('#confirm-cleanup-btn').click(executeCleanup);
@@ -671,6 +1150,73 @@ $(document).ready(function() {
             $('#retention-days-group').slideUp();
         }
     });
+
+    // Device event handlers
+    $('#add-manual-device-btn').click(showAddDeviceModal);
+    $('#save-device-btn').click(saveNewDevice);
+    $('#clear-cache-btn').click(clearCacheAndReload);
+    $('#refresh-devices-btn').click(loadDevicesTable);
+    $('#device-search').on('input', filterDevicesTable);
+
+    // Device selection handlers
+    $('#select-all-checkbox').change(function() {
+        const isChecked = $(this).is(':checked');
+        $('.device-checkbox').prop('checked', isChecked);
+        updateSelectedDevices();
+    });
+    $('#select-all-btn').click(function() {
+        $('.device-checkbox').prop('checked', true);
+        $('#select-all-checkbox').prop('checked', true);
+        updateSelectedDevices();
+    });
+    $('#select-none-btn').click(function() {
+        $('.device-checkbox').prop('checked', false);
+        $('#select-all-checkbox').prop('checked', false);
+        updateSelectedDevices();
+    });
+    $('#clear-selection-btn').click(function() {
+        $('.device-checkbox').prop('checked', false);
+        $('#select-all-checkbox').prop('checked', false);
+        updateSelectedDevices();
+    });
+
+    // Bulk action handlers
+    $('#bulk-test-btn').click(executeBulkTestConnectivity);
+    $('#bulk-getconfig-btn').click(showBulkGetConfigModal);
+    $('#bulk-setconfig-btn').click(showBulkSetConfigModal);
+    $('#bulk-backup-btn').click(executeBulkBackup);
+    $('#bulk-delete-btn').click(executeBulkDelete);
+
+    // Bulk config execution
+    $('#execute-bulk-getconfig-btn').click(executeBulkGetConfig);
+    $('#execute-bulk-setconfig-btn').click(executeBulkSetConfig);
+
+    // Template source toggle
+    $('input[name="bulk-set-config-source"]').change(function() {
+        if ($(this).val() === 'manual') {
+            $('#bulk-set-manual-container').show();
+            $('#bulk-set-template-container').hide();
+        } else {
+            $('#bulk-set-manual-container').hide();
+            $('#bulk-set-template-container').show();
+            loadBulkTemplates();
+        }
+    });
+    $('#bulk-set-template-select').change(function() {
+        if ($(this).val()) {
+            $('#bulk-set-template-vars-container').show();
+        } else {
+            $('#bulk-set-template-vars-container').hide();
+        }
+    });
+
+    // Device edit handlers
+    $('#save-device-override-btn').click(saveDeviceOverride);
+    $('#delete-device-override-btn').click(deleteDeviceOverride);
+
+    // Backup modal handlers
+    $('#copy-backup-btn').click(copyBackupConfig);
+    $('#download-backup-btn').click(downloadBackupConfig);
 });
 
 // Load summary stats
@@ -679,8 +1225,10 @@ function loadSummary() {
     $.get('/api/config-backups?limit=1')
         .done(function(response) {
             console.log('Summary response:', response);
-            if (response.success && response.summary) {
-                const s = response.summary;
+            // Handle both response formats: response.data.summary or response.summary
+            const data = response.data || response;
+            if (response.success && data.summary) {
+                const s = data.summary;
                 $('#backup-summary').html(`
                     <div class="row text-center mb-3">
                         <div class="col-6">
@@ -821,8 +1369,10 @@ function loadBackups() {
 
     $.get(url)
         .done(function(response) {
-            if (response.success && response.backups) {
-                renderBackups(response.backups);
+            // Handle both response formats: response.data.backups or response.backups
+            const data = response.data || response;
+            if (response.success && data.backups) {
+                renderBackups(data.backups);
             }
         });
 }
@@ -1228,8 +1778,10 @@ function viewError(deviceName, errorMessage) {
 function viewConfig(backupId) {
     $.get(`/api/config-backups/${backupId}`)
         .done(function(response) {
-            if (response.success && response.backup) {
-                const b = response.backup;
+            // Handle both response formats: response.data.backup or response.backup
+            const data = response.data || response;
+            if (response.success && data.backup) {
+                const b = data.backup;
                 $('#config-modal-title').text(`Configuration: ${b.device_name}`);
                 $('#config-device').text(b.device_name);
                 $('#config-format').text(b.config_format || 'native');
@@ -1269,12 +1821,14 @@ function resetDiffView() {
 function loadBackupsForComparison(deviceName, currentBackupId) {
     $.get(`/api/config-backups?device=${encodeURIComponent(deviceName)}&limit=20`)
         .done(function(response) {
-            if (response.success && response.backups) {
+            // Handle both response formats: response.data.backups or response.backups
+            const data = response.data || response;
+            if (response.success && data.backups) {
                 const $select = $('#diff-compare-backup');
                 $select.html('<option value="">Select backup to compare...</option>');
 
                 // Filter out current backup and add others
-                const otherBackups = response.backups.filter(b => b.backup_id !== currentBackupId);
+                const otherBackups = data.backups.filter(b => b.backup_id !== currentBackupId);
 
                 if (otherBackups.length === 0) {
                     $select.append('<option value="" disabled>No other backups available</option>');
@@ -1332,8 +1886,10 @@ function loadDiff(compareBackupId) {
         .done(function(response) {
             $('#diff-loading').hide();
 
-            if (response.success && response.backup) {
-                const compareBackup = response.backup;
+            // Handle both response formats: response.data.backup or response.backup
+            const data = response.data || response;
+            if (response.success && data.backup) {
+                const compareBackup = data.backup;
                 const currentContent = currentBackup.config_content || '';
                 const compareContent = compareBackup.config_content || '';
 
@@ -1778,18 +2334,21 @@ function viewDeviceDiff(backup1Id, backup2Id, deviceName) {
         $.get(`/api/config-backups/${backup1Id}`),
         $.get(`/api/config-backups/${backup2Id}`)
     ]).then(function([response1, response2]) {
-        if (response1.success && response2.success) {
-            const oldConfig = response1.backup.config_content || '';
-            const newConfig = response2.backup.config_content || '';
+        // Handle both response formats: response.data.backup or response.backup
+        const data1 = response1.data || response1;
+        const data2 = response2.data || response2;
+        if (response1.success && response2.success && data1.backup && data2.backup) {
+            const oldConfig = data1.backup.config_content || '';
+            const newConfig = data2.backup.config_content || '';
 
             // Open the config modal with the new backup, then switch to diff tab
             $('#config-modal-title').text(`Diff: ${deviceName}`);
             $('#config-device').text(deviceName);
-            $('#config-format').text(response2.backup.config_format || 'native');
-            $('#config-size').text(formatSize(response2.backup.file_size));
-            $('#config-time').text(formatDate(response2.backup.created_at));
+            $('#config-format').text(data2.backup.config_format || 'native');
+            $('#config-size').text(formatSize(data2.backup.file_size));
+            $('#config-time').text(formatDate(data2.backup.created_at));
             $('#config-content').val(newConfig);
-            $('#viewConfigModal').data('backup', response2.backup);
+            $('#viewConfigModal').data('backup', data2.backup);
 
             // Display the diff directly
             displayDiff(newConfig, oldConfig);
@@ -1827,6 +2386,867 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// =============================================================================
+// Device Management Functions
+// =============================================================================
+
+// Load devices table
+function loadDevicesTable() {
+    console.log('Loading devices table...');
+    $('#devices-loading').show();
+    $('#devices-container').hide();
+
+    $.get('/api/devices')
+        .done(function(response) {
+            console.log('Devices response:', response);
+            if (response.success) {
+                // Handle both response formats: response.data.devices or response.devices
+                const data = response.data || response;
+                allDevices = data.devices || [];
+                renderDevicesTable(allDevices);
+                $('#device-count-display').text(allDevices.length);
+            } else {
+                console.error('Error loading devices:', response.error);
+                $('#devices-tbody').html(`
+                    <tr><td colspan="7" class="text-center text-danger">
+                        <i class="fas fa-exclamation-triangle"></i> Error: ${escapeHtml(response.error || 'Failed to load devices')}
+                    </td></tr>
+                `);
+            }
+        })
+        .fail(function(xhr) {
+            console.error('Failed to load devices:', xhr);
+            $('#devices-tbody').html(`
+                <tr><td colspan="7" class="text-center text-danger">
+                    <i class="fas fa-exclamation-triangle"></i> Failed to load devices
+                </td></tr>
+            `);
+        })
+        .always(function() {
+            $('#devices-loading').hide();
+            $('#devices-container').show();
+        });
+}
+
+// Render devices table
+function renderDevicesTable(devices) {
+    const $tbody = $('#devices-tbody');
+    $tbody.empty();
+
+    if (!devices || devices.length === 0) {
+        $tbody.html(`
+            <tr><td colspan="7" class="text-center text-muted py-4">
+                <i class="fas fa-server"></i> No devices in cache.
+                <br><small>Add a manual device or sync from NetBox.</small>
+            </td></tr>
+        `);
+        return;
+    }
+
+    devices.forEach(device => {
+        const name = device.name || device.device_name || 'Unknown';
+        const ip = device.primary_ip || device.ip || device.management_ip || '-';
+        const deviceType = device.platform || device.device_type || '-';
+        const source = device.source || 'netbox';
+        const isManual = source === 'manual';
+        const lastBackup = deviceBackups[name];
+        const override = deviceOverrides[name];
+        const isDisabled = override?.disabled;
+
+        const sourceLabel = isManual
+            ? '<span class="badge bg-warning text-dark">Manual</span>'
+            : '<span class="badge bg-info">NetBox</span>';
+
+        const lastBackupDisplay = lastBackup
+            ? `<span class="text-success" title="${formatDate(lastBackup.created_at)}">${formatTimeAgo(lastBackup.created_at)}</span>`
+            : '<span class="text-muted">Never</span>';
+
+        $tbody.append(`
+            <tr${isDisabled ? ' style="opacity: 0.6;"' : ''}>
+                <td>
+                    <input type="checkbox" class="form-check-input device-checkbox"
+                           data-device="${escapeHtml(name)}"
+                           data-ip="${escapeHtml(ip)}"
+                           data-type="${escapeHtml(deviceType)}"
+                           data-source="${escapeHtml(source)}">
+                </td>
+                <td>
+                    ${escapeHtml(name)}
+                    ${isDisabled ? '<span class="badge bg-secondary ms-1">Disabled</span>' : ''}
+                    ${override ? '<i class="fas fa-cog text-info ms-1" title="Has overrides"></i>' : ''}
+                </td>
+                <td>${escapeHtml(ip)}</td>
+                <td>${escapeHtml(deviceType)}</td>
+                <td>${sourceLabel}</td>
+                <td>${lastBackupDisplay}</td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary btn-sm" onclick="testDeviceConnectivity('${escapeHtml(name)}')" title="Test">
+                            <i class="fas fa-plug"></i>
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="showEditDeviceModal('${escapeHtml(name)}')" title="Edit">
+                            <i class="fas fa-cog"></i>
+                        </button>
+                        ${lastBackup ? `
+                        <button class="btn btn-outline-success btn-sm" onclick="viewDeviceBackup('${escapeHtml(name)}')" title="View Backup">
+                            <i class="fas fa-file-code"></i>
+                        </button>
+                        ` : ''}
+                        ${isManual ? `
+                        <button class="btn btn-outline-danger btn-sm" onclick="deleteManualDevice('${escapeHtml(name)}')" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        ` : ''}
+                    </div>
+                </td>
+            </tr>
+        `);
+    });
+
+    // Re-attach checkbox event handlers
+    $('.device-checkbox').change(updateSelectedDevices);
+}
+
+// Filter devices table by search
+function filterDevicesTable() {
+    const search = $('#device-search').val().toLowerCase();
+    if (!search) {
+        renderDevicesTable(allDevices);
+        $('#filter-info').text('');
+        return;
+    }
+
+    const filtered = allDevices.filter(device => {
+        const name = (device.name || device.device_name || '').toLowerCase();
+        const ip = (device.primary_ip || device.ip || device.management_ip || '').toLowerCase();
+        const type = (device.platform || device.device_type || '').toLowerCase();
+        return name.includes(search) || ip.includes(search) || type.includes(search);
+    });
+
+    renderDevicesTable(filtered);
+    $('#filter-info').text(`(${filtered.length} of ${allDevices.length})`);
+}
+
+// Load device backup status
+function loadDeviceBackupStatus() {
+    $.get('/api/config-backups?limit=500')
+        .done(function(response) {
+            // Handle both response formats: response.data.backups or response.backups
+            const data = response.data || response;
+            if (response.success && data.backups) {
+                // Build map of device -> latest backup
+                deviceBackups = {};
+                data.backups.forEach(backup => {
+                    const deviceName = backup.device_name;
+                    if (!deviceBackups[deviceName] || new Date(backup.created_at) > new Date(deviceBackups[deviceName].created_at)) {
+                        deviceBackups[deviceName] = backup;
+                    }
+                });
+                // Re-render table with backup info
+                if (allDevices.length > 0) {
+                    renderDevicesTable(allDevices);
+                }
+            }
+        });
+}
+
+// Load device overrides
+function loadDeviceOverrides() {
+    $.get('/api/device-overrides')
+        .done(function(response) {
+            // Handle both response formats: response.data.overrides or response.overrides
+            const data = response.data || response;
+            if (response.success && data.overrides) {
+                deviceOverrides = {};
+                data.overrides.forEach(override => {
+                    deviceOverrides[override.device_name] = override;
+                });
+                // Re-render table with override indicators
+                if (allDevices.length > 0) {
+                    renderDevicesTable(allDevices);
+                }
+            }
+        });
+}
+
+// Update selected devices
+function updateSelectedDevices() {
+    selectedDevices = [];
+    $('.device-checkbox:checked').each(function() {
+        selectedDevices.push({
+            name: $(this).data('device'),
+            ip: $(this).data('ip'),
+            type: $(this).data('type'),
+            source: $(this).data('source')
+        });
+    });
+
+    // Show/hide bulk actions bar
+    if (selectedDevices.length > 0) {
+        $('#bulk-actions-bar').attr('style', '').show();
+        $('#selected-count').text(selectedDevices.length);
+    } else {
+        $('#bulk-actions-bar').hide().attr('style', 'display: none !important;');
+    }
+}
+
+// Show add device modal
+function showAddDeviceModal() {
+    $('#add-device-form')[0].reset();
+    $('#addDeviceModal').modal('show');
+}
+
+// Save new manual device
+function saveNewDevice() {
+    const name = $('#device-name').val().trim();
+    const deviceType = $('#device-type').val();
+    const host = $('#device-host').val().trim();
+    const port = parseInt($('#device-port').val()) || 22;
+    const username = $('#device-username').val().trim();
+    const password = $('#device-password').val();
+
+    if (!name || !deviceType || !host) {
+        alert('Please fill in all required fields');
+        return;
+    }
+
+    const deviceData = {
+        name: name,
+        device_type: deviceType,
+        host: host,
+        port: port,
+        source: 'manual'
+    };
+
+    if (username) deviceData.username = username;
+    if (password) deviceData.password = password;
+
+    $.ajax({
+        url: '/api/devices',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(deviceData)
+    })
+    .done(function(response) {
+        if (response.success) {
+            $('#addDeviceModal').modal('hide');
+            loadDevicesTable();
+            alert('Device added successfully');
+        } else {
+            alert('Error: ' + (response.error || 'Failed to add device'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to add device'));
+    });
+}
+
+// Clear cache and reload devices
+function clearCacheAndReload() {
+    if (!confirm('This will reload all devices from NetBox. Continue?')) {
+        return;
+    }
+
+    $.post('/api/devices/reload')
+        .done(function(response) {
+            if (response.success) {
+                loadDevicesTable();
+                loadSummary();
+                alert('Devices reloaded successfully');
+            } else {
+                alert('Error: ' + (response.error || 'Failed to reload devices'));
+            }
+        })
+        .fail(function(xhr) {
+            alert('Error: ' + (xhr.responseJSON?.error || 'Failed to reload devices'));
+        });
+}
+
+// Show edit device modal
+function showEditDeviceModal(deviceName) {
+    $('#edit-device-name').val(deviceName);
+    $('#edit-device-display-name').text(deviceName);
+
+    // Reset form
+    $('#edit-device-type').val('');
+    $('#edit-device-host').val('');
+    $('#edit-device-port').val('');
+    $('#edit-device-username').val('');
+    $('#edit-device-password').val('');
+    $('#edit-device-secret').val('');
+    $('#edit-device-timeout').val('');
+    $('#edit-device-conn-timeout').val('');
+    $('#edit-device-auth-timeout').val('');
+    $('#edit-device-banner-timeout').val('');
+    $('#edit-device-notes').val('');
+    $('#edit-device-disabled').prop('checked', false);
+
+    // Load existing overrides
+    const override = deviceOverrides[deviceName];
+    if (override) {
+        if (override.device_type) $('#edit-device-type').val(override.device_type);
+        if (override.host) $('#edit-device-host').val(override.host);
+        if (override.port) $('#edit-device-port').val(override.port);
+        if (override.username) $('#edit-device-username').val(override.username);
+        if (override.timeout) $('#edit-device-timeout').val(override.timeout);
+        if (override.conn_timeout) $('#edit-device-conn-timeout').val(override.conn_timeout);
+        if (override.auth_timeout) $('#edit-device-auth-timeout').val(override.auth_timeout);
+        if (override.banner_timeout) $('#edit-device-banner-timeout').val(override.banner_timeout);
+        if (override.notes) $('#edit-device-notes').val(override.notes);
+        if (override.disabled) $('#edit-device-disabled').prop('checked', true);
+    }
+
+    $('#editDeviceModal').modal('show');
+}
+
+// Save device override
+function saveDeviceOverride() {
+    const deviceName = $('#edit-device-name').val();
+    const overrideData = {
+        device_name: deviceName
+    };
+
+    // Collect non-empty values
+    const deviceType = $('#edit-device-type').val();
+    const host = $('#edit-device-host').val().trim();
+    const port = $('#edit-device-port').val();
+    const username = $('#edit-device-username').val().trim();
+    const password = $('#edit-device-password').val();
+    const secret = $('#edit-device-secret').val();
+    const timeout = $('#edit-device-timeout').val();
+    const connTimeout = $('#edit-device-conn-timeout').val();
+    const authTimeout = $('#edit-device-auth-timeout').val();
+    const bannerTimeout = $('#edit-device-banner-timeout').val();
+    const notes = $('#edit-device-notes').val().trim();
+    const disabled = $('#edit-device-disabled').is(':checked');
+
+    if (deviceType) overrideData.device_type = deviceType;
+    if (host) overrideData.host = host;
+    if (port) overrideData.port = parseInt(port);
+    if (username) overrideData.username = username;
+    if (password) overrideData.password = password;
+    if (secret) overrideData.secret = secret;
+    if (timeout) overrideData.timeout = parseInt(timeout);
+    if (connTimeout) overrideData.conn_timeout = parseInt(connTimeout);
+    if (authTimeout) overrideData.auth_timeout = parseInt(authTimeout);
+    if (bannerTimeout) overrideData.banner_timeout = parseInt(bannerTimeout);
+    if (notes) overrideData.notes = notes;
+    overrideData.disabled = disabled;
+
+    $.ajax({
+        url: `/api/device-overrides/${encodeURIComponent(deviceName)}`,
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify(overrideData)
+    })
+    .done(function(response) {
+        if (response.success) {
+            $('#editDeviceModal').modal('hide');
+            loadDeviceOverrides();
+            loadDevicesTable();
+            alert('Settings saved successfully');
+        } else {
+            alert('Error: ' + (response.error || 'Failed to save settings'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to save settings'));
+    });
+}
+
+// Delete device override
+function deleteDeviceOverride() {
+    const deviceName = $('#edit-device-name').val();
+
+    if (!confirm(`Clear all overrides for ${deviceName}?`)) {
+        return;
+    }
+
+    $.ajax({
+        url: `/api/device-overrides/${encodeURIComponent(deviceName)}`,
+        method: 'DELETE'
+    })
+    .done(function(response) {
+        if (response.success) {
+            $('#editDeviceModal').modal('hide');
+            delete deviceOverrides[deviceName];
+            renderDevicesTable(allDevices);
+            alert('Overrides cleared');
+        } else {
+            alert('Error: ' + (response.error || 'Failed to clear overrides'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to clear overrides'));
+    });
+}
+
+// Test device connectivity
+function testDeviceConnectivity(deviceName) {
+    const $btn = $(`button[onclick="testDeviceConnectivity('${deviceName}')"]`);
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+    $.post(`/api/devices/${encodeURIComponent(deviceName)}/test`)
+        .done(function(response) {
+            const data = response.data || response;
+            if (data.success) {
+                let msg = `${deviceName}: Connection successful`;
+                if (data.response_ms) {
+                    msg += ` (${data.response_ms}ms)`;
+                }
+                if (data.device_info && data.device_info.prompt) {
+                    msg += `\nPrompt: ${data.device_info.prompt}`;
+                }
+                alert(msg);
+            } else {
+                alert(`${deviceName}: Connection failed\n${data.message || 'Unknown error'}`);
+            }
+            $btn.prop('disabled', false).html('<i class="fas fa-plug"></i>');
+        })
+        .fail(function(xhr) {
+            const errData = xhr.responseJSON?.data || xhr.responseJSON || {};
+            alert('Error: ' + (errData.message || xhr.responseJSON?.error || 'Failed to test connectivity'));
+            $btn.prop('disabled', false).html('<i class="fas fa-plug"></i>');
+        });
+}
+
+// View device backup
+function viewDeviceBackup(deviceName) {
+    const backup = deviceBackups[deviceName];
+    if (!backup) {
+        alert('No backup found for this device');
+        return;
+    }
+
+    $('#view-backup-device-name').text(deviceName);
+    $('#view-backup-created').text(formatDate(backup.created_at));
+    $('#view-backup-format').text(backup.config_format || 'native');
+    $('#view-backup-size').text(formatSize(backup.file_size));
+
+    $('#view-backup-loading').show();
+    $('#view-backup-content-container').hide();
+    $('#viewBackupModal').modal('show');
+
+    // Fetch full backup content
+    $.get(`/api/config-backups/${backup.backup_id}`)
+        .done(function(response) {
+            // Handle both response formats: response.data.backup or response.backup
+            const data = response.data || response;
+            if (response.success && data.backup) {
+                $('#view-backup-config').val(data.backup.config_content || '');
+                $('#view-backup-loading').hide();
+                $('#view-backup-content-container').show();
+            } else {
+                $('#view-backup-loading').html('<p class="text-danger">Failed to load backup</p>');
+            }
+        })
+        .fail(function() {
+            $('#view-backup-loading').html('<p class="text-danger">Failed to load backup</p>');
+        });
+}
+
+// Copy backup config
+function copyBackupConfig() {
+    const config = $('#view-backup-config').val();
+    navigator.clipboard.writeText(config).then(() => {
+        const $btn = $('#copy-backup-btn');
+        const original = $btn.html();
+        $btn.html('<i class="fas fa-check"></i> Copied!');
+        setTimeout(() => $btn.html(original), 2000);
+    });
+}
+
+// Download backup config
+function downloadBackupConfig() {
+    const config = $('#view-backup-config').val();
+    const deviceName = $('#view-backup-device-name').text();
+    const blob = new Blob([config], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${deviceName}_backup.txt`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+
+// Delete manual device
+function deleteManualDevice(deviceName) {
+    if (!confirm(`Delete device "${deviceName}"? This cannot be undone.`)) {
+        return;
+    }
+
+    $.ajax({
+        url: `/api/devices/${encodeURIComponent(deviceName)}`,
+        method: 'DELETE'
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadDevicesTable();
+            alert('Device deleted');
+        } else {
+            alert('Error: ' + (response.error || 'Failed to delete device'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to delete device'));
+    });
+}
+
+// =============================================================================
+// Bulk Operations
+// =============================================================================
+
+// Execute bulk test connectivity
+function executeBulkTestConnectivity() {
+    if (selectedDevices.length === 0) return;
+
+    const deviceNames = selectedDevices.map(d => d.name);
+
+    showBulkProgress();
+
+    $.ajax({
+        url: '/api/devices/bulk/test',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ devices: deviceNames })
+    })
+    .done(function(response) {
+        if (response.success && response.data && response.data.task_ids) {
+            pollBulkProgress(response.data.task_ids);
+        } else {
+            alert('Error: ' + (response.error || 'Failed to start bulk test'));
+            $('#bulkStatusModal').modal('hide');
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to start bulk test'));
+        $('#bulkStatusModal').modal('hide');
+    });
+}
+
+// Show bulk get config modal
+function showBulkGetConfigModal() {
+    if (selectedDevices.length === 0) return;
+    $('#bulk-get-command').val('show running-config');
+    $('#bulk-get-username').val('');
+    $('#bulk-get-password').val('');
+    $('#bulk-get-use-textfsm').prop('checked', false);
+    $('#bulkGetConfigModal').modal('show');
+}
+
+// Execute bulk get config
+function executeBulkGetConfig() {
+    const command = $('#bulk-get-command').val().trim();
+    if (!command) {
+        alert('Please enter a command');
+        return;
+    }
+
+    const deviceNames = selectedDevices.map(d => d.name);
+    const payload = {
+        devices: deviceNames,
+        command: command,
+        use_textfsm: $('#bulk-get-use-textfsm').is(':checked')
+    };
+
+    const username = $('#bulk-get-username').val().trim();
+    const password = $('#bulk-get-password').val();
+    if (username) payload.username = username;
+    if (password) payload.password = password;
+
+    $('#bulkGetConfigModal').modal('hide');
+    showBulkProgress();
+
+    $.ajax({
+        url: '/api/devices/bulk/get-config',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload)
+    })
+    .done(function(response) {
+        if (response.success && response.data && response.data.task_ids) {
+            pollBulkProgress(response.data.task_ids);
+        } else {
+            alert('Error: ' + (response.error || 'Failed to start bulk get config'));
+            $('#bulkStatusModal').modal('hide');
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to start bulk get config'));
+        $('#bulkStatusModal').modal('hide');
+    });
+}
+
+// Show bulk set config modal
+function showBulkSetConfigModal() {
+    if (selectedDevices.length === 0) return;
+    $('#bulk-set-config').val('');
+    $('#bulk-set-username').val('');
+    $('#bulk-set-password').val('');
+    $('#bulk-set-dry-run').prop('checked', false);
+    $('#bulk-set-manual').prop('checked', true);
+    $('#bulk-set-manual-container').show();
+    $('#bulk-set-template-container').hide();
+    $('#bulkSetConfigModal').modal('show');
+}
+
+// Load templates for bulk set config
+function loadBulkTemplates() {
+    $.get('/api/templates')
+        .done(function(response) {
+            const $select = $('#bulk-set-template-select');
+            $select.html('<option value="">Select template...</option>');
+            if (response.success && response.templates) {
+                response.templates.forEach(t => {
+                    $select.append(`<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`);
+                });
+            }
+        });
+}
+
+// Execute bulk set config
+function executeBulkSetConfig() {
+    const source = $('input[name="bulk-set-config-source"]:checked').val();
+    const deviceNames = selectedDevices.map(d => d.name);
+
+    let config = '';
+    let templateName = '';
+    let templateVars = {};
+
+    if (source === 'manual') {
+        config = $('#bulk-set-config').val().trim();
+        if (!config) {
+            alert('Please enter configuration commands');
+            return;
+        }
+    } else {
+        templateName = $('#bulk-set-template-select').val();
+        if (!templateName) {
+            alert('Please select a template');
+            return;
+        }
+        try {
+            const varsText = $('#bulk-set-template-vars').val().trim();
+            if (varsText) {
+                templateVars = JSON.parse(varsText);
+            }
+        } catch (e) {
+            alert('Invalid JSON in template variables');
+            return;
+        }
+    }
+
+    const payload = {
+        devices: deviceNames,
+        dry_run: $('#bulk-set-dry-run').is(':checked')
+    };
+
+    if (source === 'manual') {
+        payload.config = config;
+    } else {
+        payload.template_name = templateName;
+        payload.template_vars = templateVars;
+    }
+
+    const username = $('#bulk-set-username').val().trim();
+    const password = $('#bulk-set-password').val();
+    if (username) payload.username = username;
+    if (password) payload.password = password;
+
+    $('#bulkSetConfigModal').modal('hide');
+    showBulkProgress();
+
+    $.ajax({
+        url: '/api/devices/bulk/set-config',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload)
+    })
+    .done(function(response) {
+        if (response.success && response.data && response.data.task_ids) {
+            pollBulkProgress(response.data.task_ids);
+        } else {
+            alert('Error: ' + (response.error || 'Failed to start bulk set config'));
+            $('#bulkStatusModal').modal('hide');
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to start bulk set config'));
+        $('#bulkStatusModal').modal('hide');
+    });
+}
+
+// Execute bulk backup
+function executeBulkBackup() {
+    if (selectedDevices.length === 0) return;
+
+    const deviceNames = selectedDevices.map(d => d.name);
+
+    showBulkProgress();
+
+    $.ajax({
+        url: '/api/devices/bulk/backup',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ devices: deviceNames })
+    })
+    .done(function(response) {
+        if (response.success && response.data && response.data.task_ids) {
+            pollBulkProgress(response.data.task_ids);
+        } else {
+            alert('Error: ' + (response.error || 'Failed to start bulk backup'));
+            $('#bulkStatusModal').modal('hide');
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to start bulk backup'));
+        $('#bulkStatusModal').modal('hide');
+    });
+}
+
+// Execute bulk delete
+function executeBulkDelete() {
+    // Filter to only manual devices
+    const manualDevices = selectedDevices.filter(d => d.source === 'manual');
+
+    if (manualDevices.length === 0) {
+        alert('No manual devices selected. Only manual devices can be deleted.');
+        return;
+    }
+
+    if (!confirm(`Delete ${manualDevices.length} manual device(s)? This cannot be undone.`)) {
+        return;
+    }
+
+    const deviceNames = manualDevices.map(d => d.name);
+
+    $.ajax({
+        url: '/api/devices/bulk/delete',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ devices: deviceNames })
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadDevicesTable();
+            $('.device-checkbox').prop('checked', false);
+            updateSelectedDevices();
+            alert(`${response.deleted || deviceNames.length} device(s) deleted`);
+        } else {
+            alert('Error: ' + (response.error || 'Failed to delete devices'));
+        }
+    })
+    .fail(function(xhr) {
+        alert('Error: ' + (xhr.responseJSON?.error || 'Failed to delete devices'));
+    });
+}
+
+// Show bulk progress modal
+function showBulkProgress() {
+    $('#bulk-progress-bar').css('width', '0%').text('0%');
+    $('#bulk-completed-count').text('0');
+    $('#bulk-success-count').text('0');
+    $('#bulk-failed-count').text('0');
+    $('#bulkStatusModal').modal('show');
+}
+
+// Poll bulk progress
+function pollBulkProgress(taskIds) {
+    const total = taskIds.length;
+    let completed = 0;
+    let success = 0;
+    let failed = 0;
+
+    function checkTasks() {
+        const pending = taskIds.filter((_, i) => {
+            // Already processed
+            return true;
+        });
+
+        Promise.all(taskIds.map(taskId =>
+            $.get(`/api/celery/task/${taskId}`).then(
+                response => ({ taskId, response }),
+                () => ({ taskId, response: { status: 'error' } })
+            )
+        )).then(results => {
+            completed = 0;
+            success = 0;
+            failed = 0;
+
+            results.forEach(({ response }) => {
+                if (response.status === 'SUCCESS') {
+                    completed++;
+                    success++;
+                } else if (response.status === 'FAILURE' || response.status === 'error') {
+                    completed++;
+                    failed++;
+                } else if (response.status === 'PENDING' || response.status === 'STARTED') {
+                    // Still running
+                }
+            });
+
+            // Count still running as not completed
+            const stillRunning = results.filter(r =>
+                r.response.status === 'PENDING' || r.response.status === 'STARTED'
+            ).length;
+
+            completed = total - stillRunning;
+
+            const percent = Math.round((completed / total) * 100);
+            $('#bulk-progress-bar').css('width', percent + '%').text(percent + '%');
+            $('#bulk-completed-count').text(completed);
+            $('#bulk-success-count').text(success);
+            $('#bulk-failed-count').text(failed);
+
+            if (completed < total) {
+                setTimeout(checkTasks, 2000);
+            } else {
+                // Done
+                $('#bulk-progress-bar')
+                    .removeClass('progress-bar-animated')
+                    .addClass(failed > 0 ? 'bg-warning' : 'bg-success');
+                loadDeviceBackupStatus();
+            }
+        });
+    }
+
+    setTimeout(checkTasks, 1000);
+}
+
+// Poll single task result
+function pollTaskResult(taskId, callback) {
+    function check() {
+        $.get(`/api/celery/task/${taskId}`)
+            .done(function(response) {
+                if (response.status === 'SUCCESS') {
+                    callback({ success: true, result: response.result });
+                } else if (response.status === 'FAILURE') {
+                    callback({ success: false, error: response.error || 'Task failed' });
+                } else {
+                    setTimeout(check, 1000);
+                }
+            })
+            .fail(function() {
+                callback({ success: false, error: 'Failed to check task status' });
+            });
+    }
+    check();
+}
+
+// Format time ago
+function formatTimeAgo(dateStr) {
+    if (!dateStr) return 'Never';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now - date) / 1000);
+
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+    return formatDate(dateStr);
 }
 </script>
 {% endblock %}

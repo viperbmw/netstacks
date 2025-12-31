@@ -93,32 +93,5 @@ def get_user(username):
     return proxy_auth_request('/api/auth/users/{username}', username=username)
 
 
-# ============================================================================
-# User Theme/Preferences API - Proxied to Auth Microservice
-# ============================================================================
-
-@admin_bp.route('/api/user/theme', methods=['GET'])
-@login_required
-def get_user_theme():
-    """Get current user's theme preference."""
-    username = session.get('username')
-    return proxy_auth_request('/api/auth/users/{username}/theme', username=username)
-
-
-@admin_bp.route('/api/user/theme', methods=['POST', 'PUT'])
-@login_required
-def set_user_theme():
-    """
-    Set current user's theme preference.
-
-    Expected JSON body:
-    {
-        "theme": "dark"  // or "light"
-    }
-    """
-    username = session.get('username')
-    return proxy_auth_request('/api/auth/users/{username}/theme', username=username)
-
-
 # Note: Authentication page and API routes are defined in routes/auth.py
 # to avoid duplicate route registrations

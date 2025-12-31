@@ -310,7 +310,7 @@ $(document).ready(function() {
             const isPending = approval.status === 'pending';
 
             $tbody.append(`
-                <tr class="${approval.risk_level === 'critical' && isPending ? 'table-warning' : ''}">
+                <tr${approval.risk_level === 'critical' && isPending ? ' style="border-left: 3px solid #ffc107;"' : ''}>
                     <td>
                         <input type="checkbox" class="form-check-input approval-checkbox" data-id="${approval.approval_id}" ${!isPending ? 'disabled' : ''}>
                     </td>

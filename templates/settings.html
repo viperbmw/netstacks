@@ -19,15 +19,27 @@
             </div>
             <div class="card-body">
                 <form id="settings-form">
-                    <!-- Theme Settings -->
-                    <h6 class="border-bottom pb-2 mb-3">Theme</h6>
-                    <div class="mb-3">
-                        <label for="theme-select" class="form-label">Color Theme</label>
-                        <select class="form-select" id="theme-select">
-                            <option value="dark">Dark Theme</option>
-                            <option value="light">Light Theme</option>
+                    <!-- AI Assistant Settings -->
+                    <h6 class="border-bottom pb-2 mb-3">
+                        <i class="fas fa-robot text-primary"></i> AI Assistant
+                    </h6>
+                    <p class="text-muted small mb-3">
+                        Enable the AI Assistant to help navigate the application, create MOPs, and build templates.
+                        <a href="/settings/ai" class="text-decoration-none"><i class="fas fa-cog"></i> Configure LLM providers in AI Settings</a>
+                    </p>
+
+                    <div class="mb-3 form-check form-switch">
+                        <input type="checkbox" class="form-check-input" id="assistant-enabled" role="switch">
+                        <label class="form-check-label" for="assistant-enabled">Enable AI Assistant</label>
+                    </div>
+
+                    <div class="mb-3" id="assistant-provider-container">
+                        <label for="assistant-provider" class="form-label">LLM Provider</label>
+                        <select class="form-select" id="assistant-provider">
+                            <option value="">-- Loading providers... --</option>
                         </select>
-                        <small class="form-text text-muted">Choose your preferred color theme</small>
+                        <small class="form-text text-muted">Select the LLM provider for the assistant</small>
+                        <div id="assistant-provider-status" class="mt-2" style="display: none;"></div>
                     </div>
 
                     <!-- Netbox Settings -->

@@ -305,15 +305,25 @@ def get_devices(filters: List[Dict] = None, force_refresh: bool = False) -> Dict
             netbox = get_netbox_client()
             if netbox:
                 netbox_devices = netbox.get_devices_with_details(filters=filters)
+                # Track existing device names to avoid duplicates
+                existing_names = {d['name'].lower() for d in all_devices}
+                added_count = 0
                 for device in netbox_devices:
                     device['source'] = 'netbox'
                     # Use primary_ip4 as host for connectivity (not hostname)
                     if device.get('ip_address'):
                         device['host'] = device['ip_address']
                         log.debug(f"Device {device.get('name')} using IP {device['host']} for connectivity")
-                all_devices.extend(netbox_devices)
-                log.info(f"Found {len(netbox_devices)} Netbox devices")
-                if len(netbox_devices) > 0:
+                    # Only add if not already in the list (manual devices take precedence)
+                    device_name = device.get('name', '').lower()
+                    if device_name and device_name not in existing_names:
+                        all_devices.append(device)
+                        existing_names.add(device_name)
+                        added_count += 1
+                    else:
+                        log.debug(f"Skipping duplicate device from NetBox: {device.get('name')}")
+                log.info(f"Found {len(netbox_devices)} Netbox devices, added {added_count} (skipped {len(netbox_devices) - added_count} duplicates)")
+                if added_count > 0:
                     sources_used.append('netbox')
         except Exception as e:
             log.warning(f"Could not fetch devices from Netbox: {e}")

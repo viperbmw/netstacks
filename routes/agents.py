@@ -451,6 +451,46 @@ def get_session_detail(session_id):
         return jsonify({'error': str(e)}), 500
 
 
+@agents_bp.route('/api/sessions/<session_id>/messages', methods=['GET'])
+@login_required
+def get_session_messages(session_id):
+    """Get messages for a session - used by assistant sidebar for history restoration"""
+    try:
+        from models import AgentSession, AgentMessage
+
+        username = session.get('username')
+
+        with db.get_db() as db_session:
+            # Verify session belongs to current user
+            session_obj = db_session.query(AgentSession).filter(
+                AgentSession.session_id == session_id,
+                AgentSession.user_id == username
+            ).first()
+
+            if not session_obj:
+                return jsonify({'error': 'Session not found'}), 404
+
+            messages = db_session.query(AgentMessage).filter(
+                AgentMessage.session_id == session_id
+            ).order_by(AgentMessage.created_at).all()
+
+            return jsonify({
+                'session_id': session_id,
+                'status': session_obj.status,
+                'messages': [
+                    {
+                        'role': m.role,
+                        'content': m.content,
+                    }
+                    for m in messages
+                ]
+            })
+
+    except Exception as e:
+        log.error(f"Error getting session messages: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================================
 # LLM Provider Routes
 # ============================================================================

@@ -235,6 +235,87 @@ def init_socketio(socketio):
                 'message': str(e)
             }, room=request.sid, namespace='/agents')
 
+    @socketio.on('resume_session', namespace='/agents')
+    def handle_resume_session(data):
+        """
+        Resume an existing agent session.
+
+        Expected data:
+        {
+            "session_id": "uuid"
+        }
+        """
+        from flask import session, request
+
+        try:
+            session_id = data.get('session_id')
+            username = session.get('username', 'unknown')
+
+            if not session_id:
+                socketio.emit('error', {
+                    'message': 'Session ID required'
+                }, room=request.sid, namespace='/agents')
+                return
+
+            # Check if session exists in memory
+            if session_id in active_sessions:
+                session_data = active_sessions[session_id]
+                # Update socket ID for this session
+                session_data['socket_id'] = request.sid
+                session_data['status'] = 'active'
+                agent = session_data['agent']
+
+                socketio.emit('session_resumed', {
+                    'session_id': session_id,
+                    'agent_type': agent.agent_type,
+                    'agent_name': agent.agent_name,
+                }, room=request.sid, namespace='/agents')
+
+                log.info(f"Resumed in-memory session {session_id} for user {username}")
+                return
+
+            # Try to restore from database
+            agent_type, context = _get_session_from_db(session_id, username)
+
+            if agent_type:
+                from ai.agents import create_agent
+                agent_instance = create_agent(agent_type, session_id=session_id)
+
+                if agent_instance:
+                    # Restore conversation context
+                    messages = _get_messages_from_db(session_id)
+                    agent_instance.conversation_history = messages
+
+                    # Store session
+                    active_sessions[session_id] = {
+                        'agent': agent_instance,
+                        'socket_id': request.sid,
+                        'username': username,
+                        'status': 'active',
+                        'created_at': datetime.utcnow(),
+                    }
+
+                    socketio.emit('session_resumed', {
+                        'session_id': session_id,
+                        'agent_type': agent_instance.agent_type,
+                        'agent_name': agent_instance.agent_name,
+                    }, room=request.sid, namespace='/agents')
+
+                    log.info(f"Restored session {session_id} from database for user {username}")
+                    return
+
+            # Session not found - client should start a new one
+            socketio.emit('session_expired', {
+                'session_id': session_id,
+                'message': 'Session not found or expired'
+            }, room=request.sid, namespace='/agents')
+
+        except Exception as e:
+            log.error(f"Error resuming session: {e}", exc_info=True)
+            socketio.emit('error', {
+                'message': str(e)
+            }, room=request.sid, namespace='/agents')
+
     @socketio.on('end_session', namespace='/agents')
     def handle_end_session(data):
         """End an agent session"""
@@ -422,3 +503,57 @@ def _update_approval_in_db(approval_id: str, approved: bool, username: str, reas
 
     except Exception as e:
         log.error(f"Error updating approval in DB: {e}")
+
+
+def _get_session_from_db(session_id: str, username: str) -> tuple:
+    """Get session info from database for resumption"""
+    try:
+        import database as db
+        from models import AgentSession
+
+        with db.get_db() as db_session:
+            session_obj = db_session.query(AgentSession).filter(
+                AgentSession.session_id == session_id,
+                AgentSession.user_id == username,
+                AgentSession.status == 'active'
+            ).first()
+
+            if session_obj:
+                # Determine agent type from session
+                agent_type = 'assistant'  # Default for assistant sessions
+                if session_obj.agent_id:
+                    from models import Agent
+                    agent = db_session.query(Agent).filter(
+                        Agent.agent_id == session_obj.agent_id
+                    ).first()
+                    if agent:
+                        agent_type = agent.agent_type
+
+                return agent_type, session_obj.trigger_data or {}
+
+        return None, None
+
+    except Exception as e:
+        log.error(f"Error getting session from DB: {e}")
+        return None, None
+
+
+def _get_messages_from_db(session_id: str) -> list:
+    """Get conversation messages from database for session resumption"""
+    try:
+        import database as db
+        from models import AgentMessage
+
+        with db.get_db() as db_session:
+            messages = db_session.query(AgentMessage).filter(
+                AgentMessage.session_id == session_id
+            ).order_by(AgentMessage.created_at.asc()).all()
+
+            return [
+                {'role': msg.role, 'content': msg.content}
+                for msg in messages
+            ]
+
+    except Exception as e:
+        log.error(f"Error getting messages from DB: {e}")
+        return []

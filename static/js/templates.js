@@ -72,6 +72,47 @@ $(document).ready(function() {
         // Create new template
         createNewTemplate(suggestedName, deployTemplateName, 'validation');
     });
+
+    // AI Generate Button - toggle popup
+    $('#ai-generate-btn').click(function() {
+        const popup = $('#ai-prompt-popup');
+        if (popup.hasClass('show')) {
+            popup.removeClass('show');
+        } else {
+            popup.addClass('show');
+            $('#ai-prompt-input').val('').focus();
+        }
+    });
+
+    // AI Prompt Cancel
+    $('#ai-prompt-cancel').click(function() {
+        $('#ai-prompt-popup').removeClass('show');
+        $('#ai-prompt-input').val('');
+    });
+
+    // AI Prompt Submit
+    $('#ai-prompt-submit').click(function() {
+        generateTemplateWithAI();
+    });
+
+    // Submit on Enter (with Ctrl/Cmd)
+    $('#ai-prompt-input').keydown(function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            generateTemplateWithAI();
+        }
+        // Close on Escape
+        if (e.key === 'Escape') {
+            $('#ai-prompt-popup').removeClass('show');
+        }
+    });
+
+    // Close popup when clicking outside
+    $(document).click(function(e) {
+        if (!$(e.target).closest('#ai-prompt-popup, #ai-generate-btn').length) {
+            $('#ai-prompt-popup').removeClass('show');
+        }
+    });
 });
 
 function loadTemplates() {
@@ -596,6 +637,77 @@ function deleteTemplate(templateName) {
     .fail(function(xhr) {
         const errorMsg = xhr.responseJSON?.error || 'Failed to delete template';
         alert('Error: ' + errorMsg);
+    });
+}
+
+// AI Template Generation
+function generateTemplateWithAI() {
+    const prompt = $('#ai-prompt-input').val().trim();
+
+    if (!prompt) {
+        alert('Please describe the template you want to create');
+        return;
+    }
+
+    // Get context from form
+    const templateType = $('#template-type').val();
+    const vendorTypes = $('#vendor-type').val() || [];
+
+    // Show loading state
+    const $btn = $('#ai-generate-btn');
+    const $submitBtn = $('#ai-prompt-submit');
+    $btn.addClass('loading').find('i').removeClass('fa-magic').addClass('fa-spinner');
+    $submitBtn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Generating...');
+
+    // Build the request
+    const requestData = {
+        prompt: prompt,
+        template_type: templateType,
+        vendor_types: vendorTypes
+    };
+
+    $.ajax({
+        url: '/api/ai/generate-template',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(requestData),
+        timeout: 60000  // 60 second timeout for AI generation
+    })
+    .done(function(data) {
+        if (data.success && data.template) {
+            // Insert the generated template into the editor
+            editor.setValue(data.template);
+
+            // If AI suggested a name and we're creating a new template, use it
+            if (data.suggested_name && isNewTemplate && !$('#template-name').val().trim()) {
+                $('#template-name').val(data.suggested_name);
+            }
+
+            // If AI suggested a description, use it
+            if (data.description && !$('#template-description').val().trim()) {
+                $('#template-description').val(data.description);
+            }
+
+            // Close the popup
+            $('#ai-prompt-popup').removeClass('show');
+            $('#ai-prompt-input').val('');
+        } else {
+            alert('Error: ' + (data.error || 'Failed to generate template'));
+        }
+    })
+    .fail(function(xhr) {
+        let errorMsg = 'Failed to generate template';
+        if (xhr.responseJSON && xhr.responseJSON.error) {
+            errorMsg = xhr.responseJSON.error;
+        } else if (xhr.status === 0) {
+            errorMsg = 'Request timed out. Try a simpler prompt.';
+        }
+        alert('Error: ' + errorMsg);
+    })
+    .always(function() {
+        // Reset loading state
+        $btn.removeClass('loading').find('i').removeClass('fa-spinner').addClass('fa-magic');
+        $submitBtn.prop('disabled', false).html('<i class="fas fa-wand-magic-sparkles"></i> Generate');
     });
 }
 

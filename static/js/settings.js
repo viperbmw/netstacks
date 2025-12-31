@@ -37,6 +37,7 @@ $(document).ready(function() {
     loadSettings();
     loadTheme();
     updateTimezoneDisplay();
+    loadAssistantConfig();
 
     // Theme change handler
     $('#theme-select').change(function() {
@@ -76,6 +77,16 @@ $(document).ready(function() {
     // Test Netbox connection button
     $('#test-netbox-btn').click(function() {
         testNetboxConnection();
+    });
+
+    // AI Assistant enable toggle handler
+    $('#assistant-enabled').change(function() {
+        saveAssistantConfig();
+    });
+
+    // AI Assistant provider change handler
+    $('#assistant-provider').change(function() {
+        saveAssistantConfig();
     });
 
 });
@@ -421,7 +432,7 @@ function testNetboxConnection() {
                     <summary class="text-muted small" style="cursor: pointer;">
                         <i class="fas fa-info-circle"></i> Show API Details
                     </summary>
-                    <div class="card card-body bg-light mt-2">
+                    <div class="card card-body bg-dark border-secondary mt-2">
                         <p class="mb-1"><strong>API URL:</strong></p>
                         <code class="small">${data.api_url || 'N/A'}</code>
                         <p class="mb-1 mt-2"><strong>SSL Verification:</strong> ${data.verify_ssl ? 'Enabled' : 'Disabled'}</p>
@@ -440,7 +451,7 @@ function testNetboxConnection() {
                     <summary class="text-muted small" style="cursor: pointer;">
                         <i class="fas fa-info-circle"></i> Show Debug Details
                     </summary>
-                    <div class="card card-body bg-light mt-2">
+                    <div class="card card-body bg-dark border-secondary mt-2">
                         <p class="mb-1"><strong>API URL:</strong></p>
                         <code class="small">${data.api_url || 'N/A'}</code>
                         ${data.status_code ? '<p class="mb-1 mt-2"><strong>HTTP Status:</strong> ' + data.status_code + '</p>' : ''}
@@ -472,7 +483,7 @@ function testNetboxConnection() {
                 <summary class="text-muted small" style="cursor: pointer;">
                     <i class="fas fa-info-circle"></i> Show Debug Details
                 </summary>
-                <div class="card card-body bg-light mt-2">
+                <div class="card card-body bg-dark border-secondary mt-2">
                     <p class="mb-1"><strong>API URL:</strong></p>
                     <code class="small">${apiUrl}</code>
                     ${details ? '<p class="mb-0 mt-2"><strong>Technical Details:</strong><br><small>' + details + '</small></p>' : ''}
@@ -798,3 +809,122 @@ $(document).ready(function() {
         $('#api-resource-auth-type').change(handleAuthTypeChange);
     }
 });
+
+// ============================================================================
+// AI Assistant Configuration
+// ============================================================================
+
+let llmProviders = [];
+
+// Load AI Assistant configuration
+function loadAssistantConfig() {
+    // First load the available LLM providers from AI Settings
+    $.get('/api/llm/providers')
+        .done(function(response) {
+            if (response.providers) {
+                llmProviders = response.providers.filter(p => p.is_enabled);
+                populateProviderDropdown();
+            }
+        })
+        .fail(function() {
+            $('#assistant-provider').html('<option value="">-- Failed to load providers --</option>');
+            $('#assistant-provider-status').html(
+                '<div class="alert alert-warning py-1 px-2 small">' +
+                '<i class="fas fa-exclamation-triangle"></i> Could not load LLM providers. ' +
+                '<a href="/settings/ai">Configure providers in AI Settings</a></div>'
+            ).show();
+        });
+
+    // Then load the assistant config
+    $.get('/api/assistant/config')
+        .done(function(response) {
+            if (response.config) {
+                $('#assistant-enabled').prop('checked', response.config.enabled === true || response.config.enabled === 'true');
+
+                // Set the selected provider after dropdown is populated
+                if (response.config.provider) {
+                    setTimeout(function() {
+                        $('#assistant-provider').val(response.config.provider);
+                    }, 100);
+                }
+            }
+        })
+        .fail(function() {
+            console.warn('Could not load assistant config');
+        });
+}
+
+// Populate provider dropdown with available LLM providers
+function populateProviderDropdown() {
+    const select = $('#assistant-provider');
+    select.empty();
+
+    if (llmProviders.length === 0) {
+        select.html('<option value="">-- No providers configured --</option>');
+        $('#assistant-provider-status').html(
+            '<div class="alert alert-info py-1 px-2 small">' +
+            '<i class="fas fa-info-circle"></i> No LLM providers configured. ' +
+            '<a href="/settings/ai">Add a provider in AI Settings</a></div>'
+        ).show();
+        return;
+    }
+
+    select.append('<option value="">-- Select Provider --</option>');
+    llmProviders.forEach(function(provider) {
+        const displayName = provider.display_name || provider.name;
+        const isDefault = provider.is_default ? ' (Default)' : '';
+        select.append(`<option value="${provider.name}">${escapeHtml(displayName)}${isDefault}</option>`);
+    });
+
+    $('#assistant-provider-status').hide();
+}
+
+// Save AI Assistant configuration
+function saveAssistantConfig() {
+    const enabled = $('#assistant-enabled').is(':checked');
+    const provider = $('#assistant-provider').val();
+
+    // Show saving indicator
+    const statusDiv = $('#assistant-provider-status');
+
+    $.ajax({
+        url: '/api/assistant/config',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            enabled: enabled,
+            provider: provider
+        })
+    })
+    .done(function(response) {
+        if (response.message) {
+            statusDiv.html(
+                '<div class="alert alert-success py-1 px-2 small">' +
+                '<i class="fas fa-check-circle"></i> Settings saved</div>'
+            ).show();
+
+            // Hide after 2 seconds
+            setTimeout(function() {
+                statusDiv.fadeOut();
+            }, 2000);
+
+            // Show/hide the assistant toggle button based on enabled state
+            updateAssistantVisibility(enabled);
+        }
+    })
+    .fail(function(xhr) {
+        statusDiv.html(
+            '<div class="alert alert-danger py-1 px-2 small">' +
+            '<i class="fas fa-times-circle"></i> Failed to save: ' +
+            (xhr.responseJSON?.error || 'Unknown error') + '</div>'
+        ).show();
+    });
+}
+
+// Update assistant button visibility
+function updateAssistantVisibility(enabled) {
+    const toggleBtn = document.getElementById('assistant-toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.style.display = enabled ? 'flex' : 'none';
+    }
+}

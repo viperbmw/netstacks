@@ -59,9 +59,18 @@ def _save_backup_to_db(device_name: str, config_text: str,
 
 @celery_app.task(bind=True, name='tasks.backup_tasks.backup_device_config')
 def backup_device_config(self, connection_args: Dict, device_name: str,
-                         snapshot_id: Optional[str] = None) -> Dict:
+                         device_platform: str = None, juniper_set_format: bool = True,
+                         snapshot_id: Optional[str] = None, created_by: str = None) -> Dict:
     """
     Backup running configuration from a network device.
+
+    Args:
+        connection_args: Device connection parameters
+        device_name: Name of the device
+        device_platform: Platform name (to identify Juniper)
+        juniper_set_format: Get Juniper configs in set format (default True)
+        snapshot_id: Optional snapshot ID to link backup to
+        created_by: Username who initiated the backup
     """
     task_id = self.request.id
     device_type = connection_args.get('device_type', 'unknown')
@@ -70,16 +79,21 @@ def backup_device_config(self, connection_args: Dict, device_name: str,
         'device_name': device_name,
         'operation': 'backup_config',
         'snapshot_id': snapshot_id,
+        'created_by': created_by,
         'started_at': utc_now().isoformat()
     })
 
     try:
-        log.info(f"Backing up config for {device_name}")
+        log.info(f"Backing up config for {device_name} (created_by: {created_by})")
 
         with ConnectHandler(**connection_args) as conn:
-            # Get running config
-            if device_type.startswith('juniper'):
-                config = conn.send_command('show configuration | display set', read_timeout=120)
+            # Get running config - handle Juniper specially
+            is_juniper = device_type.startswith('juniper') or (device_platform and 'juniper' in device_platform.lower())
+            if is_juniper:
+                if juniper_set_format:
+                    config = conn.send_command('show configuration | display set', read_timeout=120)
+                else:
+                    config = conn.send_command('show configuration', read_timeout=120)
             else:
                 config = conn.send_command('show running-config', read_timeout=120)
 

@@ -7,7 +7,7 @@ CRUD operations for devices (manual and synced).
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from netstacks_core.db import get_db
@@ -248,6 +248,7 @@ async def delete_device(
 @router.post("/{device_name}/test")
 async def test_device_connectivity(
     device_name: str,
+    request: Request,
     session: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
@@ -256,18 +257,95 @@ async def test_device_connectivity(
 
     Returns connection status and basic device info.
     """
+    import os
+    import httpx
+    from netstacks_core.db import DeviceOverride
+
     service = DeviceService(session)
 
     device = service.get(device_name)
     if not device:
         raise HTTPException(status_code=404, detail=f"Device not found: {device_name}")
 
-    # TODO: Implement actual connectivity test via Netmiko
-    # For now, return a placeholder response
+    # Get device override (with actual credentials, not masked)
+    override = session.query(DeviceOverride).filter(
+        DeviceOverride.device_name == device_name
+    ).first()
+
+    # Get default credentials from auth service settings
+    # Forward the JWT token from the incoming request
+    default_username = None
+    default_password = None
+    try:
+        auth_url = os.environ.get('AUTH_SERVICE_URL', 'http://auth:8011')
+        auth_header = request.headers.get('Authorization', '')
+        headers = {'Authorization': auth_header} if auth_header else {}
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{auth_url}/api/settings", headers=headers)
+            if resp.status_code == 200:
+                settings_data = resp.json().get('data', {})
+                default_username = settings_data.get('default_username')
+                default_password = settings_data.get('default_password')
+    except Exception as e:
+        log.warning(f"Could not fetch default credentials: {e}")
+
+    # Build connection parameters
+    host = device.get('host')
+    if override and override.host:
+        host = override.host
+
+    device_type = device.get('device_type', 'cisco_ios')
+    if override and override.device_type:
+        device_type = override.device_type
+
+    port = device.get('port', 22)
+    if override and override.port:
+        port = override.port
+
+    username = default_username
+    if override and override.username:
+        username = override.username
+
+    password = default_password
+    if override and override.password:
+        password = override.password
+
+    secret = None
+    if override and override.secret:
+        secret = override.secret
+
+    # Validate credentials exist
+    if not username or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Device credentials not configured. Set default credentials in Settings or add device-specific credentials."
+        )
+
+    if not host:
+        raise HTTPException(
+            status_code=400,
+            detail="Device host/IP not configured"
+        )
+
+    # Test connectivity
+    from app.services.connectivity_service import ConnectivityService
+
+    conn_service = ConnectivityService(timeout=10)
+    result = conn_service.test_connectivity(
+        host=host,
+        device_type=device_type,
+        username=username,
+        password=password,
+        port=port,
+        secret=secret,
+    )
+
     return success_response(
         data={
             "device": device_name,
-            "status": "not_implemented",
-            "message": "Connectivity testing requires Celery worker integration"
+            "success": result["success"],
+            "message": result["message"],
+            "response_ms": result["response_ms"],
+            "device_info": result.get("device_info", {}),
         }
     )

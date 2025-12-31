@@ -521,7 +521,7 @@ $(document).ready(function() {
             const duration = calculateDuration(incident.created_at, incident.resolved_at);
 
             $tbody.append(`
-                <tr class="${incident.severity === 'critical' && !['resolved', 'closed'].includes(incident.status) ? 'table-danger' : ''}">
+                <tr${incident.severity === 'critical' && !['resolved', 'closed'].includes(incident.status) ? ' style="border-left: 3px solid #dc3545;"' : ''}>
                     <td>${severityBadge}</td>
                     <td>
                         <strong>${escapeHtml(incident.title)}</strong>

@@ -122,7 +122,33 @@
 
                 <div class="mb-3">
                     <label for="template-content" class="form-label">Template Content</label>
-                    <textarea class="form-control font-monospace" id="template-content" rows="15" placeholder="Enter Jinja2 template here..."></textarea>
+                    <div class="template-editor-wrapper">
+                        <textarea class="form-control font-monospace" id="template-content" rows="15" placeholder="Enter Jinja2 template here..."></textarea>
+
+                        <!-- AI Generate Button -->
+                        <button type="button" class="ai-generate-btn" id="ai-generate-btn" title="Generate template with AI">
+                            <i class="fas fa-magic"></i>
+                        </button>
+
+                        <!-- AI Prompt Popup -->
+                        <div class="ai-prompt-popup" id="ai-prompt-popup">
+                            <div class="ai-prompt-header">
+                                <i class="fas fa-robot"></i> AI Template Generator
+                            </div>
+                            <div class="ai-prompt-body">
+                                <textarea class="ai-prompt-input" id="ai-prompt-input" placeholder="Describe the template you want to create...&#10;&#10;Example: Configure SNMP v3 on Junos with user authentication"></textarea>
+                                <div class="ai-prompt-hint">
+                                    <i class="fas fa-lightbulb"></i> Include vendor/platform and what the template should configure
+                                </div>
+                            </div>
+                            <div class="ai-prompt-footer">
+                                <button type="button" class="ai-prompt-cancel" id="ai-prompt-cancel">Cancel</button>
+                                <button type="button" class="ai-prompt-submit" id="ai-prompt-submit">
+                                    <i class="fas fa-wand-magic-sparkles"></i> Generate
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <small class="form-text text-muted">Use {% raw %}{{ variable_name }}{% endraw %} for variables, loops, and conditionals</small>
                 </div>
             </div>
@@ -239,6 +265,170 @@
 .action-buttons .btn-sm {
     font-size: 0.75rem;
     padding: 0.25rem 0.5rem;
+}
+
+/* AI Template Generator Button */
+.template-editor-wrapper {
+    position: relative;
+}
+
+.ai-generate-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ai-generate-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.5);
+}
+
+.ai-generate-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.ai-generate-btn.loading {
+    pointer-events: none;
+}
+
+.ai-generate-btn.loading i {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* AI Prompt Popup */
+.ai-prompt-popup {
+    position: absolute;
+    bottom: 56px;
+    right: 12px;
+    width: 320px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 11;
+    display: none;
+    overflow: hidden;
+}
+
+.ai-prompt-popup.show {
+    display: block;
+    animation: popupFadeIn 0.2s ease;
+}
+
+@keyframes popupFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ai-prompt-header {
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ai-prompt-body {
+    padding: 12px;
+}
+
+.ai-prompt-input {
+    width: 100%;
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #e2e8f0;
+    font-size: 13px;
+    resize: none;
+    min-height: 70px;
+}
+
+.ai-prompt-input:focus {
+    outline: none;
+    border-color: #06b6d4;
+}
+
+.ai-prompt-input::placeholder {
+    color: #64748b;
+}
+
+.ai-prompt-footer {
+    padding: 8px 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    border-top: 1px solid #334155;
+}
+
+.ai-prompt-cancel,
+.ai-prompt-submit {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.ai-prompt-cancel {
+    background: transparent;
+    border: 1px solid #475569;
+    color: #94a3b8;
+}
+
+.ai-prompt-cancel:hover {
+    background: #334155;
+}
+
+.ai-prompt-submit {
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    border: none;
+    color: white;
+}
+
+.ai-prompt-submit:hover {
+    filter: brightness(1.1);
+}
+
+.ai-prompt-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ai-prompt-hint {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 8px;
 }
 </style>
 {% endblock %}

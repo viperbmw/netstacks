@@ -45,6 +45,18 @@ from .platform_tools import (
     PLATFORM_TOOLS,
 )
 
+# Assistant tools (for navigation and content creation)
+from .assistant_tools import (
+    NavigateTool,
+    ListStepTypesTool,
+    ListTemplatesTool,
+    ValidateMOPTool,
+    ValidateTemplateTool,
+    CreateMOPTool,
+    CreateTemplateTool,
+    ASSISTANT_TOOLS,
+)
+
 __all__ = [
     # Base classes
     'BaseTool',
@@ -76,6 +88,15 @@ __all__ = [
     'SystemHealthTool',
     'PlatformConceptsTool',
     'PLATFORM_TOOLS',
+    # Assistant tools
+    'NavigateTool',
+    'ListStepTypesTool',
+    'ListTemplatesTool',
+    'ValidateMOPTool',
+    'ValidateTemplateTool',
+    'CreateMOPTool',
+    'CreateTemplateTool',
+    'ASSISTANT_TOOLS',
     # Registration helper
     'register_all_tools',
 ]

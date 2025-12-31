@@ -176,9 +176,9 @@ device_cache = {
 }
 
 
-# Task history management
+# Task history management - uses database instead of JSON file
 def save_task_id(task_id, device_name=None):
-    """Save a task ID to the history file with device name
+    """Save a task ID to the database
 
     Args:
         task_id: The Celery task ID
@@ -186,36 +186,17 @@ def save_task_id(task_id, device_name=None):
                     stack:{OPERATION}:{StackName}:{ServiceName}:{DeviceName}:{JobID}
     """
     try:
-        tasks = []
-        if os.path.exists(TASK_HISTORY_FILE):
-            with open(TASK_HISTORY_FILE, 'r') as f:
-                tasks = json.load(f)
-
-        # Add new task with timestamp and device name
-        tasks.append({
-            'task_id': task_id,
-            'device_name': device_name,
-            'created': datetime.now().isoformat()
-        })
-
-        # Keep only last 500 tasks
-        tasks = tasks[-500:]
-
-        with open(TASK_HISTORY_FILE, 'w') as f:
-            json.dump(tasks, f)
+        db.save_task_history(task_id, device_name)
     except Exception as e:
-        log.error(f"Error saving task ID: {e}")
+        log.error(f"Error saving task ID to database: {e}")
 
 
 def get_task_history():
-    """Get all stored task IDs"""
+    """Get all stored task IDs from database"""
     try:
-        if os.path.exists(TASK_HISTORY_FILE):
-            with open(TASK_HISTORY_FILE, 'r') as f:
-                return json.load(f)
-        return []
+        return db.get_task_history_list(limit=500)
     except Exception as e:
-        log.error(f"Error reading task history: {e}")
+        log.error(f"Error reading task history from database: {e}")
         return []
 
 
@@ -572,13 +553,6 @@ def authenticate_user(username, password):
 
 # Authentication routes migrated to routes/auth.py
 
-@app.context_processor
-def inject_theme():
-    """Inject user's theme preference into all templates"""
-    if 'username' in session:
-        theme = db.get_user_theme(session['username'])
-        return {'user_theme': theme}
-    return {'user_theme': 'dark'}
 
 
 
@@ -2052,6 +2026,142 @@ def api_render_j2_template():
     except Exception as e:
         log.error(f"Error rendering template: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ai/generate-template', methods=['POST'])
+@login_required
+def generate_template_with_ai():
+    """Generate a Jinja2 template using AI based on user description"""
+    try:
+        data = request.json
+        prompt = data.get('prompt', '').strip()
+        template_type = data.get('template_type', 'deploy')
+        vendor_types = data.get('vendor_types', [])
+
+        if not prompt:
+            return jsonify({'success': False, 'error': 'Please provide a description of the template'}), 400
+
+        # Import LLM client
+        try:
+            from ai.llm.factory import get_llm_client
+        except ImportError as e:
+            log.error(f"Failed to import LLM client: {e}")
+            return jsonify({'success': False, 'error': 'AI features not configured. Please configure an LLM provider in Settings.'}), 500
+
+        # Get LLM client
+        try:
+            llm = get_llm_client()
+        except ValueError as e:
+            log.warning(f"LLM not configured: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        # Build the system prompt for template generation
+        vendor_context = ""
+        if vendor_types:
+            vendor_names = {
+                'cisco_ios': 'Cisco IOS',
+                'cisco_xe': 'Cisco IOS-XE',
+                'cisco_xr': 'Cisco IOS-XR',
+                'cisco_nxos': 'Cisco NX-OS',
+                'juniper_junos': 'Juniper JunOS',
+                'arista_eos': 'Arista EOS',
+                'huawei': 'Huawei VRP',
+                'nokia_sros': 'Nokia SR OS',
+                'paloalto_panos': 'Palo Alto PAN-OS',
+                'fortinet': 'Fortinet FortiOS',
+                'linux': 'Linux'
+            }
+            vendor_list = [vendor_names.get(v, v) for v in vendor_types]
+            vendor_context = f"\n\nTarget platform(s): {', '.join(vendor_list)}"
+
+        type_context = {
+            'deploy': 'This is a DEPLOY template - it should add/configure something on the device.',
+            'delete': 'This is a DELETE template - it should remove/unconfigure something from the device.',
+            'validation': 'This is a VALIDATION template - it should contain commands to verify configuration.'
+        }.get(template_type, '')
+
+        system_prompt = f"""You are an expert network automation engineer. Generate a Jinja2 template for network device configuration.
+
+IMPORTANT RULES:
+1. Output ONLY the Jinja2 template content - no explanations, no markdown code blocks, no surrounding text
+2. Use proper Jinja2 syntax: {{{{ variable_name }}}} for variables
+3. Use descriptive variable names in snake_case
+4. Include comments in the template to explain sections
+5. Use Jinja2 control structures (if/for) when appropriate
+6. Follow vendor-specific CLI syntax exactly
+7. Start with the actual configuration commands, not show commands
+
+{type_context}
+{vendor_context}
+
+Remember: Output ONLY the raw Jinja2 template content."""
+
+        # Make the LLM call
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Create a Jinja2 template to: {prompt}"}
+        ]
+
+        response = llm.chat(
+            messages=messages,
+            temperature=0.3,
+            max_tokens=4096
+        )
+
+        if not response.content:
+            return jsonify({'success': False, 'error': 'AI returned empty response'}), 500
+
+        # Clean up the response - remove any markdown code blocks if present
+        template_content = response.content.strip()
+        if template_content.startswith('```'):
+            lines = template_content.split('\n')
+            # Remove first line (```jinja2 or similar)
+            lines = lines[1:]
+            # Remove last line if it's ```
+            if lines and lines[-1].strip() == '```':
+                lines = lines[:-1]
+            template_content = '\n'.join(lines)
+
+        # Try to suggest a template name based on the prompt
+        suggested_name = None
+        description = None
+
+        # Simple name extraction from common patterns
+        prompt_lower = prompt.lower()
+        name_parts = []
+
+        # Extract action
+        for action in ['configure', 'add', 'create', 'set', 'enable', 'disable', 'remove', 'delete']:
+            if action in prompt_lower:
+                break
+
+        # Extract key terms for the name
+        keywords = ['snmp', 'ntp', 'vlan', 'interface', 'bgp', 'ospf', 'acl', 'route', 'dns',
+                    'syslog', 'aaa', 'tacacs', 'radius', 'ssh', 'banner', 'user', 'logging']
+        for kw in keywords:
+            if kw in prompt_lower:
+                name_parts.append(kw)
+
+        if name_parts:
+            suggested_name = '_'.join(name_parts[:2])  # Max 2 keywords
+            if template_type == 'delete':
+                suggested_name += '_delete'
+            elif template_type == 'validation':
+                suggested_name += '_validate'
+
+        # Use first part of prompt as description
+        description = prompt[:100] + ('...' if len(prompt) > 100 else '')
+
+        return jsonify({
+            'success': True,
+            'template': template_content,
+            'suggested_name': suggested_name,
+            'description': description
+        })
+
+    except Exception as e:
+        log.error(f"Error generating template with AI: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': f'Failed to generate template: {str(e)}'}), 500
 
 
 # Services, users pages and user management API migrated to blueprints

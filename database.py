@@ -488,6 +488,38 @@ def get_all_service_instances() -> List[Dict]:
 
 
 # =============================================================================
+# Task History Operations
+# =============================================================================
+
+def save_task_history(task_id: str, device_name: str = None):
+    """Save a task to the history database"""
+    with get_db() as session:
+        task = TaskHistory(
+            task_id=task_id,
+            device_name=device_name
+        )
+        session.add(task)
+        log.debug(f"Saved task {task_id} to database")
+
+
+def get_task_history_list(limit: int = 500) -> List[Dict]:
+    """Get task history from database"""
+    with get_db() as session:
+        tasks = session.query(TaskHistory).order_by(
+            TaskHistory.created_at.desc()
+        ).limit(limit).all()
+
+        return [
+            {
+                'task_id': t.task_id,
+                'device_name': t.device_name,
+                'created': t.created_at.isoformat() if t.created_at else None
+            }
+            for t in tasks
+        ]
+
+
+# =============================================================================
 # Device Operations (unified - replaces manual_devices)
 # =============================================================================
 

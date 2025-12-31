@@ -268,6 +268,7 @@ class MicroserviceClient:
         self,
         method: str,
         path: str,
+        extra_headers: Dict[str, str] = None,
         **kwargs
     ) -> Tuple[Optional[requests.Response], Optional[str]]:
         """
@@ -276,13 +277,14 @@ class MicroserviceClient:
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
             path: API path (e.g., '/api/devices')
+            extra_headers: Additional headers to include (e.g., Authorization from proxy)
             **kwargs: Additional request arguments
 
         Returns:
             Tuple of (response, error_message)
         """
         url = f"{DEVICES_SERVICE_URL}{path}"
-        return self._make_request(method, url, **kwargs)
+        return self._make_request(method, url, extra_headers=extra_headers, **kwargs)
 
     # ========================================================================
     # Config Service Methods
@@ -292,6 +294,7 @@ class MicroserviceClient:
         self,
         method: str,
         path: str,
+        extra_headers: Dict[str, str] = None,
         **kwargs
     ) -> Tuple[Optional[requests.Response], Optional[str]]:
         """
@@ -300,13 +303,14 @@ class MicroserviceClient:
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
             path: API path (e.g., '/api/templates')
+            extra_headers: Additional headers to include (e.g., Authorization from proxy)
             **kwargs: Additional request arguments
 
         Returns:
             Tuple of (response, error_message)
         """
         url = f"{CONFIG_SERVICE_URL}{path}"
-        return self._make_request(method, url, **kwargs)
+        return self._make_request(method, url, extra_headers=extra_headers, **kwargs)
 
     # ========================================================================
     # Health Check Methods

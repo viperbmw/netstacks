@@ -77,6 +77,10 @@ def celery_getconfig():
             use_ttp=data.get('use_ttp', False)
         )
 
+        # Save task to history for monitor page
+        from app import save_task_id
+        save_task_id(task_id, device_name=f"get-config:{device_name}:{task_id}")
+
         return jsonify({
             'task_id': task_id,
             'device': device_name,

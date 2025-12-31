@@ -287,6 +287,121 @@ def delete_llm_provider(name):
         return jsonify({'error': str(e)}), 500
 
 
+@settings_bp.route('/api/assistant/config', methods=['GET'])
+@login_required
+def get_assistant_config():
+    """Get AI Assistant configuration"""
+    try:
+        with db.get_db() as db_session:
+            settings = {}
+            assistant_keys = [
+                'assistant_enabled',
+                'assistant_llm_provider',
+                'assistant_llm_model',
+                'assistant_api_key_configured'
+            ]
+
+            for key in assistant_keys:
+                setting = db_session.query(Setting).filter(
+                    Setting.key == key
+                ).first()
+                if setting:
+                    clean_key = key.replace('assistant_', '')
+                    # Rename llm_provider to just provider for frontend
+                    if clean_key == 'llm_provider':
+                        clean_key = 'provider'
+                    try:
+                        settings[clean_key] = json.loads(setting.value)
+                    except (json.JSONDecodeError, TypeError):
+                        settings[clean_key] = setting.value
+
+            # Get available models for the configured provider
+            provider_name = settings.get('provider')
+            if provider_name:
+                provider = db_session.query(LLMProvider).filter(
+                    LLMProvider.name == provider_name
+                ).first()
+                if provider:
+                    settings['available_models'] = provider.available_models or []
+                    settings['has_api_key'] = bool(provider.api_key)
+
+            return jsonify({'config': settings})
+
+    except Exception as e:
+        log.error(f"Error getting assistant config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@settings_bp.route('/api/assistant/config', methods=['POST'])
+@login_required
+def save_assistant_config():
+    """Save AI Assistant configuration"""
+    try:
+        data = request.get_json()
+
+        with db.get_db() as db_session:
+            settings_map = {
+                'enabled': 'assistant_enabled',
+                'provider': 'assistant_llm_provider',
+                'model': 'assistant_llm_model',
+            }
+
+            for key, db_key in settings_map.items():
+                if key in data:
+                    # Convert boolean to string for storage
+                    value = data[key]
+                    if isinstance(value, bool):
+                        value = 'true' if value else 'false'
+                    elif not isinstance(value, str):
+                        value = json.dumps(value)
+
+                    setting = db_session.query(Setting).filter(
+                        Setting.key == db_key
+                    ).first()
+
+                    if setting:
+                        setting.value = value
+                    else:
+                        setting = Setting(key=db_key, value=value)
+                        db_session.add(setting)
+
+            # If API key is provided, save it to the LLM provider
+            if data.get('api_key') and data.get('provider'):
+                provider = db_session.query(LLMProvider).filter(
+                    LLMProvider.name == data['provider']
+                ).first()
+
+                if provider:
+                    provider.api_key = data['api_key']
+                else:
+                    # Create the provider if it doesn't exist
+                    provider = LLMProvider(
+                        name=data['provider'],
+                        display_name=data['provider'].title(),
+                        api_key=data['api_key'],
+                        is_enabled=True
+                    )
+                    db_session.add(provider)
+
+                # Mark that API key is configured
+                api_key_setting = db_session.query(Setting).filter(
+                    Setting.key == 'assistant_api_key_configured'
+                ).first()
+                if api_key_setting:
+                    api_key_setting.value = 'true'
+                else:
+                    api_key_setting = Setting(key='assistant_api_key_configured', value='true')
+                    db_session.add(api_key_setting)
+
+            db_session.commit()
+
+        return jsonify({'message': 'Assistant configuration saved successfully'})
+
+    except Exception as e:
+        log.error(f"Error saving assistant config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @settings_bp.route('/api/llm/test', methods=['POST'])
 @login_required
 def test_llm_connection():

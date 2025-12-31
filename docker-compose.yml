@@ -73,7 +73,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.devices.rule=PathPrefix(`/api/devices`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`)"
+      - "traefik.http.routers.devices.rule=(PathPrefix(`/api/devices`) && !PathPrefix(`/api/devices/bulk`)) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`)"
       - "traefik.http.routers.devices.entrypoints=web"
       - "traefik.http.routers.devices.priority=10"
       - "traefik.http.services.devices.loadbalancer.server.port=8004"

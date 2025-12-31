@@ -58,15 +58,15 @@ def workers():
 @pages_bp.route('/snapshots')
 @login_required
 def snapshots():
-    """Config snapshots page - manage network configuration snapshots and device backups."""
-    return render_template('config_backups.html')
+    """Redirect old snapshots URL to unified devices page."""
+    return redirect(url_for('devices.devices_page'))
 
 
 @pages_bp.route('/config-backups')
 @login_required
 def config_backups():
-    """Redirect old config-backups URL to snapshots."""
-    return redirect(url_for('pages.snapshots'))
+    """Redirect old config-backups URL to unified devices page."""
+    return redirect(url_for('devices.devices_page'))
 
 
 @pages_bp.route('/platform')

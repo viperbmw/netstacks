@@ -17,6 +17,7 @@ from .mpls import MPLSAgent
 from .automation import AutomationAgent
 from .documentation import DocumentationAgent
 from .general import GeneralAgent
+from .assistant import AssistantAgent
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
     'automation': AutomationAgent,
     'documentation': DocumentationAgent,
     'general': GeneralAgent,
+    'assistant': AssistantAgent,
 }
 
 
