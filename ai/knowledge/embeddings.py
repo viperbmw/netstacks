@@ -28,7 +28,7 @@ def get_openai_api_key() -> Optional[str]:
     # Try database
     try:
         import database as db
-        from models import SystemSetting
+        from shared.netstacks_core.db.models import SystemSetting
 
         with db.get_db() as session:
             setting = session.query(SystemSetting).filter(

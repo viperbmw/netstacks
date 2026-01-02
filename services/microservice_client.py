@@ -2,7 +2,8 @@
 Microservice Client
 
 HTTP client for calling microservices with JWT authentication.
-Manages token storage in Flask session and handles token refresh.
+For JWT-only auth, tokens are passed via Authorization headers from the frontend.
+This client forwards the incoming JWT for server-to-server calls.
 """
 
 import os
@@ -12,7 +13,7 @@ from typing import Optional, Dict, Any, Tuple
 from functools import wraps
 
 import requests
-from flask import session, current_app
+from flask import request, current_app
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', 'http://auth:8011')
 DEVICES_SERVICE_URL = os.environ.get('DEVICES_SERVICE_URL', 'http://devices:8004')
 CONFIG_SERVICE_URL = os.environ.get('CONFIG_SERVICE_URL', 'http://config:8002')
 AI_SERVICE_URL = os.environ.get('AI_SERVICE_URL', 'http://ai:8003')
+TASKS_SERVICE_URL = os.environ.get('TASKS_SERVICE_URL', 'http://tasks:8006')
 
 # Request timeout in seconds (short timeout since we fall back to local auth)
 REQUEST_TIMEOUT = 2
@@ -31,97 +33,52 @@ class MicroserviceClient:
     HTTP client for calling microservices with JWT authentication.
 
     Handles:
-    - Token storage in Flask session
-    - Automatic token refresh when expired
+    - Forwarding JWT from incoming request Authorization header
     - Service URL routing
     - Error handling and logging
+
+    For JWT-only auth, tokens come from the frontend via Authorization headers.
+    This client forwards that token for server-to-server microservice calls.
     """
 
     def __init__(self):
         self.timeout = REQUEST_TIMEOUT
+        self._login_tokens = {}  # Temporary storage for login flow
 
     @staticmethod
     def get_jwt_token() -> Optional[str]:
-        """Get current JWT access token from session."""
-        return session.get('jwt_access_token')
+        """Get JWT token from incoming request Authorization header."""
+        try:
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                return auth_header[7:]
+        except RuntimeError:
+            # Outside request context
+            pass
+        return None
 
     @staticmethod
     def get_refresh_token() -> Optional[str]:
-        """Get current JWT refresh token from session."""
-        return session.get('jwt_refresh_token')
+        """Get refresh token - not available in JWT-only mode."""
+        # In JWT-only mode, refresh tokens are handled by the frontend
+        return None
 
-    @staticmethod
-    def is_token_expired() -> bool:
-        """Check if the current token is expired or about to expire."""
-        expires_at = session.get('jwt_expires_at')
-        if not expires_at:
-            return True
-
-        try:
-            # Parse the expiration time
-            if isinstance(expires_at, str):
-                exp_time = datetime.fromisoformat(expires_at)
-            else:
-                exp_time = expires_at
-
-            # Consider expired if within 60 seconds of expiry
-            return datetime.utcnow() >= (exp_time - timedelta(seconds=60))
-        except Exception as e:
-            log.warning(f"Error checking token expiration: {e}")
-            return True
-
-    @staticmethod
-    def store_tokens(access_token: str, refresh_token: str, expires_in: int):
-        """Store JWT tokens in Flask session."""
-        session['jwt_access_token'] = access_token
-        session['jwt_refresh_token'] = refresh_token
-        session['jwt_expires_at'] = (
-            datetime.utcnow() + timedelta(seconds=expires_in)
-        ).isoformat()
-        log.debug("JWT tokens stored in session")
-
-    @staticmethod
-    def clear_tokens():
-        """Clear JWT tokens from session."""
-        session.pop('jwt_access_token', None)
-        session.pop('jwt_refresh_token', None)
-        session.pop('jwt_expires_at', None)
-        log.debug("JWT tokens cleared from session")
-
-    def refresh_access_token(self) -> bool:
+    def store_tokens(self, access_token: str, refresh_token: str, expires_in: int):
         """
-        Refresh the access token using the refresh token.
-
-        Returns:
-            True if refresh was successful, False otherwise
+        Temporarily store tokens from login response.
+        These are returned to the frontend which stores them in localStorage.
         """
-        refresh_token = self.get_refresh_token()
-        if not refresh_token:
-            log.warning("No refresh token available")
-            return False
+        self._login_tokens = {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'expires_in': expires_in
+        }
+        log.debug("JWT tokens stored temporarily for login response")
 
-        try:
-            response = requests.post(
-                f"{AUTH_SERVICE_URL}/api/auth/refresh",
-                json={"refresh_token": refresh_token},
-                timeout=self.timeout
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                session['jwt_access_token'] = data['access_token']
-                session['jwt_expires_at'] = (
-                    datetime.utcnow() + timedelta(seconds=data.get('expires_in', 1800))
-                ).isoformat()
-                log.info("JWT access token refreshed successfully")
-                return True
-            else:
-                log.warning(f"Token refresh failed: {response.status_code}")
-                return False
-
-        except Exception as e:
-            log.error(f"Error refreshing token: {e}")
-            return False
+    def clear_tokens(self):
+        """Clear temporary token storage."""
+        self._login_tokens = {}
+        log.debug("JWT tokens cleared")
 
     def _get_headers(self, include_auth: bool = True) -> Dict[str, str]:
         """Get request headers with optional JWT authentication."""
@@ -138,21 +95,16 @@ class MicroserviceClient:
         return headers
 
     def _ensure_valid_token(self) -> bool:
-        """Ensure we have a valid token, refreshing if necessary."""
-        if not self.get_jwt_token():
-            return False
-
-        if self.is_token_expired():
-            return self.refresh_access_token()
-
-        return True
+        """Check if we have a valid token from the incoming request."""
+        # In JWT-only mode, we just check if a token was provided
+        # Token refresh is handled by the frontend
+        return self.get_jwt_token() is not None
 
     def _make_request(
         self,
         method: str,
         url: str,
         include_auth: bool = True,
-        retry_on_401: bool = True,
         extra_headers: Dict[str, str] = None,
         **kwargs
     ) -> Tuple[Optional[requests.Response], Optional[str]]:
@@ -165,13 +117,14 @@ class MicroserviceClient:
         # Check if Authorization is provided via extra_headers (from proxy)
         has_proxy_auth = extra_headers and 'Authorization' in extra_headers
 
-        # Only check session token if no proxy auth provided
+        # For JWT-only auth, we forward the token from incoming request
+        # If no token and auth required, return error
         if include_auth and not has_proxy_auth and not self._ensure_valid_token():
             return None, "No valid authentication token"
 
         headers = self._get_headers(include_auth and not has_proxy_auth)
 
-        # Apply extra headers (these override session-based auth if present)
+        # Apply extra headers (these override incoming auth if present)
         if extra_headers:
             headers.update(extra_headers)
 
@@ -180,15 +133,8 @@ class MicroserviceClient:
 
         try:
             response = requests.request(method, url, **kwargs)
-
-            # Handle 401 by trying to refresh token and retry
-            if response.status_code == 401 and retry_on_401 and include_auth:
-                if self.refresh_access_token():
-                    # Retry with new token
-                    headers['Authorization'] = f'Bearer {self.get_jwt_token()}'
-                    kwargs['headers'] = headers
-                    response = requests.request(method, url, **kwargs)
-
+            # In JWT-only mode, 401 responses are returned to frontend
+            # Frontend handles token refresh via its own refresh endpoint
             return response, None
 
         except requests.exceptions.Timeout:
@@ -313,6 +259,32 @@ class MicroserviceClient:
         return self._make_request(method, url, extra_headers=extra_headers, **kwargs)
 
     # ========================================================================
+    # Tasks Service Methods
+    # ========================================================================
+
+    def call_tasks(
+        self,
+        method: str,
+        path: str,
+        extra_headers: Dict[str, str] = None,
+        **kwargs
+    ) -> Tuple[Optional[requests.Response], Optional[str]]:
+        """
+        Call tasks microservice.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE)
+            path: API path (e.g., '/api/tasks')
+            extra_headers: Additional headers to include (e.g., Authorization from proxy)
+            **kwargs: Additional request arguments
+
+        Returns:
+            Tuple of (response, error_message)
+        """
+        url = f"{TASKS_SERVICE_URL}{path}"
+        return self._make_request(method, url, extra_headers=extra_headers, **kwargs)
+
+    # ========================================================================
     # Health Check Methods
     # ========================================================================
 
@@ -331,6 +303,7 @@ class MicroserviceClient:
             'devices': f"{DEVICES_SERVICE_URL}/health",
             'config': f"{CONFIG_SERVICE_URL}/health",
             'ai': f"{AI_SERVICE_URL}/health",
+            'tasks': f"{TASKS_SERVICE_URL}/health",
         }
 
         url = url_map.get(service)
@@ -384,7 +357,7 @@ class MicroserviceClient:
             results['flask'] = self._check_flask_health()
         else:
             # Microservices mode - check external services
-            for service in ['auth', 'devices', 'config', 'ai']:
+            for service in ['auth', 'devices', 'config', 'ai', 'tasks']:
                 results[service] = self.check_service_health(service)
 
         # Check Redis

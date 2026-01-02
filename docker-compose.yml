@@ -30,6 +30,7 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       - TZ=${TZ:-America/New_York}
+      - NETSTACKS_DEV_MODE=${NETSTACKS_DEV_MODE:-false}
     networks:
       - netstacks-network
     depends_on:
@@ -59,6 +60,7 @@ services:
       - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
       - TZ=${TZ:-America/New_York}
+      - NETSTACKS_DEV_MODE=${NETSTACKS_DEV_MODE:-false}
     networks:
       - netstacks-network
     depends_on:
@@ -73,7 +75,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.devices.rule=(PathPrefix(`/api/devices`) && !PathPrefix(`/api/devices/bulk`)) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`)"
+      - "traefik.http.routers.devices.rule=(PathPrefix(`/api/devices`) && !PathPrefix(`/api/devices/bulk`)) || PathPrefix(`/api/device/`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`) || PathPrefix(`/api/config-backups`) || PathPrefix(`/api/backup-schedule`)"
       - "traefik.http.routers.devices.entrypoints=web"
       - "traefik.http.routers.devices.priority=10"
       - "traefik.http.services.devices.loadbalancer.server.port=8004"
@@ -88,6 +90,7 @@ services:
       - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
       - TZ=${TZ:-America/New_York}
+      - NETSTACKS_DEV_MODE=${NETSTACKS_DEV_MODE:-false}
     networks:
       - netstacks-network
     depends_on:
@@ -107,6 +110,41 @@ services:
       - "traefik.http.routers.config.priority=10"
       - "traefik.http.services.config.loadbalancer.server.port=8002"
 
+  # Tasks Service (Microservice) - Celery task management
+  tasks:
+    build:
+      context: .
+      dockerfile: services/tasks/Dockerfile
+    container_name: netstacks-tasks
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
+      - DEVICES_SERVICE_URL=http://devices:8004
+      - AUTH_SERVICE_URL=http://auth:8011
+      - CONFIG_SERVICE_URL=http://config:8002
+      - TZ=${TZ:-America/New_York}
+      - NETSTACKS_DEV_MODE=${NETSTACKS_DEV_MODE:-false}
+    networks:
+      - netstacks-network
+    depends_on:
+      - redis
+      - devices
+      - config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tasks.rule=PathPrefix(`/api/tasks`) || PathPrefix(`/api/workers`) || PathPrefix(`/api/celery`) || PathPrefix(`/api/devices/bulk`)"
+      - "traefik.http.routers.tasks.entrypoints=web"
+      - "traefik.http.routers.tasks.priority=10"
+      - "traefik.http.services.tasks.loadbalancer.server.port=8006"
+
   # AI Service (Microservice)
   ai:
     build:
@@ -118,6 +156,7 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-netstacks-dev-secret-change-in-production}
       - REDIS_URL=redis://redis:6379/0
       - TZ=${TZ:-America/New_York}
+      - NETSTACKS_DEV_MODE=${NETSTACKS_DEV_MODE:-false}
     networks:
       - netstacks-network
     depends_on:
@@ -134,52 +173,35 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ai.rule=PathPrefix(`/api/agents`) || PathPrefix(`/api/alerts`) || PathPrefix(`/api/incidents`) || PathPrefix(`/api/knowledge`)"
+      - "traefik.http.routers.ai.rule=PathPrefix(`/api/agents`) || PathPrefix(`/api/alerts`) || PathPrefix(`/api/incidents`) || PathPrefix(`/api/knowledge`) || PathPrefix(`/api/approvals`) || PathPrefix(`/api/sessions`) || PathPrefix(`/api/llm`) || PathPrefix(`/api/webhooks`)"
       - "traefik.http.routers.ai.entrypoints=web"
       - "traefik.http.routers.ai.priority=10"
       - "traefik.http.services.ai.loadbalancer.server.port=8003"
 
-  # NetStacks Web UI (Frontend + API) - Legacy monolith
-  netstacks:
+  # Frontend Service (Static HTML/JS/CSS)
+  frontend:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: netstacks
+      dockerfile: services/frontend/Dockerfile
+    container_name: netstacks-frontend
     environment:
-      # Security Configuration
-      - SECRET_KEY=${SECRET_KEY:-a1f4a6308d52837fd4fe48ad3ce9dc9c3fe0f6f58763541678edd725b981f589}
-      - NETSTACKS_ENCRYPTION_KEY=${NETSTACKS_ENCRYPTION_KEY:-10110c186f250177264c5498dc3ebd7efaffd40021aa6bc73ac871af5a30b871}
-      # Database Configuration
-      - DB_FILE=/data/netstacks.db
-      - DATABASE_URL=postgresql://netstacks:${POSTGRES_PASSWORD:-netstacks_secret_change_me}@postgres:5432/netstacks
-      - USE_POSTGRES=${USE_POSTGRES:-true}
-      # Celery Configuration
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      # Microservice URLs (for internal proxy)
-      - AUTH_SERVICE_URL=http://auth:8011
-      - DEVICES_SERVICE_URL=http://devices:8004
-      - CONFIG_SERVICE_URL=http://config:8002
-      - AI_SERVICE_URL=http://ai:8003
-      # Timezone Configuration
       - TZ=${TZ:-America/New_York}
-    # No external port - all traffic goes through Traefik on port 80
-    volumes:
-      - netstacks-data:/data
-      - /etc/localtime:/etc/localtime:ro
     networks:
       - netstacks-network
-    depends_on:
-      - redis
-      - postgres
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8020/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     labels:
       - "traefik.enable=true"
-      # Legacy monolith catches all remaining routes (lowest priority)
-      - "traefik.http.routers.netstacks.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.netstacks.entrypoints=web"
-      - "traefik.http.routers.netstacks.priority=1"
-      - "traefik.http.services.netstacks.loadbalancer.server.port=8088"
+      # Frontend serves all page routes and static files (lowest priority, catches all)
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8020"
 
   # Workers Service (Microservice) - Celery Worker
   workers:
@@ -255,6 +277,5 @@ networks:
     name: netstacks-network
 
 volumes:
-  netstacks-data:
   postgres-data:
   redis-data:

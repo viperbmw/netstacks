@@ -1756,7 +1756,7 @@ function validateService(serviceId, useLive = false) {
  */
 function pollValidationTask(taskId) {
     const pollInterval = setInterval(function() {
-        $.get('/api/task/' + taskId + '/status')
+        $.get('/api/tasks/' + taskId + '/status')
             .done(function(data) {
                 if (data.status === 'SUCCESS' || data.status === 'success') {
                     clearInterval(pollInterval);
@@ -3270,7 +3270,7 @@ function fetchApiVariable(varName, apiConfig) {
     if (apiResourcesCache.length === 0) {
         // Fetch resources synchronously
         $.ajax({
-            url: '/api/api-resources',
+            url: '/api/settings/api-resources',
             method: 'GET',
             async: false,
             success: function(response) {
@@ -3389,7 +3389,7 @@ function fetchApiVariablePerDevice(varName, apiConfig, deviceInstanceId, deviceN
     if (apiResourcesCache.length === 0) {
         // Fetch resources synchronously
         $.ajax({
-            url: '/api/api-resources',
+            url: '/api/settings/api-resources',
             method: 'GET',
             async: false,
             success: function(response) {
@@ -3564,7 +3564,7 @@ function fetchApiVariableShared(varName, apiConfig) {
     if (apiResourcesCache.length === 0) {
         // Fetch resources synchronously
         $.ajax({
-            url: '/api/api-resources',
+            url: '/api/settings/api-resources',
             method: 'GET',
             async: false,
             success: function(response) {
@@ -3672,7 +3672,7 @@ let perDeviceVariables = []; // List of variables that should be collected per-d
  * Load API resources from backend
  */
 function loadApiResources() {
-    $.get('/api/api-resources')
+    $.get('/api/settings/api-resources')
         .done(function(response) {
             if (response.success) {
                 apiResourcesCache = response.resources;

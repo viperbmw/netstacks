@@ -146,14 +146,8 @@ def create_default_user():
         log.error(f"Error creating default user: {e}")
 
 
-def login_required(f):
-    """Decorator to require login for routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            return redirect(url_for('auth.login'))
-        return f(*args, **kwargs)
-    return decorated_function
+# Import login_required from routes.auth to use JWT-only authentication
+from routes.auth import login_required, get_current_user
 
 
 # Initialize default user on startup
@@ -735,7 +729,7 @@ def run_single_device_backup():
             device_platform=device_info['device_info'].get('platform'),
             juniper_set_format=juniper_set_format,
             snapshot_id=None,  # Single backup, not part of snapshot
-            created_by=session.get('username', 'system')
+            created_by=get_current_user()
         )
 
         if task_id:
@@ -805,7 +799,7 @@ def run_all_device_backups():
             'description': data.get('description'),
             'snapshot_type': data.get('snapshot_type', 'manual'),
             'total_devices': len(devices),
-            'created_by': session.get('username', 'system')
+            'created_by': get_current_user()
         })
         log.info(f"Created snapshot {snapshot_id} for {len(devices)} devices")
 
@@ -814,7 +808,7 @@ def run_all_device_backups():
         submitted = []
         failed = []
 
-        created_by = session.get('username', 'system')
+        created_by = get_current_user()
         for device in devices:
             device_name = device.get('name')
             try:
@@ -879,7 +873,7 @@ def run_selected_device_backups():
         from services.device_service import get_device_connection_info as get_conn_info
         submitted = []
         failed = []
-        created_by = session.get('username', 'system')
+        created_by = get_current_user()
 
         for device_name in device_names:
             try:
@@ -3110,10 +3104,10 @@ def validate_service_stack(stack_id):
                 ctx.push()
 
                 try:
-                    # Set up session for authentication (bypass @login_required)
-                    from flask import session as flask_session
-                    flask_session['username'] = session.get('username')
-                    log.info(f"Set session username to: {flask_session.get('username')}")
+                    # Set up JWT user in request context for authentication
+                    from flask import request as flask_request
+                    flask_request.jwt_user = get_current_user()
+                    log.info(f"Set request jwt_user to: {flask_request.jwt_user}")
 
                     # Call the service validation function directly
                     log.info(f"Calling validate_service_instance for {service_id}")
@@ -3236,7 +3230,7 @@ def create_scheduled_config_operation():
             return jsonify({'success': False, 'error': 'Invalid schedule_type'}), 400
 
         schedule_id = str(uuid.uuid4())
-        username = session.get('username')
+        username = get_current_user()
 
         # Calculate next_run time
         now = dt.now()
@@ -3366,7 +3360,7 @@ def execute_mop_api(mop_id):
                 INSERT INTO mop_executions
                 (execution_id, mop_id, status, started_at, started_by)
                 VALUES (:execution_id, :mop_id, 'running', CURRENT_TIMESTAMP, :started_by)
-            '''), {'execution_id': execution_id, 'mop_id': mop_id, 'started_by': session.get('username')})
+            '''), {'execution_id': execution_id, 'mop_id': mop_id, 'started_by': get_current_user()})
 
         # Execute MOP asynchronously
         def run_mop():

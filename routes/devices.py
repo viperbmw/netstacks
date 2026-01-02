@@ -5,10 +5,10 @@ Device management, Netbox sync, manual devices, device overrides
 Device routes proxy to devices microservice (devices:8004)
 """
 
-from flask import Blueprint, jsonify, request, render_template, session
+from flask import Blueprint, jsonify, request, render_template
 import logging
 
-from routes.auth import login_required
+from routes.auth import login_required, get_current_user
 from services.proxy import proxy_devices_request
 from utils.responses import success_response, error_response
 from utils.decorators import handle_exceptions, require_json
@@ -625,8 +625,8 @@ def bulk_backup_devices():
         if not connection_args.get('username') or not connection_args.get('password'):
             continue
 
-        # Get username from session or JWT
-        username = session.get('username') or getattr(request, 'jwt_user', 'unknown')
+        # Get username from JWT
+        username = get_current_user()
 
         task_id = celery_device_service.execute_backup(
             connection_args=connection_args,

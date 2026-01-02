@@ -36,6 +36,10 @@
     document.addEventListener('DOMContentLoaded', initAssistant);
 
     function initAssistant() {
+        // AI Assistant disabled - WebSocket server not implemented yet
+        console.log('AI Assistant disabled (WebSocket server not available)');
+        return;
+
         // Check if assistant is enabled before initializing
         checkAssistantEnabled().then(function(enabled) {
             if (!enabled) {
@@ -71,20 +75,20 @@
 
     // Check if the assistant is enabled in settings
     function checkAssistantEnabled() {
-        return fetch('/api/assistant/config')
-            .then(function(response) {
-                return response.json();
-            })
-            .then(function(data) {
-                if (data.config) {
-                    return data.config.enabled === true || data.config.enabled === 'true';
-                }
-                return false;
-            })
-            .catch(function(error) {
-                console.warn('Could not check assistant config:', error);
-                return false;
-            });
+        return new Promise(function(resolve) {
+            $.get('/api/settings/assistant/config')
+                .done(function(data) {
+                    if (data.config) {
+                        resolve(data.config.enabled === true || data.config.enabled === 'true');
+                    } else {
+                        resolve(false);
+                    }
+                })
+                .fail(function(error) {
+                    console.warn('Could not check assistant config:', error);
+                    resolve(false);
+                });
+        });
     }
 
     function injectSidebarHTML() {

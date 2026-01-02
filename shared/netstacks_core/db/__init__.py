@@ -29,6 +29,7 @@ from .models import (
     ConfigBackup,
     BackupSchedule,
     DeviceOverride,
+    LLMProvider,
     Agent,
     AgentSession,
     AgentMessage,
@@ -40,6 +41,7 @@ from .models import (
     AlertSource,
     Alert,
     Incident,
+    PendingApproval,
     DEFAULT_STEP_TYPES,
     DEFAULT_MENU_ITEMS,
 )
@@ -78,6 +80,7 @@ __all__ = [
     "BackupSchedule",
     "DeviceOverride",
     # AI Models
+    "LLMProvider",
     "Agent",
     "AgentSession",
     "AgentMessage",
@@ -89,6 +92,7 @@ __all__ = [
     "AlertSource",
     "Alert",
     "Incident",
+    "PendingApproval",
     # Defaults
     "DEFAULT_STEP_TYPES",
     "DEFAULT_MENU_ITEMS",

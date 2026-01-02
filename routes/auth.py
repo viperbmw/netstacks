@@ -35,32 +35,29 @@ def login_required(f):
     """
     Decorator to require login for routes.
 
-    Supports both:
-    - Flask session-based auth (for browser sessions)
-    - JWT token auth via Authorization header (for API calls)
+    Uses JWT-only authentication via Authorization header.
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Check Flask session first
-        if 'username' in session:
-            return f(*args, **kwargs)
+        import jwt
+        import os
 
         # Check for JWT token in Authorization header
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
             token = auth_header[7:]
             if token:
-                # Validate JWT token via auth microservice
                 try:
-                    import jwt
-                    import os
                     secret = os.environ.get('JWT_SECRET_KEY', 'netstacks-dev-secret-change-in-production')
                     payload = jwt.decode(token, secret, algorithms=['HS256'])
                     # Token is valid - set username in request context
                     request.jwt_user = payload.get('sub')
+                    request.jwt_payload = payload
                     return f(*args, **kwargs)
                 except jwt.ExpiredSignatureError:
                     log.warning("JWT token expired")
+                    if request.path.startswith('/api/'):
+                        return jsonify({'error': 'Token expired', 'code': 'TOKEN_EXPIRED'}), 401
                 except jwt.InvalidTokenError as e:
                     log.warning(f"Invalid JWT token: {e}")
 
@@ -71,6 +68,11 @@ def login_required(f):
     return decorated_function
 
 
+def get_current_user():
+    """Get the current authenticated user from JWT or return 'unknown'."""
+    return getattr(request, 'jwt_user', None) or 'unknown'
+
+
 # ============================================================================
 # Login/Logout Routes
 # ============================================================================
@@ -79,10 +81,6 @@ def login_required(f):
 def login():
     """Login page and form handler."""
     if request.method == 'GET':
-        # If already logged in, redirect to dashboard
-        if 'username' in session:
-            return redirect(url_for('pages.index'))
-
         # Check if OIDC is enabled for SSO button
         auth_configs = auth_config_service.get_enabled_configs()
         oidc_enabled = any(
@@ -106,13 +104,7 @@ def login():
 
     jwt_tokens = None
     if ms_success:
-        # Login successful via microservice - JWT tokens stored in session
-        session['username'] = username
-        session['auth_method'] = ms_user_info.get('auth_method', 'local') if ms_user_info else 'local'
-        session['login_time'] = datetime.now().isoformat()
-        if ms_user_info:
-            session['user_info'] = ms_user_info
-        # Get JWT tokens from session to pass to frontend
+        # Login successful via microservice - get JWT tokens
         jwt_tokens = {
             'access_token': microservice_client.get_jwt_token(),
             'refresh_token': microservice_client.get_refresh_token(),
@@ -131,17 +123,39 @@ def login():
                 error='Invalid username or password'
             )
 
-        # Login successful - create session
-        session['username'] = username
-        session['auth_method'] = auth_method
-        session['login_time'] = datetime.now().isoformat()
+        # Login successful via local auth - generate JWT tokens locally
+        import jwt as pyjwt
+        import os
+        from datetime import timedelta
 
-        if user_info:
-            session['user_info'] = user_info
+        secret = os.environ.get('JWT_SECRET_KEY', 'netstacks-dev-secret-change-in-production')
+        now = datetime.utcnow()
+        access_expires = now + timedelta(minutes=30)
+        refresh_expires = now + timedelta(days=7)
 
+        access_token = pyjwt.encode({
+            'sub': username,
+            'iat': now,
+            'exp': access_expires,
+            'type': 'access',
+            'auth_method': auth_method
+        }, secret, algorithm='HS256')
+
+        refresh_token = pyjwt.encode({
+            'sub': username,
+            'iat': now,
+            'exp': refresh_expires,
+            'type': 'refresh'
+        }, secret, algorithm='HS256')
+
+        jwt_tokens = {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'expires_in': 1800
+        }
         log.info(f"User {username} logged in successfully via local {auth_method}")
 
-    # If we have JWT tokens, render a page that stores them and redirects
+    # Always return JWT tokens via redirect page (stores in localStorage)
     if jwt_tokens and jwt_tokens.get('access_token'):
         return render_template(
             'login_redirect.html',
@@ -149,16 +163,20 @@ def login():
             redirect_url=url_for('pages.index')
         )
 
-    # Redirect to dashboard
-    return redirect(url_for('pages.index'))
+    # Fallback if no tokens (shouldn't happen)
+    return render_template('login.html', error='Authentication failed')
 
 
 @auth_bp.route('/logout')
 def logout():
-    """Logout and clear session."""
-    username = session.get('username', 'unknown')
-    microservice_client.clear_tokens()
-    session.clear()
+    """
+    Logout endpoint.
+
+    For JWT-only auth, the frontend clears localStorage tokens.
+    This endpoint just redirects to login page and logs the action.
+    """
+    # Try to get username from JWT if available
+    username = get_current_user()
     log.info(f"User {username} logged out")
     return redirect(url_for('auth.login'))
 
@@ -252,19 +270,49 @@ def login_oidc_callback():
 
         username = user_info['username']
 
-        # Login successful - create session
-        session['username'] = username
-        session['auth_method'] = 'oidc'
-        session['login_time'] = datetime.now().isoformat()
-        session['user_info'] = user_info
+        # Login successful - generate JWT tokens
+        import jwt as pyjwt
+        import os
+        from datetime import timedelta
+
+        secret = os.environ.get('JWT_SECRET_KEY', 'netstacks-dev-secret-change-in-production')
+        now = datetime.utcnow()
+        access_expires = now + timedelta(minutes=30)
+        refresh_expires = now + timedelta(days=7)
+
+        access_token = pyjwt.encode({
+            'sub': username,
+            'iat': now,
+            'exp': access_expires,
+            'type': 'access',
+            'auth_method': 'oidc'
+        }, secret, algorithm='HS256')
+
+        refresh_token = pyjwt.encode({
+            'sub': username,
+            'iat': now,
+            'exp': refresh_expires,
+            'type': 'refresh'
+        }, secret, algorithm='HS256')
+
+        jwt_tokens = {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'expires_in': 1800
+        }
 
         log.info(f"User {username} logged in successfully via OIDC")
 
-        # Redirect to original destination or dashboard
+        # Get redirect URL (stored before OIDC flow started)
         redirect_url = session.pop('oidc_redirect', url_for('pages.index'))
         session.pop('oidc_state', None)
 
-        return redirect(redirect_url)
+        # Return JWT tokens via redirect page (stores in localStorage)
+        return render_template(
+            'login_redirect.html',
+            jwt_tokens=jwt_tokens,
+            redirect_url=redirect_url
+        )
 
     except Exception as e:
         log.error(f"Error processing OIDC callback: {e}", exc_info=True)
@@ -272,6 +320,69 @@ def login_oidc_callback():
             'login.html',
             error='SSO authentication failed'
         )
+
+
+# ============================================================================
+# Token Refresh API
+# ============================================================================
+
+@auth_bp.route('/api/auth/refresh', methods=['POST'])
+@require_json
+def refresh_token():
+    """
+    Refresh JWT access token using a refresh token.
+
+    Expected JSON body:
+    {
+        "refresh_token": "jwt-refresh-token"
+    }
+    """
+    import jwt as pyjwt
+    import os
+    from datetime import timedelta
+
+    data = request.get_json()
+    refresh_token = data.get('refresh_token')
+
+    if not refresh_token:
+        return jsonify({'error': 'Refresh token required'}), 400
+
+    try:
+        secret = os.environ.get('JWT_SECRET_KEY', 'netstacks-dev-secret-change-in-production')
+        payload = pyjwt.decode(refresh_token, secret, algorithms=['HS256'])
+
+        # Verify it's a refresh token
+        if payload.get('type') != 'refresh':
+            return jsonify({'error': 'Invalid token type'}), 400
+
+        username = payload.get('sub')
+        if not username:
+            return jsonify({'error': 'Invalid token'}), 400
+
+        # Generate new access token
+        now = datetime.utcnow()
+        access_expires = now + timedelta(minutes=30)
+
+        access_token = pyjwt.encode({
+            'sub': username,
+            'iat': now,
+            'exp': access_expires,
+            'type': 'access'
+        }, secret, algorithm='HS256')
+
+        log.info(f"Access token refreshed for user {username}")
+
+        return jsonify({
+            'access_token': access_token,
+            'expires_in': 1800
+        })
+
+    except pyjwt.ExpiredSignatureError:
+        log.warning("Refresh token expired")
+        return jsonify({'error': 'Refresh token expired'}), 401
+    except pyjwt.InvalidTokenError as e:
+        log.warning(f"Invalid refresh token: {e}")
+        return jsonify({'error': 'Invalid refresh token'}), 401
 
 
 # ============================================================================

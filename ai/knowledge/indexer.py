@@ -25,7 +25,7 @@ def index_document(doc_id: str) -> bool:
     """
     try:
         import database as db
-        from models import KnowledgeDocument, KnowledgeEmbedding
+        from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeEmbedding
 
         with db.get_db() as session:
             # Get document
@@ -94,7 +94,7 @@ def reindex_collection(collection_id: int) -> dict:
     """
     try:
         import database as db
-        from models import KnowledgeDocument, KnowledgeEmbedding
+        from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeEmbedding
 
         results = {
             'total': 0,

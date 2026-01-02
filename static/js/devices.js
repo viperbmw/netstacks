@@ -1340,7 +1340,7 @@ function pollConnectivityTest(taskId, deviceName, $btn, originalHtml) {
     const pollInterval = setInterval(function() {
         pollCount++;
 
-        $.get(`/api/task/${taskId}`)
+        $.get(`/api/tasks/${taskId}`)
             .done(function(response) {
                 const status = response.data?.task_status || response.status;
 
@@ -1423,7 +1423,7 @@ function pollBulkConnectivityTest(taskId, deviceName, callback) {
     const pollInterval = setInterval(function() {
         pollCount++;
 
-        $.get(`/api/task/${taskId}`)
+        $.get(`/api/tasks/${taskId}`)
             .done(function(response) {
                 const status = response.data?.task_status || response.status;
 

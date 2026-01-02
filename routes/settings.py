@@ -10,7 +10,7 @@ import logging
 import json
 
 import database as db
-from models import Setting, LLMProvider
+from shared.netstacks_core.db.models import Setting, LLMProvider
 from routes.auth import login_required
 from services.proxy import proxy_auth_request
 from utils.responses import success_response, error_response
@@ -181,7 +181,7 @@ def list_llm_providers():
                         'id': p.id,
                         'name': p.name,
                         'display_name': p.display_name,
-                        'base_url': p.base_url,
+                        'api_base_url': p.api_base_url,
                         'default_model': p.default_model,
                         'available_models': p.available_models or [],
                         'is_enabled': p.is_enabled,
@@ -221,8 +221,8 @@ def configure_llm_provider():
                     provider.api_key = data['api_key']
                 if 'display_name' in data:
                     provider.display_name = data['display_name']
-                if 'base_url' in data:
-                    provider.base_url = data['base_url']
+                if 'api_base_url' in data:
+                    provider.api_base_url = data['api_base_url']
                 if 'default_model' in data:
                     provider.default_model = data['default_model']
                 if 'available_models' in data:

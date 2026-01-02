@@ -59,7 +59,7 @@ This is the first tool to use when asked about device inventory or how many devi
         """List devices from inventory"""
         try:
             import database as db
-            from models import Device
+            from shared.netstacks_core.db.models import Device
 
             with db.get_db() as session:
                 query = session.query(Device)
@@ -214,7 +214,7 @@ Use this to gather information about device state, configuration, routing tables
         """Get device info from database"""
         try:
             import database as db
-            from models import Device
+            from shared.netstacks_core.db.models import Device
 
             with db.get_db() as session:
                 device = session.query(Device).filter(
@@ -242,7 +242,7 @@ Use this to gather information about device state, configuration, routing tables
         """Build Netmiko connection arguments from device info"""
         try:
             import database as db
-            from models import DefaultCredential
+            from shared.netstacks_core.db.models import DefaultCredential
 
             # Use device-specific credentials if available
             username = device_info.get('username')
@@ -455,7 +455,7 @@ WARNING: This modifies device configuration - use with caution."""
         """Get device info from database (same as DeviceShowTool)"""
         try:
             import database as db
-            from models import Device
+            from shared.netstacks_core.db.models import Device
 
             with db.get_db() as session:
                 device = session.query(Device).filter(
@@ -483,7 +483,7 @@ WARNING: This modifies device configuration - use with caution."""
         """Build Netmiko connection arguments"""
         try:
             import database as db
-            from models import DefaultCredential
+            from shared.netstacks_core.db.models import DefaultCredential
 
             # Use device-specific credentials if available
             username = device_info.get('username')
@@ -523,7 +523,7 @@ WARNING: This modifies device configuration - use with caution."""
         """Get template content from database"""
         try:
             import database as db
-            from models import Template
+            from shared.netstacks_core.db.models import Template
 
             with db.get_db() as session:
                 template = session.query(Template).filter(
@@ -633,7 +633,7 @@ Use this when you need to gather multiple pieces of information from a device ef
         """Get device info from database"""
         try:
             import database as db
-            from models import Device
+            from shared.netstacks_core.db.models import Device
 
             with db.get_db() as session:
                 device = session.query(Device).filter(
@@ -661,7 +661,7 @@ Use this when you need to gather multiple pieces of information from a device ef
         """Build connection arguments"""
         try:
             import database as db
-            from models import DefaultCredential
+            from shared.netstacks_core.db.models import DefaultCredential
 
             # Use device-specific credentials if available
             username = device_info.get('username')

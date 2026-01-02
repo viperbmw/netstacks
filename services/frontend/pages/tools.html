@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools - NetStacks</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=4" rel="stylesheet">
+    <link href="/static/css/assistant.css?v=2" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-1">
+        <div class="container-fluid py-0">
+            <a class="navbar-brand brand-logo" href="/">
+                <span class="brand-icon">
+                    <i class="fas fa-layer-group"></i>
+                </span>
+                <span class="brand-text">NetStacks</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <!-- Operations Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-play-circle"></i> Operations
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/deploy"><i class="fas fa-rocket"></i> Deploy Config</a></li>
+                            <li><a class="dropdown-item" href="/monitor"><i class="fas fa-chart-line"></i> Monitor Jobs</a></li>
+                            <li><a class="dropdown-item" href="/mop"><i class="fas fa-list-check"></i> Procedures (MOP)</a></li>
+                        </ul>
+                    </li>
+                    <!-- Configuration Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cogs"></i> Configuration
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/devices"><i class="fas fa-server"></i> Devices & Snapshots</a></li>
+                            <li><a class="dropdown-item" href="/templates"><i class="fas fa-file-code"></i> Templates</a></li>
+                            <li><a class="dropdown-item" href="/service-stacks"><i class="fas fa-layer-group"></i> Service Stacks</a></li>
+                        </ul>
+                    </li>
+                    <!-- AI Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-brain"></i> AI
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/agents"><i class="fas fa-robot"></i> Agents</a></li>
+                            <li><a class="dropdown-item" href="/agents/chat"><i class="fas fa-comments"></i> Agent Chat</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/alerts"><i class="fas fa-bell"></i> Alerts</a></li>
+                            <li><a class="dropdown-item" href="/incidents"><i class="fas fa-exclamation-triangle"></i> Incidents</a></li>
+                            <li><a class="dropdown-item" href="/approvals"><i class="fas fa-shield-alt"></i> Approvals</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/knowledge"><i class="fas fa-book-open"></i> Knowledge</a></li>
+                            <li><a class="dropdown-item" href="/tools"><i class="fas fa-wrench"></i> Tools</a></li>
+                        </ul>
+                    </li>
+                    <!-- Settings Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i> Settings
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/admin"><i class="fas fa-users-cog"></i> Users & Auth</a></li>
+                            <li><a class="dropdown-item" href="/settings"><i class="fas fa-sliders-h"></i> System Settings</a></li>
+                            <li><a class="dropdown-item" href="/settings/ai"><i class="fas fa-brain"></i> AI Settings</a></li>
+                            <li><a class="dropdown-item" href="/platform"><i class="fas fa-heartbeat"></i> Platform Health</a></li>
+                            <li><a class="dropdown-item" href="/step-types"><i class="fas fa-puzzle-piece"></i> MOP Step Types</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/docs" target="_blank"><i class="fas fa-book"></i> NetStacks API</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link text-light">
+                            <i class="fas fa-user"></i> <span id="current-username">Loading...</span>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link text-light" id="system-time-container" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Loading...">
+                            <i class="fas fa-clock"></i>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="handleLogout(event)">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Page Content -->
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-wrench"></i> AI Tools
+        </h1>
+        <p class="text-muted">Manage tools available to AI agents</p>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="builtin">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Built-in Tools</h6>
+                            <h2 id="builtin-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-terminal fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="custom">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Custom Tools</h6>
+                            <h2 id="custom-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-puzzle-piece fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="mcp">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">MCP Servers</h6>
+                            <h2 id="mcp-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-plug fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="total">
+            <div class="card bg-secondary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Total Available</h6>
+                            <h2 id="total-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-tools fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<!-- Tool Categories Tabs -->
+<ul class="nav nav-tabs mb-3" id="toolTabs">
+    <li class="nav-item">
+        <a class="nav-link active" data-bs-toggle="tab" href="#builtin-tab">
+            <i class="fas fa-terminal"></i> Built-in Tools
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-bs-toggle="tab" href="#custom-tab">
+            <i class="fas fa-puzzle-piece"></i> Custom Tools
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-bs-toggle="tab" href="#mcp-tab">
+            <i class="fas fa-plug"></i> MCP Servers
+        </a>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Built-in Tools Tab -->
+    <div class="tab-pane fade show active" id="builtin-tab">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-terminal"></i> Built-in Tools</h5>
+                <input type="text" class="form-control form-control-sm" id="builtin-search" placeholder="Search..." style="width: 200px;">
+            </div>
+            <div class="card-body">
+                <div id="builtin-loading" class="text-center">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+                <div id="builtin-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>Description</th>
+                                    <th>Risk Level</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="builtin-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Tools Tab -->
+    <div class="tab-pane fade" id="custom-tab">
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <h6 class="mb-0"><i class="fas fa-plus"></i> Create Custom Tool</h6>
+                <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#create-tool-panel">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+            <div class="collapse" id="create-tool-panel">
+                <div class="card-body">
+                    <form id="create-tool-form">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label small">Tool Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm" id="tool-name" required pattern="[a-z_]+" title="lowercase with underscores">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Category</label>
+                                <select class="form-control form-control-sm" id="tool-category">
+                                    <option value="general">General</option>
+                                    <option value="network">Network</option>
+                                    <option value="device">Device</option>
+                                    <option value="monitoring">Monitoring</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Execution Type</label>
+                                <select class="form-control form-control-sm" id="tool-exec-type">
+                                    <option value="python">Python Function</option>
+                                    <option value="shell">Shell Script</option>
+                                    <option value="http">HTTP Request</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <label class="form-label small">Description <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm" id="tool-description" required>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small">Parameters (JSON Schema)</label>
+                                <textarea class="form-control form-control-sm font-monospace" id="tool-parameters" rows="6" placeholder='{"type": "object", "properties": {"param1": {"type": "string"}}}'></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Implementation</label>
+                                <textarea class="form-control form-control-sm font-monospace" id="tool-implementation" rows="6" placeholder="def execute(args):&#10;    return {'result': 'success'}"></textarea>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <button type="submit" class="btn btn-success btn-sm">
+                                <i class="fas fa-plus"></i> Create Tool
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-puzzle-piece"></i> Custom Tools</h5>
+                <button class="btn btn-sm btn-outline-primary" id="refresh-custom-btn">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="custom-loading" class="text-center">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+                <div id="custom-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>Type</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="custom-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="custom-empty" class="text-center text-muted py-4" style="display: none;">
+                    <i class="fas fa-puzzle-piece fa-3x mb-3"></i>
+                    <p>No custom tools defined. Create one above!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MCP Servers Tab -->
+    <div class="tab-pane fade" id="mcp-tab">
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <h6 class="mb-0"><i class="fas fa-plus"></i> Add MCP Server</h6>
+                <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#add-mcp-panel">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+            <div class="collapse" id="add-mcp-panel">
+                <div class="card-body">
+                    <form id="add-mcp-form">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label small">Server Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm" id="mcp-name" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Transport</label>
+                                <select class="form-control form-control-sm" id="mcp-transport">
+                                    <option value="stdio">Standard I/O</option>
+                                    <option value="http">HTTP</option>
+                                    <option value="websocket">WebSocket</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Endpoint/Command <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm" id="mcp-endpoint" required placeholder="npx -y @mcp/server">
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <label class="form-label small">Description</label>
+                                <input type="text" class="form-control form-control-sm" id="mcp-description" placeholder="What tools does this server provide?">
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <label class="form-label small">Environment Variables (JSON)</label>
+                                <textarea class="form-control form-control-sm font-monospace" id="mcp-env" rows="2" placeholder='{"API_KEY": "..."}'></textarea>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <button type="button" class="btn btn-secondary btn-sm me-2" id="test-mcp-btn">
+                                <i class="fas fa-plug"></i> Test Connection
+                            </button>
+                            <button type="submit" class="btn btn-success btn-sm">
+                                <i class="fas fa-plus"></i> Add Server
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-plug"></i> MCP Servers</h5>
+                <button class="btn btn-sm btn-outline-primary" id="refresh-mcp-btn">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="mcp-loading" class="text-center">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+                <div id="mcp-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Name</th>
+                                    <th>Transport</th>
+                                    <th>Endpoint</th>
+                                    <th>Tools</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mcp-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="mcp-empty" class="text-center text-muted py-4" style="display: none;">
+                    <i class="fas fa-plug fa-3x mb-3"></i>
+                    <p>No MCP servers configured. Add one above!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tool Details Modal -->
+<div class="modal fade" id="toolDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-wrench"></i> Tool Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Name:</strong><br>
+                        <code id="detail-name"></code>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Category:</strong><br>
+                        <span id="detail-category"></span>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <strong>Description:</strong><br>
+                    <p id="detail-description"></p>
+                </div>
+                <div class="mb-3">
+                    <strong>Risk Level:</strong><br>
+                    <span id="detail-risk"></span>
+                </div>
+                <div class="mb-3">
+                    <strong>Parameters:</strong>
+                    <pre id="detail-parameters" class="bg-body-tertiary p-2 rounded mt-1 small"></pre>
+                </div>
+                <div class="mb-3" id="detail-impl-section">
+                    <strong>Implementation:</strong>
+                    <pre id="detail-implementation" class="bg-body-tertiary p-2 rounded mt-1 small"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="form-check form-switch me-auto">
+                    <input class="form-check-input" type="checkbox" id="detail-enabled" checked>
+                    <label class="form-check-label" for="detail-enabled">Enabled</label>
+                </div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>        <!-- End Page Content -->
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="/static/js/api-client.js"></script>
+    <script src="/static/js/auth-guard.js"></script>
+    <script src="/static/js/timezone-utils.js"></script>
+    <script src="/static/js/task-manager.js"></script>
+    <script>
+        let systemTimezone = 'UTC';
+        let timezoneLoaded = false;
+
+        // Load system timezone asynchronously
+        async function loadSystemTimezone() {
+            try {
+                const response = await $.ajax({
+                    url: '/api/settings',
+                    method: 'GET'
+                });
+                if (response.success && response.settings.system_timezone) {
+                    systemTimezone = response.settings.system_timezone;
+                    console.log('System timezone loaded:', systemTimezone);
+                }
+            } catch (error) {
+                systemTimezone = 'UTC';
+                console.log('Failed to load system timezone, using UTC');
+            }
+            timezoneLoaded = true;
+        }
+
+        // Update system time tooltip every second
+        function updateSystemTime() {
+            const now = new Date();
+            let timeString;
+
+            try {
+                const options = {
+                    timeZone: systemTimezone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                const formatter = new Intl.DateTimeFormat('en-CA', options);
+                const parts = formatter.formatToParts(now);
+                const dateMap = {};
+                parts.forEach(part => {
+                    dateMap[part.type] = part.value;
+                });
+                timeString = `${dateMap.year}-${dateMap.month}-${dateMap.day} ${dateMap.hour}:${dateMap.minute}:${dateMap.second}`;
+
+                if (systemTimezone === 'UTC') {
+                    timeString += ' UTC';
+                } else {
+                    timeString += ` (${systemTimezone})`;
+                }
+            } catch (e) {
+                timeString = now.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+            }
+
+            const $container = $('#system-time-container');
+            $container.attr('data-bs-original-title', 'Server Time: ' + timeString);
+            $container.attr('title', 'Server Time: ' + timeString);
+        }
+
+        // Handle logout - clear JWT tokens and redirect
+        function handleLogout(event) {
+            event.preventDefault();
+            if (typeof NetStacksAPI !== 'undefined') {
+                NetStacksAPI.clearTokens();
+            } else {
+                localStorage.removeItem('netstacks_jwt_token');
+                localStorage.removeItem('netstacks_jwt_refresh');
+                localStorage.removeItem('netstacks_jwt_expiry');
+            }
+            window.location.href = '/logout';
+        }
+
+        // Initialize on page load
+        $(document).ready(async function() {
+            await loadSystemTimezone();
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            updateSystemTime();
+            setInterval(updateSystemTime, 1000);
+        });
+    </script>
+<script>
+$(document).ready(function() {
+    let builtinTools = [];
+    let customTools = [];
+    let mcpServers = [];
+
+    // Load all data
+    function loadData() {
+        loadBuiltinTools();
+        loadCustomTools();
+        loadMCPServers();
+    }
+
+    function loadBuiltinTools() {
+        $('#builtin-loading').show();
+        $('#builtin-container').hide();
+
+        $.ajax({
+            url: '/api/agents/tools',
+            method: 'GET',
+            success: function(response) {
+                builtinTools = response.tools || [];
+                renderBuiltinTools();
+                updateStats();
+            },
+            error: function(xhr) {
+                // If no API yet, show empty state
+                builtinTools = getDefaultTools();
+                renderBuiltinTools();
+                updateStats();
+            }
+        });
+    }
+
+    function getDefaultTools() {
+        // Default built-in tools for display
+        return [
+            { name: 'show_device_config', category: 'device', description: 'Get device running configuration', risk_level: 'low', enabled: true },
+            { name: 'execute_command', category: 'device', description: 'Execute a command on a device', risk_level: 'high', enabled: true },
+            { name: 'configure_device', category: 'device', description: 'Push configuration to a device', risk_level: 'critical', enabled: true },
+            { name: 'get_bgp_neighbors', category: 'network', description: 'Get BGP neighbor status', risk_level: 'low', enabled: true },
+            { name: 'get_ospf_neighbors', category: 'network', description: 'Get OSPF neighbor status', risk_level: 'low', enabled: true },
+            { name: 'get_interface_status', category: 'network', description: 'Get interface status and statistics', risk_level: 'low', enabled: true },
+            { name: 'knowledge_search', category: 'knowledge', description: 'Search knowledge base', risk_level: 'low', enabled: true },
+            { name: 'create_incident', category: 'workflow', description: 'Create a new incident', risk_level: 'medium', enabled: true },
+            { name: 'execute_mop', category: 'workflow', description: 'Execute a Method of Procedure', risk_level: 'high', enabled: true },
+            { name: 'request_approval', category: 'workflow', description: 'Request human approval for action', risk_level: 'low', enabled: true },
+        ];
+    }
+
+    function renderBuiltinTools() {
+        const $tbody = $('#builtin-body');
+        $tbody.empty();
+
+        const searchTerm = $('#builtin-search').val().toLowerCase();
+        const filteredTools = builtinTools.filter(t =>
+            t.name.toLowerCase().includes(searchTerm) ||
+            t.description.toLowerCase().includes(searchTerm) ||
+            t.category.toLowerCase().includes(searchTerm)
+        );
+
+        filteredTools.forEach(function(tool) {
+            const statusBadge = tool.enabled !== false
+                ? '<span class="badge bg-success">Enabled</span>'
+                : '<span class="badge bg-secondary">Disabled</span>';
+
+            const riskBadge = getRiskBadge(tool.risk_level);
+            const categoryBadge = getCategoryBadge(tool.category);
+
+            $tbody.append(`
+                <tr>
+                    <td>${statusBadge}</td>
+                    <td><code>${escapeHtml(tool.name)}</code></td>
+                    <td>${categoryBadge}</td>
+                    <td>${escapeHtml(tool.description)}</td>
+                    <td>${riskBadge}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-info view-tool-btn" data-name="${tool.name}" data-type="builtin">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </td>
+                </tr>
+            `);
+        });
+
+        $('#builtin-loading').hide();
+        $('#builtin-container').show();
+        $('#builtin-count').text(builtinTools.length);
+    }
+
+    function loadCustomTools() {
+        $('#custom-loading').show();
+        $('#custom-container').hide();
+        $('#custom-empty').hide();
+
+        $.ajax({
+            url: '/api/agents/custom-tools',
+            method: 'GET',
+            success: function(response) {
+                customTools = response.tools || [];
+                renderCustomTools();
+            },
+            error: function() {
+                customTools = [];
+                renderCustomTools();
+            }
+        });
+    }
+
+    function renderCustomTools() {
+        const $tbody = $('#custom-body');
+        $tbody.empty();
+
+        if (customTools.length === 0) {
+            $('#custom-loading').hide();
+            $('#custom-container').hide();
+            $('#custom-empty').show();
+            $('#custom-count').text(0);
+            return;
+        }
+
+        customTools.forEach(function(tool) {
+            const statusBadge = tool.is_active
+                ? '<span class="badge bg-success">Active</span>'
+                : '<span class="badge bg-secondary">Inactive</span>';
+
+            $tbody.append(`
+                <tr>
+                    <td>${statusBadge}</td>
+                    <td><code>${escapeHtml(tool.name)}</code></td>
+                    <td>${getCategoryBadge(tool.category)}</td>
+                    <td><span class="badge bg-info">${escapeHtml(tool.execution_type)}</span></td>
+                    <td>${formatDate(tool.created_at)}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-info view-tool-btn" data-id="${tool.id}" data-type="custom">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-danger delete-tool-btn" data-id="${tool.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `);
+        });
+
+        $('#custom-loading').hide();
+        $('#custom-container').show();
+        $('#custom-count').text(customTools.length);
+    }
+
+    function loadMCPServers() {
+        $('#mcp-loading').show();
+        $('#mcp-container').hide();
+        $('#mcp-empty').hide();
+
+        $.ajax({
+            url: '/api/agents/mcp-servers',
+            method: 'GET',
+            success: function(response) {
+                mcpServers = response.servers || [];
+                renderMCPServers();
+            },
+            error: function() {
+                mcpServers = [];
+                renderMCPServers();
+            }
+        });
+    }
+
+    function renderMCPServers() {
+        const $tbody = $('#mcp-body');
+        $tbody.empty();
+
+        if (mcpServers.length === 0) {
+            $('#mcp-loading').hide();
+            $('#mcp-container').hide();
+            $('#mcp-empty').show();
+            $('#mcp-count').text(0);
+            return;
+        }
+
+        mcpServers.forEach(function(server) {
+            const statusBadge = server.is_connected
+                ? '<span class="badge bg-success"><i class="fas fa-plug"></i> Connected</span>'
+                : '<span class="badge bg-secondary"><i class="fas fa-times"></i> Disconnected</span>';
+
+            $tbody.append(`
+                <tr>
+                    <td>${statusBadge}</td>
+                    <td><strong>${escapeHtml(server.name)}</strong></td>
+                    <td><span class="badge bg-info">${escapeHtml(server.transport)}</span></td>
+                    <td><code>${escapeHtml(server.endpoint?.substring(0, 40) || '-')}...</code></td>
+                    <td><span class="badge bg-secondary">${server.tool_count || 0}</span></td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-success connect-mcp-btn" data-id="${server.id}" title="Connect">
+                                <i class="fas fa-plug"></i>
+                            </button>
+                            <button class="btn btn-outline-danger delete-mcp-btn" data-id="${server.id}" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `);
+        });
+
+        $('#mcp-loading').hide();
+        $('#mcp-container').show();
+        $('#mcp-count').text(mcpServers.length);
+    }
+
+    function updateStats() {
+        const total = builtinTools.length + customTools.length;
+        $('#total-count').text(total);
+    }
+
+    function getRiskBadge(risk) {
+        const badges = {
+            'critical': '<span class="badge bg-danger">Critical</span>',
+            'high': '<span class="badge bg-warning text-dark">High</span>',
+            'medium': '<span class="badge bg-info">Medium</span>',
+            'low': '<span class="badge bg-success">Low</span>'
+        };
+        return badges[risk] || '<span class="badge bg-secondary">Unknown</span>';
+    }
+
+    function getCategoryBadge(category) {
+        const badges = {
+            'device': '<span class="badge bg-primary">Device</span>',
+            'network': '<span class="badge bg-info">Network</span>',
+            'knowledge': '<span class="badge bg-warning text-dark">Knowledge</span>',
+            'workflow': '<span class="badge bg-success">Workflow</span>',
+            'general': '<span class="badge bg-secondary">General</span>',
+            'monitoring': '<span class="badge bg-danger">Monitoring</span>'
+        };
+        return badges[category] || `<span class="badge bg-secondary">${category}</span>`;
+    }
+
+    // Create custom tool
+    $('#create-tool-form').on('submit', function(e) {
+        e.preventDefault();
+
+        let params = {};
+        try {
+            const paramsStr = $('#tool-parameters').val().trim();
+            if (paramsStr) params = JSON.parse(paramsStr);
+        } catch(e) {
+            showToast('Invalid JSON for parameters', 'danger');
+            return;
+        }
+
+        const data = {
+            name: $('#tool-name').val(),
+            category: $('#tool-category').val(),
+            execution_type: $('#tool-exec-type').val(),
+            description: $('#tool-description').val(),
+            parameters: params,
+            implementation: $('#tool-implementation').val()
+        };
+
+        $.ajax({
+            url: '/api/agents/custom-tools',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                showToast('Tool created successfully', 'success');
+                $('#create-tool-form')[0].reset();
+                loadCustomTools();
+            },
+            error: function(xhr) {
+                showToast('Error creating tool: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Add MCP server
+    $('#add-mcp-form').on('submit', function(e) {
+        e.preventDefault();
+
+        let env = {};
+        try {
+            const envStr = $('#mcp-env').val().trim();
+            if (envStr) env = JSON.parse(envStr);
+        } catch(e) {
+            showToast('Invalid JSON for environment variables', 'danger');
+            return;
+        }
+
+        const data = {
+            name: $('#mcp-name').val(),
+            transport: $('#mcp-transport').val(),
+            endpoint: $('#mcp-endpoint').val(),
+            description: $('#mcp-description').val(),
+            env: env
+        };
+
+        $.ajax({
+            url: '/api/agents/mcp-servers',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                showToast('MCP server added', 'success');
+                $('#add-mcp-form')[0].reset();
+                loadMCPServers();
+            },
+            error: function(xhr) {
+                showToast('Error adding MCP server: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // View tool details
+    $(document).on('click', '.view-tool-btn', function() {
+        const toolName = $(this).data('name');
+        const toolType = $(this).data('type');
+
+        let tool;
+        if (toolType === 'builtin') {
+            tool = builtinTools.find(t => t.name === toolName);
+        } else {
+            const toolId = $(this).data('id');
+            tool = customTools.find(t => t.id === toolId);
+        }
+
+        if (!tool) return;
+
+        $('#detail-name').text(tool.name);
+        $('#detail-category').html(getCategoryBadge(tool.category));
+        $('#detail-description').text(tool.description);
+        $('#detail-risk').html(getRiskBadge(tool.risk_level || 'low'));
+        $('#detail-parameters').text(JSON.stringify(tool.parameters || {}, null, 2));
+
+        if (tool.implementation) {
+            $('#detail-impl-section').show();
+            $('#detail-implementation').text(tool.implementation);
+        } else {
+            $('#detail-impl-section').hide();
+        }
+
+        $('#detail-enabled').prop('checked', tool.enabled !== false);
+
+        new bootstrap.Modal($('#toolDetailsModal')).show();
+    });
+
+    // Delete handlers
+    $(document).on('click', '.delete-tool-btn', function() {
+        const toolId = $(this).data('id');
+        if (!confirm('Delete this tool?')) return;
+
+        $.ajax({
+            url: `/api/agents/custom-tools/${toolId}`,
+            method: 'DELETE',
+            success: function() {
+                showToast('Tool deleted', 'success');
+                loadCustomTools();
+            }
+        });
+    });
+
+    $(document).on('click', '.delete-mcp-btn', function() {
+        const serverId = $(this).data('id');
+        if (!confirm('Delete this MCP server?')) return;
+
+        $.ajax({
+            url: `/api/agents/mcp-servers/${serverId}`,
+            method: 'DELETE',
+            success: function() {
+                showToast('MCP server deleted', 'success');
+                loadMCPServers();
+            }
+        });
+    });
+
+    // Search
+    $('#builtin-search').on('input', renderBuiltinTools);
+
+    // Refresh buttons
+    $('#refresh-custom-btn').on('click', loadCustomTools);
+    $('#refresh-mcp-btn').on('click', loadMCPServers);
+
+    // Stat card click handlers
+    $(document).on('click', '.stat-card-link', function(e) {
+        e.preventDefault();
+        const filter = $(this).data('filter');
+
+        if (filter === 'builtin') {
+            // Switch to Built-in Tools tab
+            $('#toolTabs a[href="#builtin-tab"]').tab('show');
+        } else if (filter === 'custom') {
+            // Switch to Custom Tools tab
+            $('#toolTabs a[href="#custom-tab"]').tab('show');
+        } else if (filter === 'mcp') {
+            // Switch to MCP Servers tab
+            $('#toolTabs a[href="#mcp-tab"]').tab('show');
+        } else if (filter === 'total') {
+            // Switch to Built-in Tools tab (shows main view)
+            $('#toolTabs a[href="#builtin-tab"]').tab('show');
+        }
+    });
+
+    // Utility functions
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        return new Date(dateStr).toLocaleDateString();
+    }
+
+    function showToast(message, type) {
+        const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+        const $alert = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed" style="top: 70px; right: 20px; z-index: 9999;">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`);
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
+    }
+
+    // Initial load
+    loadData();
+});
+</script>
+    <!-- NetStacks AI Assistant -->
+    <script src="/static/js/assistant.js?v=4"></script>
+</body>
+</html>

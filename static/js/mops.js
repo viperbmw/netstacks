@@ -446,7 +446,7 @@ function viewExecutionDetails(executionId) {
     $('#executionModal').modal('show');
     $('#execution-details-content').html('<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</div>');
 
-    $.get(`/api/mop-executions/${executionId}`)
+    $.get(`/api/mops/executions/${executionId}`)
         .done(function(data) {
             if (data.success) {
                 renderExecutionDetails(data.execution);

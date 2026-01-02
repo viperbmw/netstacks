@@ -2,15 +2,50 @@
 Agent WebSocket Handlers
 
 Real-time WebSocket communication for agent chat using Flask-SocketIO.
+Uses JWT authentication passed via query parameter or handshake.
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Dict, Optional
 from functools import wraps
 
+import jwt
+
 log = logging.getLogger(__name__)
+
+
+def get_jwt_user_from_request(request):
+    """
+    Extract username from JWT token in WebSocket request.
+    Token can be in query params (?token=xxx) or Authorization header.
+    """
+    token = None
+
+    # Check query params first (common for WebSocket)
+    token = request.args.get('token')
+
+    # Fall back to Authorization header
+    if not token:
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+
+    if not token:
+        return None
+
+    try:
+        secret = os.environ.get('JWT_SECRET_KEY', 'netstacks-dev-secret-change-in-production')
+        payload = jwt.decode(token, secret, algorithms=['HS256'])
+        return payload.get('sub')
+    except jwt.ExpiredSignatureError:
+        log.warning("WebSocket JWT token expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        log.warning(f"Invalid WebSocket JWT token: {e}")
+        return None
 
 # Active agent sessions (in-memory for now)
 # In production, this should be stored in Redis
@@ -33,17 +68,22 @@ def init_socketio(socketio):
     @socketio.on('connect', namespace='/agents')
     def handle_connect():
         """Handle client connection"""
-        from flask import session, request
+        from flask import request
         log.info(f"Agent WebSocket connected: {request.sid}")
 
-        # Check authentication
-        if 'username' not in session:
+        # Check JWT authentication
+        username = get_jwt_user_from_request(request)
+        if not username:
             log.warning("Unauthenticated WebSocket connection attempt")
             return False  # Reject connection
 
+        # Store username in the connection for later use
+        request.jwt_user = username
+
         socketio.emit('connected', {
             'message': 'Connected to agent service',
-            'sid': request.sid
+            'sid': request.sid,
+            'user': username
         }, namespace='/agents')
 
     @socketio.on('disconnect', namespace='/agents')
@@ -70,10 +110,10 @@ def init_socketio(socketio):
             "context": {}  # Optional context data
         }
         """
-        from flask import session, request
+        from flask import request
 
         try:
-            username = session.get('username', 'unknown')
+            username = get_jwt_user_from_request(request) or 'unknown'
             agent_id = data.get('agent_id')
             agent_type = data.get('agent_type', 'triage')
             context = data.get('context', {})
@@ -218,7 +258,7 @@ def init_socketio(socketio):
 
             session_data = active_sessions[session_id]
             agent = session_data['agent']
-            username = session.get('username', 'unknown')
+            username = get_jwt_user_from_request(request) or 'unknown'
 
             # Update approval in database
             _update_approval_in_db(approval_id, approved, username, reason)
@@ -245,11 +285,11 @@ def init_socketio(socketio):
             "session_id": "uuid"
         }
         """
-        from flask import session, request
+        from flask import request
 
         try:
             session_id = data.get('session_id')
-            username = session.get('username', 'unknown')
+            username = get_jwt_user_from_request(request) or 'unknown'
 
             if not session_id:
                 socketio.emit('error', {
@@ -348,7 +388,7 @@ def _get_agent_from_db(agent_id: str):
     """Get agent instance from database configuration"""
     try:
         import database as db
-        from models import Agent
+        from shared.netstacks_core.db.models import Agent
         from ai.agents import create_agent
 
         with db.get_db() as db_session:
@@ -379,7 +419,7 @@ def _save_session_to_db(session_id: str, agent, username: str, context: dict):
     """Save session to database"""
     try:
         import database as db
-        from models import AgentSession
+        from shared.netstacks_core.db.models import AgentSession
 
         with db.get_db() as db_session:
             session_obj = AgentSession(
@@ -401,7 +441,7 @@ def _save_message_to_db(session_id: str, role: str, content: str):
     """Save message to database"""
     try:
         import database as db
-        from models import AgentMessage
+        from shared.netstacks_core.db.models import AgentMessage
 
         with db.get_db() as db_session:
             message = AgentMessage(
@@ -419,16 +459,24 @@ def _save_message_to_db(session_id: str, role: str, content: str):
 def _save_action_to_db(session_id: str, event):
     """Save agent action to database"""
     try:
+        import uuid
         import database as db
-        from models import AgentAction
+        from shared.netstacks_core.db.models import AgentAction
 
         with db.get_db() as db_session:
+            # Get next sequence number for this session
+            max_seq = db_session.query(AgentAction).filter_by(
+                session_id=session_id
+            ).count()
+
             action = AgentAction(
+                action_id=str(uuid.uuid4()),
                 session_id=session_id,
+                sequence=max_seq + 1,
                 action_type=event.type.value,
                 tool_name=event.tool_name,
-                tool_args=event.tool_args,
-                result=event.tool_result,
+                tool_input=event.tool_args or {},
+                tool_output=event.tool_result or {},
                 content=event.content,
             )
             db_session.add(action)
@@ -442,7 +490,7 @@ def _end_session_in_db(session_id: str):
     """Mark session as ended in database"""
     try:
         import database as db
-        from models import AgentSession
+        from shared.netstacks_core.db.models import AgentSession
 
         with db.get_db() as db_session:
             session_obj = db_session.query(AgentSession).filter(
@@ -451,7 +499,7 @@ def _end_session_in_db(session_id: str):
 
             if session_obj:
                 session_obj.status = 'completed'
-                session_obj.ended_at = datetime.utcnow()
+                session_obj.completed_at = datetime.utcnow()
                 db_session.commit()
 
     except Exception as e:
@@ -487,7 +535,7 @@ def _update_approval_in_db(approval_id: str, approved: bool, username: str, reas
     """Update approval status in database"""
     try:
         import database as db
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
 
         with db.get_db() as db_session:
             approval = db_session.query(PendingApproval).filter(
@@ -509,12 +557,12 @@ def _get_session_from_db(session_id: str, username: str) -> tuple:
     """Get session info from database for resumption"""
     try:
         import database as db
-        from models import AgentSession
+        from shared.netstacks_core.db.models import AgentSession
 
         with db.get_db() as db_session:
             session_obj = db_session.query(AgentSession).filter(
                 AgentSession.session_id == session_id,
-                AgentSession.user_id == username,
+                AgentSession.started_by == username,
                 AgentSession.status == 'active'
             ).first()
 
@@ -522,14 +570,14 @@ def _get_session_from_db(session_id: str, username: str) -> tuple:
                 # Determine agent type from session
                 agent_type = 'assistant'  # Default for assistant sessions
                 if session_obj.agent_id:
-                    from models import Agent
+                    from shared.netstacks_core.db.models import Agent
                     agent = db_session.query(Agent).filter(
                         Agent.agent_id == session_obj.agent_id
                     ).first()
                     if agent:
                         agent_type = agent.agent_type
 
-                return agent_type, session_obj.trigger_data or {}
+                return agent_type, session_obj.context or {}
 
         return None, None
 
@@ -542,7 +590,7 @@ def _get_messages_from_db(session_id: str) -> list:
     """Get conversation messages from database for session resumption"""
     try:
         import database as db
-        from models import AgentMessage
+        from shared.netstacks_core.db.models import AgentMessage
 
         with db.get_db() as db_session:
             messages = db_session.query(AgentMessage).filter(

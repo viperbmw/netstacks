@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - NetStacks</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=4" rel="stylesheet">
+    <link href="/static/css/assistant.css?v=2" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-1">
+        <div class="container-fluid py-0">
+            <a class="navbar-brand brand-logo" href="/">
+                <span class="brand-icon">
+                    <i class="fas fa-layer-group"></i>
+                </span>
+                <span class="brand-text">NetStacks</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <!-- Operations Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-play-circle"></i> Operations
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/deploy"><i class="fas fa-rocket"></i> Deploy Config</a></li>
+                            <li><a class="dropdown-item" href="/monitor"><i class="fas fa-chart-line"></i> Monitor Jobs</a></li>
+                            <li><a class="dropdown-item" href="/mop"><i class="fas fa-list-check"></i> Procedures (MOP)</a></li>
+                        </ul>
+                    </li>
+                    <!-- Configuration Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cogs"></i> Configuration
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/devices"><i class="fas fa-server"></i> Devices & Snapshots</a></li>
+                            <li><a class="dropdown-item" href="/templates"><i class="fas fa-file-code"></i> Templates</a></li>
+                            <li><a class="dropdown-item" href="/service-stacks"><i class="fas fa-layer-group"></i> Service Stacks</a></li>
+                        </ul>
+                    </li>
+                    <!-- AI Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-brain"></i> AI
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/agents"><i class="fas fa-robot"></i> Agents</a></li>
+                            <li><a class="dropdown-item" href="/agents/chat"><i class="fas fa-comments"></i> Agent Chat</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/alerts"><i class="fas fa-bell"></i> Alerts</a></li>
+                            <li><a class="dropdown-item" href="/incidents"><i class="fas fa-exclamation-triangle"></i> Incidents</a></li>
+                            <li><a class="dropdown-item" href="/approvals"><i class="fas fa-shield-alt"></i> Approvals</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/knowledge"><i class="fas fa-book-open"></i> Knowledge</a></li>
+                            <li><a class="dropdown-item" href="/tools"><i class="fas fa-wrench"></i> Tools</a></li>
+                        </ul>
+                    </li>
+                    <!-- Settings Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i> Settings
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/admin"><i class="fas fa-users-cog"></i> Users & Auth</a></li>
+                            <li><a class="dropdown-item" href="/settings"><i class="fas fa-sliders-h"></i> System Settings</a></li>
+                            <li><a class="dropdown-item" href="/settings/ai"><i class="fas fa-brain"></i> AI Settings</a></li>
+                            <li><a class="dropdown-item" href="/platform"><i class="fas fa-heartbeat"></i> Platform Health</a></li>
+                            <li><a class="dropdown-item" href="/step-types"><i class="fas fa-puzzle-piece"></i> MOP Step Types</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/docs" target="_blank"><i class="fas fa-book"></i> NetStacks API</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link text-light">
+                            <i class="fas fa-user"></i> <span id="current-username">Loading...</span>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link text-light" id="system-time-container" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Loading...">
+                            <i class="fas fa-clock"></i>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="handleLogout(event)">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Page Content -->
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-tachometer-alt"></i> NetStacks Dashboard
+        </h1>
+    </div>
+</div>
+
+<!-- Top Stats Row - AI First -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <a href="/agents" class="text-decoration-none">
+            <div class="card text-white bg-gradient dashboard-card" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">AI Agents</h5>
+                            <h2 id="agent-count">-</h2>
+                            <small id="active-agents-text">Loading...</small>
+                        </div>
+                        <div>
+                            <i class="fas fa-robot fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="/alerts/incidents" class="text-decoration-none">
+            <div class="card text-white dashboard-card" id="incidents-card" style="background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Active Incidents</h5>
+                            <h2 id="incident-count">-</h2>
+                            <small id="critical-alerts-text">Loading...</small>
+                        </div>
+                        <div>
+                            <i class="fas fa-exclamation-triangle fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="/service-stacks" class="text-decoration-none">
+            <div class="card text-white bg-primary dashboard-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Service Stacks</h5>
+                            <h2 id="stack-count">-</h2>
+                            <small id="deployed-services-text">Loading...</small>
+                        </div>
+                        <div>
+                            <i class="fas fa-layer-group fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="/devices" class="text-decoration-none">
+            <div class="card text-white bg-success dashboard-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">Devices</h5>
+                            <h2 id="device-count">-</h2>
+                            <small id="device-sources-text">Loading...</small>
+                        </div>
+                        <div>
+                            <i class="fas fa-server fa-3x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<!-- AI & Incidents Row -->
+<div class="row mb-4">
+    <!-- AI Agents Panel -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white;">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-robot"></i> AI Agents</h5>
+                    <div>
+                        <a href="/agents/chat" class="btn btn-sm btn-light me-1" title="Chat with Agent">
+                            <i class="fas fa-comments"></i> Chat
+                        </a>
+                        <a href="/agents" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-cog"></i> Manage
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="agents-loading" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="agents-container" style="display: none;">
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Agent</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="agents-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-agents" style="display: none;" class="text-center text-muted py-4">
+                    <i class="fas fa-robot fa-3x mb-3 opacity-25"></i>
+                    <p>No AI agents configured</p>
+                    <a href="/agents" class="btn btn-sm btn-primary">
+                        <i class="fas fa-plus"></i> Create Your First Agent
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Alerts Panel -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-danger text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-bell"></i> Active Alerts</h5>
+                    <a href="/alerts" class="btn btn-sm btn-outline-light">
+                        <i class="fas fa-list"></i> View All
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="alerts-loading" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="alerts-container" style="display: none;">
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Alert</th>
+                                    <th>Severity</th>
+                                    <th>Device</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alerts-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-alerts" style="display: none;" class="text-center text-muted py-4">
+                    <i class="fas fa-check-circle fa-3x mb-3 text-success opacity-50"></i>
+                    <p class="mb-0">No active alerts</p>
+                    <small class="text-muted">All systems operational</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Service Stacks Summary -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-layer-group"></i> Service Stacks</h5>
+                    <a href="/service-stacks" class="btn btn-sm btn-light">
+                        <i class="fas fa-plus"></i> Manage Stacks
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="service-stacks-loading" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="service-stacks-container" style="display: none;">
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <div class="card border-secondary">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="total-stacks-count">0</h3>
+                                    <small class="text-muted">Total Deployed Stacks</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-secondary">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="active-deployments-count">0</h3>
+                                    <small class="text-muted">Fully Deployed</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-secondary">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="scheduled-stacks-count">0</h3>
+                                    <small class="text-muted">Scheduled Stacks</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-secondary">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="total-services-count">0</h3>
+                                    <small class="text-muted">Deployed Services</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Stack Name</th>
+                                    <th>Services</th>
+                                    <th>State</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="service-stacks-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-service-stacks" style="display: none;" class="text-center text-muted">
+                    <i class="fas fa-layer-group fa-3x mb-3 opacity-25"></i>
+                    <p>No deployed service stacks yet</p>
+                    <a href="/service-stacks" class="btn btn-sm btn-primary">
+                        <i class="fas fa-plus"></i> Deploy Your First Stack
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scheduled Tasks Panels -->
+<div class="row mb-4">
+    <!-- Upcoming Scheduled Operations -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-warning text-dark">
+                <h5><i class="fas fa-clock"></i> Upcoming Scheduled Operations</h5>
+            </div>
+            <div class="card-body">
+                <div id="scheduled-tasks-loading" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="scheduled-tasks-container" style="display: none;">
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Operation</th>
+                                    <th>Next Run</th>
+                                    <th>Target</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scheduled-tasks-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-scheduled-tasks" style="display: none;" class="text-center text-muted">
+                    <p>No scheduled operations configured</p>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="/service-stacks" class="text-decoration-none">
+                    Manage Service Stacks <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Completed Scheduled Operations -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-success text-white">
+                <h5><i class="fas fa-check-circle"></i> Completed Scheduled Operations</h5>
+            </div>
+            <div class="card-body">
+                <div id="completed-schedules-loading" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="completed-schedules-container" style="display: none;">
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Operation</th>
+                                    <th>Last Run</th>
+                                    <th>Count</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="completed-schedules-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-completed-schedules" style="display: none;" class="text-center text-muted">
+                    <p>No completed scheduled operations yet</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bottom Row: Tasks & Workers -->
+<div class="row mb-4">
+    <!-- Recent Tasks -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-tasks"></i> Recent Tasks</h5>
+                    <div class="input-group input-group-sm" style="width: 250px;">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" class="form-control" id="task-search" placeholder="Search devices...">
+                        <button class="btn btn-outline-secondary" type="button" id="task-search-clear" title="Clear search">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="recent-tasks-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="recent-tasks-container" style="display: none;">
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-tasks-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-tasks-found" style="display: none;" class="text-center text-muted">
+                    <p>No tasks found matching your search</p>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between">
+                    <span>
+                        <span class="badge bg-warning" id="queued-badge">Queued: <span id="queued-count">-</span></span>
+                        <span class="badge bg-info ms-2" id="running-badge">Running: <span id="running-count">-</span></span>
+                    </span>
+                    <a href="/monitor" class="text-decoration-none">
+                        Job Monitor <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Devices & Workers -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-server"></i> Devices</h5>
+                    <span class="badge bg-primary" id="worker-badge">
+                        <i class="fas fa-cogs"></i> Workers: <span id="worker-count">-</span>
+                    </span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="devices-list-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="devices-list-container" style="display: none; max-height: 300px; overflow-y: auto;">
+                    <div class="list-group" id="devices-list-body">
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between">
+                    <a href="/workers" class="text-decoration-none">
+                        <i class="fas fa-cogs"></i> View Workers
+                    </a>
+                    <a href="/devices" class="text-decoration-none">
+                        View All Devices <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Task Results Modal -->
+<div class="modal fade" id="taskResultsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-tasks"></i> Task Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="task-results-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading task details...</p>
+                </div>
+                <div id="task-results-content" style="display: none;">
+                    <!-- Task Info -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Task ID:</strong> <span id="task-result-id"></span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Device:</strong> <span id="task-result-device"></span>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Status:</strong> <span id="task-result-status"></span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Created:</strong> <span id="task-result-created"></span>
+                        </div>
+                    </div>
+
+                    <!-- Task Result -->
+                    <div class="mt-3">
+                        <strong>Result:</strong>
+                        <pre id="task-result-output" class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+                <div id="task-results-error" style="display: none;" class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i> <span id="task-error-message"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="/monitor" class="btn btn-primary">
+                    <i class="fas fa-chart-line"></i> Go to Job Monitor
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Schedule Modal -->
+<div class="modal fade" id="editScheduleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Schedule</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-schedule-id">
+                <form id="edit-schedule-form">
+                    <div class="mb-3">
+                        <label for="edit-schedule-type-select" class="form-label">Schedule Type *</label>
+                        <select class="form-select" id="edit-schedule-type-select" required>
+                            <option value="once">One-time</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+
+                    <!-- One-time schedule -->
+                    <div class="mb-3" id="edit-schedule-datetime-section" style="display: none;">
+                        <label for="edit-schedule-datetime" class="form-label">Date and Time *</label>
+                        <input type="datetime-local" class="form-control" id="edit-schedule-datetime">
+                    </div>
+
+                    <!-- Recurring schedule time -->
+                    <div class="mb-3" id="edit-schedule-time-section" style="display: none;">
+                        <label for="edit-schedule-time" class="form-label">Time *</label>
+                        <input type="time" class="form-control" id="edit-schedule-time">
+                    </div>
+
+                    <!-- Weekly schedule day -->
+                    <div class="mb-3" id="edit-schedule-day-week-section" style="display: none;">
+                        <label for="edit-schedule-day-week" class="form-label">Day of Week *</label>
+                        <select class="form-select" id="edit-schedule-day-week">
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+
+                    <!-- Monthly schedule day -->
+                    <div class="mb-3" id="edit-schedule-day-month-section" style="display: none;">
+                        <label for="edit-schedule-day-month" class="form-label">Day of Month *</label>
+                        <input type="number" class="form-control" id="edit-schedule-day-month" min="1" max="31" placeholder="1-31">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="edit-schedule-enabled" class="form-label">Status</label>
+                        <select class="form-select" id="edit-schedule-enabled">
+                            <option value="1">Enabled</option>
+                            <option value="0">Disabled</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-schedule-btn">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+        <!-- End Page Content -->
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="/static/js/api-client.js"></script>
+    <script src="/static/js/auth-guard.js"></script>
+    <script src="/static/js/timezone-utils.js"></script>
+    <script src="/static/js/task-manager.js"></script>
+    <script>
+        let systemTimezone = 'UTC';
+        let timezoneLoaded = false;
+
+        // Load system timezone asynchronously
+        async function loadSystemTimezone() {
+            try {
+                const response = await $.ajax({
+                    url: '/api/settings',
+                    method: 'GET'
+                });
+                if (response.success && response.settings.system_timezone) {
+                    systemTimezone = response.settings.system_timezone;
+                    console.log('System timezone loaded:', systemTimezone);
+                }
+            } catch (error) {
+                systemTimezone = 'UTC';
+                console.log('Failed to load system timezone, using UTC');
+            }
+            timezoneLoaded = true;
+        }
+
+        // Update system time tooltip every second
+        function updateSystemTime() {
+            const now = new Date();
+            let timeString;
+
+            try {
+                // Format time in the configured timezone
+                const options = {
+                    timeZone: systemTimezone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                const formatter = new Intl.DateTimeFormat('en-CA', options);
+                const parts = formatter.formatToParts(now);
+                const dateMap = {};
+                parts.forEach(part => {
+                    dateMap[part.type] = part.value;
+                });
+                timeString = `${dateMap.year}-${dateMap.month}-${dateMap.day} ${dateMap.hour}:${dateMap.minute}:${dateMap.second}`;
+
+                // Add timezone abbreviation
+                if (systemTimezone === 'UTC') {
+                    timeString += ' UTC';
+                } else {
+                    timeString += ` (${systemTimezone})`;
+                }
+            } catch (e) {
+                // Fallback to UTC if timezone is invalid
+                timeString = now.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+            }
+
+            const $container = $('#system-time-container');
+            $container.attr('data-bs-original-title', 'Server Time: ' + timeString);
+            $container.attr('title', 'Server Time: ' + timeString);
+        }
+
+        // Handle logout - clear JWT tokens and redirect
+        function handleLogout(event) {
+            event.preventDefault();
+            // Clear JWT tokens from localStorage
+            if (typeof NetStacksAPI !== 'undefined') {
+                NetStacksAPI.clearTokens();
+            } else {
+                localStorage.removeItem('netstacks_jwt_token');
+                localStorage.removeItem('netstacks_jwt_refresh');
+                localStorage.removeItem('netstacks_jwt_expiry');
+            }
+            // Redirect to logout endpoint
+            window.location.href = '/logout';
+        }
+
+        // Initialize on page load
+        $(document).ready(async function() {
+            // Load timezone first
+            await loadSystemTimezone();
+
+            // Initialize Bootstrap tooltips
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+
+            // Start updating time
+            updateSystemTime();
+            setInterval(updateSystemTime, 1000);
+        });
+    </script>
+    <script src="/static/js/dashboard.js?v=3"></script>
+    <!-- NetStacks AI Assistant -->
+    <script src="/static/js/assistant.js?v=4"></script>
+</body>
+</html>

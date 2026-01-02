@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logging out - NetStacks</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body>
+    <p>Logging out...</p>
+    <script>
+        // Clear all JWT tokens
+        localStorage.removeItem('netstacks_jwt_token');
+        localStorage.removeItem('netstacks_jwt_refresh');
+        localStorage.removeItem('netstacks_jwt_expiry');
+        // Redirect to login
+        window.location.href = '/login?logout=1';
+    </script>
+</body>
+</html>

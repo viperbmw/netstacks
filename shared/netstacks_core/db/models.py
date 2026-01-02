@@ -52,6 +52,7 @@ class Template(Base):
     name = Column(String(255), primary_key=True)
     content = Column(Text, nullable=True)
     type = Column(String(50), default='deploy')  # 'deploy', 'delete', 'validation'
+    vendor_types = Column(JSONB, nullable=True)  # List of platform/vendor types (e.g., ['cisco_ios', 'juniper_junos'])
     validation_template = Column(String(255), nullable=True)
     delete_template = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
@@ -333,16 +334,24 @@ class StepType(Base):
 
 
 class TaskHistory(Base):
-    """Task history for Celery task monitoring"""
+    """Task history for Celery task monitoring - stores all task data"""
     __tablename__ = 'task_history'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(String(255), nullable=False)
+    task_id = Column(String(255), nullable=False, unique=True, index=True)
+    task_name = Column(String(255), nullable=True)  # e.g. tasks.device_tasks.get_config
     device_name = Column(String(500), nullable=True)
+    status = Column(String(50), default='pending')  # pending, started, success, failure
+    result = Column(JSONB, nullable=True)  # Task result data
+    error = Column(Text, nullable=True)  # Error message if failed
+    traceback = Column(Text, nullable=True)  # Full traceback if failed
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         Index('idx_task_history_created', 'created_at'),
+        Index('idx_task_history_status', 'status'),
     )
 
 
@@ -1384,4 +1393,12 @@ DEFAULT_MENU_ITEMS = [
         'order_index': 7,
         'visible': True
     },
+]
+
+# Default Knowledge Collections
+DEFAULT_KNOWLEDGE_COLLECTIONS = [
+    {'name': 'runbooks', 'description': 'Standard Operating Procedures and runbooks'},
+    {'name': 'vendor-docs', 'description': 'Vendor documentation and guides'},
+    {'name': 'troubleshooting', 'description': 'Troubleshooting guides and past incident resolutions'},
+    {'name': 'network-topology', 'description': 'Network topology and architecture documentation'},
 ]

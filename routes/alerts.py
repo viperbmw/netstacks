@@ -6,25 +6,15 @@ HTTP routes for alert management, webhooks, and incidents.
 
 import logging
 import uuid
-from flask import Blueprint, render_template, request, jsonify, session
-from functools import wraps
+from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime
 
 import database as db
+from routes.auth import login_required, get_current_user
 
 log = logging.getLogger(__name__)
 
 alerts_bp = Blueprint('alerts', __name__, url_prefix='/alerts')
-
-
-def login_required(f):
-    """Decorator to require login for routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            return jsonify({'error': 'Authentication required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 # ============================================================================
@@ -203,7 +193,7 @@ def webhook_solarwinds():
 def list_alerts():
     """List alerts with optional filtering"""
     try:
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
         # Filters
         severity = request.args.get('severity')
@@ -250,7 +240,7 @@ def list_alerts():
 def get_alert(alert_id):
     """Get alert details"""
     try:
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
         with db.get_db() as db_session:
             alert = db_session.query(Alert).filter(
@@ -268,9 +258,9 @@ def get_alert(alert_id):
                 'status': alert.status,
                 'source': alert.source,
                 'source_id': alert.source_id,
-                'device': alert.device,
+                'device_name': alert.device_name,
                 'incident_id': alert.incident_id,
-                'alert_data': alert.alert_data,
+                'raw_data': alert.raw_data,
                 'created_at': alert.created_at.isoformat() if alert.created_at else None,
                 'acknowledged_at': alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
                 'acknowledged_by': alert.acknowledged_by,
@@ -286,9 +276,9 @@ def get_alert(alert_id):
 def acknowledge_alert(alert_id):
     """Acknowledge an alert"""
     try:
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
-        username = session.get('username', 'unknown')
+        username = get_current_user()
 
         with db.get_db() as db_session:
             alert = db_session.query(Alert).filter(
@@ -319,7 +309,7 @@ def process_alert_manually(alert_id):
     Use this to re-process an alert or process one that was skipped.
     """
     try:
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
         with db.get_db() as db_session:
             alert = db_session.query(Alert).filter(
@@ -336,8 +326,8 @@ def process_alert_manually(alert_id):
                 'description': alert.description,
                 'severity': alert.severity,
                 'source': alert.source,
-                'device': alert.device,
-                'alert_data': alert.alert_data or {},
+                'device_name': alert.device_name,
+                'raw_data': alert.raw_data or {},
             }
 
         # Trigger AI processing
@@ -362,25 +352,25 @@ def get_alert_sessions(alert_id):
     Returns the history of AI agent sessions that processed this alert.
     """
     try:
-        from models import AgentSession
+        from shared.netstacks_core.db.models import AgentSession
 
         with db.get_db() as db_session:
             # Find sessions triggered by this alert
             sessions = db_session.query(AgentSession).filter(
                 AgentSession.trigger_type == 'alert',
-            ).order_by(AgentSession.created_at.desc()).all()
+            ).order_by(AgentSession.started_at.desc()).all()
 
             # Filter to sessions for this alert
             alert_sessions = []
             for s in sessions:
-                trigger_data = s.trigger_data or {}
-                if trigger_data.get('alert_id') == alert_id:
+                context = s.context or {}
+                if context.get('alert_id') == alert_id:
                     alert_sessions.append({
                         'session_id': s.session_id,
                         'status': s.status,
-                        'created_at': s.created_at.isoformat() if s.created_at else None,
-                        'ended_at': s.ended_at.isoformat() if s.ended_at else None,
-                        'trigger_data': s.trigger_data,
+                        'started_at': s.started_at.isoformat() if s.started_at else None,
+                        'completed_at': s.completed_at.isoformat() if s.completed_at else None,
+                        'context': s.context,
                     })
 
             return jsonify({
@@ -402,7 +392,7 @@ def get_alert_sessions(alert_id):
 def list_incidents():
     """List incidents"""
     try:
-        from models import Incident
+        from shared.netstacks_core.db.models import Incident
 
         status = request.args.get('status')
         limit = request.args.get('limit', 50, type=int)
@@ -441,7 +431,7 @@ def list_incidents():
 def get_incident(incident_id):
     """Get incident details with associated alerts"""
     try:
-        from models import Incident, Alert
+        from shared.netstacks_core.db.models import Incident, Alert
 
         with db.get_db() as db_session:
             incident = db_session.query(Incident).filter(
@@ -461,12 +451,20 @@ def get_incident(incident_id):
                 'title': incident.title,
                 'description': incident.description,
                 'severity': incident.severity,
+                'priority': incident.priority,
                 'status': incident.status,
-                'source': incident.source,
+                'incident_type': incident.incident_type,
                 'resolution': incident.resolution,
-                'incident_data': incident.incident_data,
+                'root_cause': incident.root_cause,
+                'timeline': incident.timeline,
+                'metrics': incident.metrics,
+                'affected_devices': incident.affected_devices,
+                'affected_services': incident.affected_services,
+                'assigned_to': incident.assigned_to,
                 'created_at': incident.created_at.isoformat() if incident.created_at else None,
+                'identified_at': incident.identified_at.isoformat() if incident.identified_at else None,
                 'resolved_at': incident.resolved_at.isoformat() if incident.resolved_at else None,
+                'closed_at': incident.closed_at.isoformat() if incident.closed_at else None,
                 'alerts': [
                     {
                         'alert_id': a.alert_id,
@@ -487,7 +485,7 @@ def get_incident(incident_id):
 def update_incident(incident_id):
     """Update incident status or details"""
     try:
-        from models import Incident
+        from shared.netstacks_core.db.models import Incident
 
         data = request.get_json()
 
@@ -525,7 +523,7 @@ def update_incident(incident_id):
 def _create_alert(title, description, severity, source, source_id, device=None, alert_data=None):
     """Create alert in database"""
     try:
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
         alert_id = str(uuid.uuid4())
 

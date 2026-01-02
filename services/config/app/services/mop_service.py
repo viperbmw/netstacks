@@ -199,6 +199,26 @@ class MOPService:
 
         return results
 
+    def cancel_execution(self, execution_id: str) -> bool:
+        """Cancel a running execution."""
+        execution = self.session.query(MOPExecution).filter(
+            MOPExecution.execution_id == execution_id
+        ).first()
+
+        if not execution:
+            return False
+
+        if execution.status != 'running':
+            return False
+
+        execution.status = 'cancelled'
+        execution.completed_at = datetime.utcnow()
+        execution.error = 'Cancelled by user'
+        self.session.commit()
+
+        log.info(f"MOP execution cancelled: {execution_id}")
+        return True
+
     def _execution_to_dict(self, execution: MOPExecution) -> Dict:
         """Convert execution model to dict."""
         return {

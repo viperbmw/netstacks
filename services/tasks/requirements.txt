@@ -1,0 +1,25 @@
+# FastAPI and server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+PyJWT>=2.8.0
+
+# Validation
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Celery for task management
+celery>=5.3.0
+redis>=4.0.0
+
+# HTTP client for inter-service calls
+httpx>=0.25.0
+
+# Utilities
+python-multipart>=0.0.6

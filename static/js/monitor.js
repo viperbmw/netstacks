@@ -1,4 +1,5 @@
 // Monitor page JavaScript for NetStacks
+// All task data comes from database - no Celery queries
 
 let autoRefreshInterval = null;
 let showCompleted = true;
@@ -17,13 +18,11 @@ $(document).ready(function() {
         const isAuto = btn.attr('data-auto') === 'true';
 
         if (isAuto) {
-            // Stop auto-refresh
             clearInterval(autoRefreshInterval);
             btn.attr('data-auto', 'false');
             btn.removeClass('active');
             btn.html('<i class="fas fa-play"></i> Auto-Refresh (5s)');
         } else {
-            // Start auto-refresh
             autoRefreshInterval = setInterval(loadMonitor, 5000);
             btn.attr('data-auto', 'true');
             btn.addClass('active');
@@ -37,7 +36,7 @@ $(document).ready(function() {
         loadTasks();
     });
 
-    // Event delegation for dynamically created view buttons
+    // Event delegation for view buttons
     $(document).on('click', '.view-task-btn, .view-history-btn', function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -57,110 +56,68 @@ function loadTasks() {
     $('#tasks-loading').show();
     $('#tasks-container').hide();
 
-    // Fetch task metadata first
+    // Single API call - all data from DB
     $.get('/api/tasks/metadata')
-        .done(function(metadataResponse) {
-            const metadata = metadataResponse.metadata || {};
+        .done(function(response) {
+            const metadata = response.metadata || {};
+            const tbody = $('#tasks-body');
+            tbody.empty();
 
-            $.get('/api/tasks')
-                .done(function(data) {
-                    const tbody = $('#tasks-body');
-                    tbody.empty();
+            const taskIds = Object.keys(metadata);
 
-                    // API returns: {status: 'success', data: {task_id: ['id1', 'id2', ...]}}
-                    let taskIds = [];
-                    if (data.data && data.data.task_id && Array.isArray(data.data.task_id)) {
-                        taskIds = data.data.task_id;
-                    } else if (data.task_id && Array.isArray(data.task_id)) {
-                        taskIds = data.task_id;
-                    }
-
-                    if (taskIds.length === 0) {
-                        $('#no-tasks').show();
-                        $('#tasks-table').hide();
-                        $('#tasks-loading').hide();
-                        $('#tasks-container').show();
-                        return;
-                    }
-
-                    $('#no-tasks').hide();
-                    $('#tasks-table').show();
-
-                    // Fetch details for each task
-                    let tasksLoaded = 0;
-                    taskIds.forEach(function(taskId) {
-                        $.get('/api/task/' + taskId)
-                            .done(function(taskResponse) {
-                                const task = taskResponse.data || taskResponse;
-                                const status = task.task_status || task.status || 'unknown';
-
-                                // Filter based on showCompleted
-                                if (!showCompleted && (status === 'finished' || status === 'completed')) {
-                                    tasksLoaded++;
-                                    if (tasksLoaded === taskIds.length) {
-                                        $('#tasks-loading').hide();
-                                        $('#tasks-container').show();
-                                        if (tbody.children().length === 0) {
-                                            $('#no-tasks').show();
-                                            $('#tasks-table').hide();
-                                        }
-                                    }
-                                    return;
-                                }
-
-                                // Get device name from metadata
-                                const deviceName = metadata[taskId]?.device_name || 'Unknown Device';
-
-                                const created = task.created_on || task.enqueued_at || 'N/A';
-
-                                let statusBadge = 'secondary';
-                                const statusLower = status.toLowerCase();
-                                if (statusLower === 'queued' || statusLower === 'pending') statusBadge = 'badge-queued';
-                                else if (statusLower === 'started' || statusLower === 'running') statusBadge = 'badge-running';
-                                else if (statusLower === 'finished' || statusLower === 'completed' || statusLower === 'success') statusBadge = 'badge-completed';
-                                else if (statusLower === 'failed' || statusLower === 'failure' || statusLower === 'error') statusBadge = 'badge-failed';
-
-                                const createdDate = created !== 'N/A' ? formatDate(created) : 'N/A';
-
-                                tbody.append(`
-                                    <tr data-task-id="${taskId}">
-                                        <td><small>${deviceName}</small></td>
-                                        <td><span class="badge ${statusBadge}">${status}</span></td>
-                                        <td><small>${createdDate}</small></td>
-                                        <td>
-                                            <button class="btn btn-sm btn-primary view-task-btn" data-task-id="${taskId}">
-                                                <i class="fas fa-eye"></i> View
-                                            </button>
-                                        </td>
-                                    </tr>
-                                `);
-
-                        tasksLoaded++;
-                        if (tasksLoaded === taskIds.length) {
-                            $('#tasks-loading').hide();
-                            $('#tasks-container').show();
-                        }
-                    })
-                    .fail(function() {
-                        tasksLoaded++;
-                        if (tasksLoaded === taskIds.length) {
-                            $('#tasks-loading').hide();
-                            $('#tasks-container').show();
-                        }
-                    });
-                });
-            })
-            .fail(function(xhr, status, error) {
+            if (taskIds.length === 0) {
+                $('#no-tasks').show();
+                $('#tasks-table').hide();
                 $('#tasks-loading').hide();
                 $('#tasks-container').show();
-                $('#no-tasks').html('<i class="fas fa-exclamation-triangle"></i> Error loading tasks: ' + error).show();
-                $('#tasks-table').hide();
+                return;
+            }
+
+            $('#no-tasks').hide();
+            $('#tasks-table').show();
+
+            // Render all tasks from DB metadata - instant, no additional calls
+            taskIds.forEach(function(taskId) {
+                const task = metadata[taskId] || {};
+                const deviceName = task.device_name || 'Unknown Device';
+                const status = task.status || 'pending';
+                const created = task.created_at || null;
+                const createdDate = created ? formatDate(created) : 'N/A';
+
+                // Skip completed tasks if filter is off
+                if (!showCompleted && (status === 'success' || status === 'completed')) {
+                    return;
+                }
+
+                // Determine badge class
+                let statusBadge = 'badge-secondary';
+                const statusLower = status.toLowerCase();
+                if (statusLower === 'pending') statusBadge = 'badge-queued';
+                else if (statusLower === 'started') statusBadge = 'badge-running';
+                else if (statusLower === 'success') statusBadge = 'badge-completed';
+                else if (statusLower === 'failure') statusBadge = 'badge-failed';
+
+                tbody.append(`
+                    <tr data-task-id="${taskId}">
+                        <td><small>${deviceName}</small></td>
+                        <td><span class="badge ${statusBadge}">${status}</span></td>
+                        <td><small>${createdDate}</small></td>
+                        <td>
+                            <button class="btn btn-sm btn-primary view-task-btn" data-task-id="${taskId}">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                        </td>
+                    </tr>
+                `);
             });
-        })
-        .fail(function() {
+
             $('#tasks-loading').hide();
             $('#tasks-container').show();
-            $('#no-tasks').html('<i class="fas fa-exclamation-triangle"></i> Error loading task metadata').show();
+        })
+        .fail(function(xhr, status, error) {
+            $('#tasks-loading').hide();
+            $('#tasks-container').show();
+            $('#no-tasks').html('<i class="fas fa-exclamation-triangle"></i> Error loading tasks: ' + error).show();
             $('#tasks-table').hide();
         });
 }
@@ -169,36 +126,39 @@ function loadWorkers() {
     $('#workers-loading').show();
     $('#workers-container').hide();
 
-    $.get('/api/workers')
-        .done(function(data) {
+    // Get active tasks from DB metadata (tasks with status 'started')
+    $.get('/api/tasks/metadata')
+        .done(function(response) {
+            const metadata = response.metadata || {};
             const tbody = $('#workers-body');
             tbody.empty();
 
-            if (data.length === 0) {
-                tbody.append('<tr><td colspan="4" class="text-center text-muted">No active workers</td></tr>');
-            } else {
-                data.forEach(function(worker) {
-                    const workerName = worker.name || 'Unknown';
-                    const workerType = workerName.includes('pinned') ? 'Pinned' : 'FIFO';
-                    const state = worker.state || 'idle';
-                    const currentJob = worker.current_job || 'None';
+            // Find tasks that are currently running (status = 'started')
+            const activeTasks = [];
+            Object.entries(metadata).forEach(function([taskId, task]) {
+                if (task.status === 'started') {
+                    activeTasks.push({
+                        taskId: taskId,
+                        deviceName: task.device_name,
+                        taskName: task.task_name,
+                        startedAt: task.started_at
+                    });
+                }
+            });
 
-                    let stateClass = 'worker-idle';
-                    let stateIcon = '<i class="fas fa-pause-circle"></i>';
-                    if (state === 'busy' || state === 'started') {
-                        stateClass = 'worker-busy';
-                        stateIcon = '<i class="fas fa-spinner fa-spin"></i>';
-                    } else if (state === 'failed') {
-                        stateClass = 'worker-failed';
-                        stateIcon = '<i class="fas fa-exclamation-circle"></i>';
-                    }
+            if (activeTasks.length === 0) {
+                tbody.append('<tr><td colspan="4" class="text-center text-muted">No active tasks</td></tr>');
+            } else {
+                activeTasks.forEach(function(task) {
+                    const shortTaskName = task.taskName ? task.taskName.split('.').pop() : 'unknown';
+                    const startedAt = task.startedAt ? formatDate(task.startedAt) : 'N/A';
 
                     tbody.append(`
                         <tr>
-                            <td>${workerName}</td>
-                            <td><span class="badge bg-secondary">${workerType}</span></td>
-                            <td><span class="${stateClass}">${stateIcon} ${state}</span></td>
-                            <td><small class="font-monospace">${currentJob}</small></td>
+                            <td>${task.deviceName || 'Unknown'}</td>
+                            <td><span class="badge bg-info">${shortTaskName}</span></td>
+                            <td><span class="worker-busy"><i class="fas fa-spinner fa-spin"></i> running</span></td>
+                            <td><small>${startedAt}</small></td>
                         </tr>
                     `);
                 });
@@ -214,67 +174,63 @@ function loadWorkers() {
 }
 
 function viewTaskDetails(taskId) {
-    // Show modal
     const modal = new bootstrap.Modal(document.getElementById('taskDetailModal'));
     modal.show();
 
-    // Reset modal content
     $('#task-detail-loading').show();
     $('#task-detail-content').hide();
     $('#detail-errors-section').hide();
 
-    // Fetch task details
-    $.get('/api/task/' + taskId)
-        .done(function(data) {
-            // API returns: {status: 'success', data: {task_status: '...', task_result: ...}}
-            const task = data.data || data;
-            const status = task.task_status || task.status || 'unknown';
-            const result = task.task_result || task.data || 'No result available';
-            const meta = task.task_meta || {};
-            const errors = task.task_errors || [];
+    // Fetch task details from DB
+    $.get('/api/tasks/' + taskId)
+        .done(function(task) {
+            const status = task.status || 'unknown';
+            const result = task.result;
 
             // Status badge
             let statusClass = 'bg-secondary';
-            if (status === 'queued') statusClass = 'bg-warning text-dark';
-            else if (status === 'started' || status === 'running') statusClass = 'bg-info';
-            else if (status === 'finished' || status === 'completed') statusClass = 'bg-success';
-            else if (status === 'failed') statusClass = 'bg-danger';
+            if (status === 'pending') statusClass = 'bg-warning text-dark';
+            else if (status === 'started') statusClass = 'bg-info';
+            else if (status === 'success') statusClass = 'bg-success';
+            else if (status === 'failure') statusClass = 'bg-danger';
 
             $('#detail-status').removeClass().addClass('badge ' + statusClass).text(status.toUpperCase());
             $('#detail-task-id').text(taskId);
 
-            // Queue and worker info
-            $('#detail-queue').text(task.task_queue || 'N/A');
-            $('#detail-worker').text(meta.assigned_worker || 'Not assigned');
+            // Queue and worker info (from task_name)
+            const taskName = task.task_name || 'N/A';
+            $('#detail-queue').text(taskName.split('.').pop() || 'N/A');
+            $('#detail-worker').text(task.device_name || 'N/A');
 
             // Timing info
-            $('#detail-created').text(task.created_on ? formatDate(task.created_on) : 'N/A');
-            $('#detail-started').text(meta.started_at ? formatDate(meta.started_at) : 'Not started');
-            $('#detail-ended').text(meta.ended_at ? formatDate(meta.ended_at) : 'Not finished');
+            $('#detail-created').text(task.created_at ? formatDate(task.created_at) : 'N/A');
+            $('#detail-started').text(task.started_at ? formatDate(task.started_at) : 'Not started');
+            $('#detail-ended').text(task.completed_at ? formatDate(task.completed_at) : 'Not finished');
 
-            const duration = meta.total_elapsed_seconds || '0';
-            $('#detail-duration').text(duration + ' seconds');
+            // Calculate duration
+            if (task.started_at && task.completed_at) {
+                const start = new Date(task.started_at);
+                const end = new Date(task.completed_at);
+                const duration = (end - start) / 1000;
+                $('#detail-duration').text(duration.toFixed(1) + ' seconds');
+            } else {
+                $('#detail-duration').text('N/A');
+            }
 
             // Errors section
-            if (errors && errors.length > 0) {
-                let errorHtml = '<ul class="mb-0">';
-                errors.forEach(function(err) {
-                    const exClass = err.exception_class || 'Unknown Error';
-                    const exArgs = err.exception_args || [];
-                    const exMsg = Array.isArray(exArgs) ? exArgs.join(' ') : String(exArgs);
-                    errorHtml += `<li><strong>${exClass}:</strong> ${exMsg}</li>`;
-                });
-                errorHtml += '</ul>';
-                $('#detail-errors').html(errorHtml);
+            if (task.error) {
+                $('#detail-errors').html(`<strong>Error:</strong> ${task.error}`);
                 $('#detail-errors-section').show();
             }
 
             // Format result
-            let formattedResult = result;
-            if (result === null || result === undefined) {
-                formattedResult = 'No result data';
-            } else if (typeof result === 'object') {
-                formattedResult = JSON.stringify(result, null, 2);
+            let formattedResult = 'No result data';
+            if (result !== null && result !== undefined) {
+                if (typeof result === 'object') {
+                    formattedResult = JSON.stringify(result, null, 2);
+                } else {
+                    formattedResult = String(result);
+                }
             }
             $('#detail-result').text(formattedResult);
 
@@ -313,7 +269,7 @@ function loadMopExecutions() {
     $('#mop-executions-loading').show();
     $('#mop-executions-container').hide();
 
-    $.get('/api/mop-executions/running')
+    $.get('/api/mops/executions/running/list')
         .done(function(data) {
             const tbody = $('#mop-executions-body');
             tbody.empty();
@@ -337,7 +293,6 @@ function loadMopExecutions() {
                     else if (status === 'completed') statusBadge = 'badge-completed';
                     else if (status === 'failed') statusBadge = 'badge-failed';
 
-                    // Show cancel button only for running executions, view button for completed/failed
                     let actionButton = '';
                     if (status === 'running') {
                         actionButton = `<button class="btn btn-sm btn-danger cancel-mop-btn" data-execution-id="${executionId}">
@@ -392,10 +347,9 @@ $(document).on('click', '.view-mop-execution-btn', function(e) {
 });
 
 function cancelMopExecution(executionId) {
-    $.post('/api/mop-executions/' + executionId + '/cancel')
+    $.post('/api/mops/executions/' + executionId + '/cancel')
         .done(function(data) {
             if (data.success) {
-                // Reload MOP executions to reflect the change
                 loadMopExecutions();
             } else {
                 alert('Error cancelling MOP execution: ' + (data.error || 'Unknown error'));
@@ -407,20 +361,17 @@ function cancelMopExecution(executionId) {
 }
 
 function showMopExecutionDetails(executionId) {
-    // Show modal and loading state
     const modal = new bootstrap.Modal(document.getElementById('mopExecutionDetailModal'));
     modal.show();
 
     $('#mop-detail-loading').show();
     $('#mop-detail-content').hide();
 
-    // Fetch execution details
-    $.get('/api/mop-executions/' + executionId)
+    $.get('/api/mops/executions/' + executionId)
         .done(function(data) {
             if (data.success && data.execution) {
                 const exec = data.execution;
 
-                // Set status badge
                 let statusClass = 'bg-info';
                 if (exec.status === 'running') statusClass = 'badge-running';
                 else if (exec.status === 'completed') statusClass = 'badge-completed';
@@ -434,7 +385,6 @@ function showMopExecutionDetails(executionId) {
                 $('#mop-detail-completed').text(exec.completed_at ? formatDate(exec.completed_at) : 'In Progress');
                 $('#mop-detail-started-by').text(exec.started_by || 'N/A');
 
-                // Calculate duration
                 if (exec.started_at && exec.completed_at) {
                     const start = new Date(exec.started_at);
                     const end = new Date(exec.completed_at);
@@ -444,7 +394,6 @@ function showMopExecutionDetails(executionId) {
                     $('#mop-detail-duration').text('N/A');
                 }
 
-                // Show errors if any
                 if (exec.error) {
                     $('#mop-detail-errors').text(exec.error);
                     $('#mop-detail-errors-section').show();
@@ -452,38 +401,24 @@ function showMopExecutionDetails(executionId) {
                     $('#mop-detail-errors-section').hide();
                 }
 
-                // Show execution log - format if it's an array of step objects
                 let logText = '';
                 if (exec.execution_log) {
                     if (Array.isArray(exec.execution_log)) {
-                        // Format as readable step-by-step log
                         exec.execution_log.forEach(function(step) {
                             const timestamp = step.timestamp ? formatDate(step.timestamp) : '';
-                            const status = step.status ? step.status.toUpperCase() : 'UNKNOWN';
                             const statusIcon = step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : '•';
 
                             logText += `${statusIcon} ${step.step}\n`;
-                            logText += `  Status: ${status}\n`;
-                            if (step.message) {
-                                logText += `  Message: ${step.message}\n`;
-                            }
-                            // Show error details if step failed
-                            if (step.error) {
-                                logText += `  Error: ${step.error}\n`;
-                            }
-                            // Show additional details if available
-                            if (step.details) {
-                                logText += `  Details: ${JSON.stringify(step.details)}\n`;
-                            }
-                            if (timestamp) {
-                                logText += `  Time: ${timestamp}\n`;
-                            }
+                            logText += `  Status: ${(step.status || 'UNKNOWN').toUpperCase()}\n`;
+                            if (step.message) logText += `  Message: ${step.message}\n`;
+                            if (step.error) logText += `  Error: ${step.error}\n`;
+                            if (step.details) logText += `  Details: ${JSON.stringify(step.details)}\n`;
+                            if (timestamp) logText += `  Time: ${timestamp}\n`;
                             logText += '\n';
                         });
                     } else if (typeof exec.execution_log === 'string') {
                         logText = exec.execution_log;
                     } else {
-                        // Fallback: JSON stringify
                         logText = JSON.stringify(exec.execution_log, null, 2);
                     }
                 } else {
@@ -516,4 +451,3 @@ $('#copy-mop-details').on('click', function() {
         alert('Failed to copy log: ' + err);
     });
 });
-

@@ -399,14 +399,8 @@ if (typeof module !== 'undefined' && module.exports) {
     // Set up a global error handler for 401 responses
     jq(document).ajaxError(function(event, jqXHR, settings, thrownError) {
         if (jqXHR.status === 401) {
-            // Don't redirect if already on login page or if it's a settings/non-critical API
+            // Don't redirect if already on login page
             if (window.location.pathname === '/login') {
-                return;
-            }
-
-            // For settings API, just log and continue - session auth will handle it
-            if (settings.url && settings.url.includes('/api/settings')) {
-                console.log('Settings API returned 401, session auth in use');
                 return;
             }
 
@@ -440,13 +434,15 @@ if (typeof module !== 'undefined' && module.exports) {
                     // Note: The original request will still fail, but subsequent requests will work
                 })
                 .catch(err => {
-                    console.warn('Token refresh failed');
-                    // Clear tokens but don't redirect - session auth may still be valid
+                    console.warn('Token refresh failed, redirecting to login');
                     NetStacksAPI.clearTokens();
+                    window.location.href = '/login';
                 });
             } else {
-                // No refresh token - don't redirect, session auth may still work
-                console.log('No JWT refresh token, using session auth');
+                // No refresh token - redirect to login (JWT-only auth)
+                console.log('No JWT refresh token, redirecting to login');
+                NetStacksAPI.clearTokens();
+                window.location.href = '/login';
             }
         }
     });

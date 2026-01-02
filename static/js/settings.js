@@ -35,14 +35,8 @@ const DEFAULT_SETTINGS = {
 
 $(document).ready(function() {
     loadSettings();
-    loadTheme();
     updateTimezoneDisplay();
     loadAssistantConfig();
-
-    // Theme change handler
-    $('#theme-select').change(function() {
-        saveTheme($(this).val());
-    });
 
     // Timezone change handler
     $('#timezone-select').change(function() {
@@ -496,40 +490,6 @@ function testNetboxConnection() {
     });
 }
 
-// Theme management functions
-function loadTheme() {
-    $.get('/api/user/theme')
-        .done(function(response) {
-            if (response.success && response.data) {
-                // API returns theme in response.data.theme
-                $('#theme-select').val(response.data.theme || 'dark');
-            }
-        })
-        .fail(function() {
-            // Default to dark if API fails
-            $('#theme-select').val('dark');
-        });
-}
-
-function saveTheme(theme) {
-    $.ajax({
-        url: '/api/user/theme',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({ theme: theme })
-    })
-    .done(function(data) {
-        if (data.success) {
-            // Update the theme immediately without page reload
-            $('html').attr('data-bs-theme', theme);
-            showNotification(`Theme changed to ${theme}`, 'success');
-        }
-    })
-    .fail(function(xhr) {
-        showNotification('Failed to save theme: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
-    });
-}
-
 // Timezone display update
 function updateTimezoneDisplay() {
     const selectedTz = $('#timezone-select').val();
@@ -583,7 +543,7 @@ function escapeHtml(text) {
 
 // Load API resources
 function loadApiResources() {
-    $.get('/api/api-resources')
+    $.get('/api/settings/api-resources')
         .done(function(response) {
             if (response.success) {
                 apiResourcesData = response.resources;
@@ -730,7 +690,7 @@ function saveApiResource() {
     };
 
     const isEdit = resourceId !== '';
-    const url = isEdit ? `/api/api-resources/${resourceId}` : '/api/api-resources';
+    const url = isEdit ? `/api/settings/api-resources/${resourceId}` : '/api/settings/api-resources';
     const method = isEdit ? 'PUT' : 'POST';
 
     $.ajax({
@@ -763,7 +723,7 @@ function deleteApiResource(resourceId) {
     }
 
     $.ajax({
-        url: `/api/api-resources/${resourceId}`,
+        url: `/api/settings/api-resources/${resourceId}`,
         method: 'DELETE'
     })
     .done(function(response) {
@@ -819,7 +779,7 @@ let llmProviders = [];
 // Load AI Assistant configuration
 function loadAssistantConfig() {
     // First load the available LLM providers from AI Settings
-    $.get('/api/llm/providers')
+    $.get('/api/llm/')
         .done(function(response) {
             if (response.providers) {
                 llmProviders = response.providers.filter(p => p.is_enabled);
@@ -836,7 +796,7 @@ function loadAssistantConfig() {
         });
 
     // Then load the assistant config
-    $.get('/api/assistant/config')
+    $.get('/api/settings/assistant/config')
         .done(function(response) {
             if (response.config) {
                 $('#assistant-enabled').prop('checked', response.config.enabled === true || response.config.enabled === 'true');
@@ -888,7 +848,7 @@ function saveAssistantConfig() {
     const statusDiv = $('#assistant-provider-status');
 
     $.ajax({
-        url: '/api/assistant/config',
+        url: '/api/settings/assistant/config',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({

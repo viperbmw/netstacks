@@ -6,25 +6,15 @@ HTTP routes for managing pending approvals for high-risk agent actions.
 
 import logging
 import uuid
-from flask import Blueprint, render_template, request, jsonify, session
-from functools import wraps
+from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime
 
 import database as db
+from routes.auth import login_required, get_current_user
 
 log = logging.getLogger(__name__)
 
 approvals_bp = Blueprint('approvals', __name__, url_prefix='/approvals')
-
-
-def login_required(f):
-    """Decorator to require login for routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            return jsonify({'error': 'Authentication required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 # ============================================================================
@@ -47,7 +37,7 @@ def approvals_page():
 def list_pending_approvals():
     """List pending approvals"""
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
 
         status = request.args.get('status', 'pending')
         limit = request.args.get('limit', 50, type=int)
@@ -92,7 +82,7 @@ def list_pending_approvals():
 def get_approval(approval_id):
     """Get approval details"""
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
 
         with db.get_db() as db_session:
             approval = db_session.query(PendingApproval).filter(
@@ -128,10 +118,10 @@ def get_approval(approval_id):
 def approve_action(approval_id):
     """Approve a pending action"""
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
 
         data = request.get_json() or {}
-        username = session.get('username', 'unknown')
+        username = get_current_user()
 
         with db.get_db() as db_session:
             approval = db_session.query(PendingApproval).filter(
@@ -176,10 +166,10 @@ def approve_action(approval_id):
 def reject_action(approval_id):
     """Reject a pending action"""
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
 
         data = request.get_json() or {}
-        username = session.get('username', 'unknown')
+        username = get_current_user()
         reason = data.get('reason', 'No reason provided')
 
         with db.get_db() as db_session:
@@ -219,7 +209,7 @@ def reject_action(approval_id):
 def get_approval_stats():
     """Get approval statistics"""
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
         from sqlalchemy import func
 
         with db.get_db() as db_session:
@@ -274,7 +264,7 @@ def create_approval_request(
         Approval ID
     """
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
         from datetime import timedelta
 
         approval_id = str(uuid.uuid4())
@@ -328,7 +318,7 @@ def _notify_agent_approval(session_id: str, approval_id: str, approved: bool, us
 def check_expired_approvals():
     """Check and expire old approval requests"""
     try:
-        from models import PendingApproval
+        from shared.netstacks_core.db.models import PendingApproval
 
         with db.get_db() as db_session:
             expired = db_session.query(PendingApproval).filter(

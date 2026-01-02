@@ -198,7 +198,7 @@ Use this when:
         """Create escalation record in database"""
         try:
             import database as db
-            from models import Incident
+            from shared.netstacks_core.db.models import Incident
 
             with db.get_db() as session:
                 incident = Incident(
@@ -277,7 +277,7 @@ Use this when you've identified a significant problem that needs formal tracking
         """Create incident record"""
         try:
             import database as db
-            from models import Incident
+            from shared.netstacks_core.db.models import Incident
 
             incident_id = str(uuid.uuid4())
 
@@ -368,7 +368,7 @@ WARNING: This executes changes on network devices - requires approval."""
         """Execute MOP on target devices"""
         try:
             import database as db
-            from models import MOP
+            from shared.netstacks_core.db.models import MOP
 
             # Get MOP from database
             with db.get_db() as session:
@@ -507,7 +507,7 @@ Use this to add resolution notes, change status, or update severity."""
         """Update incident"""
         try:
             import database as db
-            from models import Incident
+            from shared.netstacks_core.db.models import Incident
 
             with db.get_db() as session:
                 incident = session.query(Incident).filter(

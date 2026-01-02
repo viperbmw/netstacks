@@ -44,7 +44,7 @@ def get_llm_client(
     # Import here to avoid circular imports
     try:
         import database as db
-        from models import LLMProvider
+        from shared.netstacks_core.db.models import LLMProvider
     except ImportError:
         # Fallback for standalone usage
         db = None
@@ -114,7 +114,7 @@ def get_available_providers() -> List[Dict[str, Any]]:
     """
     try:
         import database as db
-        from models import LLMProvider
+        from shared.netstacks_core.db.models import LLMProvider
     except ImportError:
         # Return static list if database not available
         return [

@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from netstacks_core.db import init_db, get_session, Setting
 
 from app.config import settings
-from app.routes import devices, credentials, overrides, netbox
+from app.routes import devices, credentials, overrides, netbox, backups
 from app.services.netbox_service import NetBoxService
 
 # Configure logging
@@ -163,3 +163,69 @@ app.include_router(
     prefix="/api/netbox",
     tags=["NetBox"]
 )
+
+# Config backups - routers already have prefixes defined
+app.include_router(backups.router, tags=["Config Backups"])
+app.include_router(backups.schedule_router, tags=["Backup Schedule"])
+
+
+# Standalone device endpoint for connection info (singular /api/device/)
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy.orm import Session
+from netstacks_core.db import get_db, DeviceOverride
+from netstacks_core.auth import get_current_user
+from netstacks_core.utils.responses import success_response
+from app.services.device_service import DeviceService
+
+
+@app.get("/api/device/{device_name}/connection-info")
+async def get_device_connection_info(
+    device_name: str,
+    request: Request,
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Get device connection information including netmiko device_type.
+
+    Returns the device_type (netmiko platform) and IP address needed
+    for establishing SSH connections.
+    """
+    import os
+    import httpx
+
+    service = DeviceService(session)
+    device = service.get(device_name)
+
+    if not device:
+        raise HTTPException(status_code=404, detail=f"Device not found: {device_name}")
+
+    # Get device override if exists
+    override = session.query(DeviceOverride).filter(
+        DeviceOverride.device_name == device_name
+    ).first()
+
+    # Determine device_type (netmiko platform)
+    device_type = device.get('device_type', 'cisco_ios')
+    if override and override.device_type:
+        device_type = override.device_type
+
+    # Get IP address - prefer override, then device host, then primary_ip
+    ip_address = None
+    if override and override.host:
+        ip_address = override.host
+    elif device.get('host'):
+        ip_address = device.get('host')
+    elif device.get('primary_ip'):
+        primary_ip = device.get('primary_ip')
+        if isinstance(primary_ip, dict):
+            ip_address = primary_ip.get('address', '').split('/')[0]
+        elif isinstance(primary_ip, str):
+            ip_address = primary_ip.split('/')[0]
+
+    return {
+        'success': True,
+        'device_name': device_name,
+        'device_type': device_type,
+        'ip_address': ip_address
+    }

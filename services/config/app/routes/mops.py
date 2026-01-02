@@ -166,3 +166,23 @@ async def get_running_executions(
         "executions": executions,
         "count": len(executions),
     })
+
+
+@router.post("/executions/{execution_id}/cancel")
+async def cancel_mop_execution(
+    execution_id: str,
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """Cancel a running MOP execution."""
+    service = MOPService(session)
+    execution = service.get_execution(execution_id)
+
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    if not service.cancel_execution(execution_id):
+        raise HTTPException(status_code=400, detail="Cannot cancel execution")
+
+    log.info(f"MOP execution cancelled: {execution_id} by {current_user.sub}")
+    return success_response(message="Execution cancelled")

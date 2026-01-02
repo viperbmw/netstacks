@@ -5,6 +5,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libc-dev \
     libpq-dev \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*

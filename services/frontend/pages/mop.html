@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOPs - NetStacks</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=4" rel="stylesheet">
+    <link href="/static/css/assistant.css?v=2" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-1">
+        <div class="container-fluid py-0">
+            <a class="navbar-brand brand-logo" href="/">
+                <span class="brand-icon">
+                    <i class="fas fa-layer-group"></i>
+                </span>
+                <span class="brand-text">NetStacks</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <!-- Operations Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-play-circle"></i> Operations
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/deploy"><i class="fas fa-rocket"></i> Deploy Config</a></li>
+                            <li><a class="dropdown-item" href="/monitor"><i class="fas fa-chart-line"></i> Monitor Jobs</a></li>
+                            <li><a class="dropdown-item" href="/mop"><i class="fas fa-list-check"></i> Procedures (MOP)</a></li>
+                        </ul>
+                    </li>
+                    <!-- Configuration Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cogs"></i> Configuration
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/devices"><i class="fas fa-server"></i> Devices & Snapshots</a></li>
+                            <li><a class="dropdown-item" href="/templates"><i class="fas fa-file-code"></i> Templates</a></li>
+                            <li><a class="dropdown-item" href="/service-stacks"><i class="fas fa-layer-group"></i> Service Stacks</a></li>
+                        </ul>
+                    </li>
+                    <!-- AI Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-brain"></i> AI
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/agents"><i class="fas fa-robot"></i> Agents</a></li>
+                            <li><a class="dropdown-item" href="/agents/chat"><i class="fas fa-comments"></i> Agent Chat</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/alerts"><i class="fas fa-bell"></i> Alerts</a></li>
+                            <li><a class="dropdown-item" href="/incidents"><i class="fas fa-exclamation-triangle"></i> Incidents</a></li>
+                            <li><a class="dropdown-item" href="/approvals"><i class="fas fa-shield-alt"></i> Approvals</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/knowledge"><i class="fas fa-book-open"></i> Knowledge</a></li>
+                            <li><a class="dropdown-item" href="/tools"><i class="fas fa-wrench"></i> Tools</a></li>
+                        </ul>
+                    </li>
+                    <!-- Settings Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i> Settings
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/admin"><i class="fas fa-users-cog"></i> Users & Auth</a></li>
+                            <li><a class="dropdown-item" href="/settings"><i class="fas fa-sliders-h"></i> System Settings</a></li>
+                            <li><a class="dropdown-item" href="/settings/ai"><i class="fas fa-brain"></i> AI Settings</a></li>
+                            <li><a class="dropdown-item" href="/platform"><i class="fas fa-heartbeat"></i> Platform Health</a></li>
+                            <li><a class="dropdown-item" href="/step-types"><i class="fas fa-puzzle-piece"></i> MOP Step Types</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/docs" target="_blank"><i class="fas fa-book"></i> NetStacks API</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link text-light">
+                            <i class="fas fa-user"></i> <span id="current-username">Loading...</span>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link text-light" id="system-time-container" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Loading...">
+                            <i class="fas fa-clock"></i>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="handleLogout(event)">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Page Content -->
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-sitemap"></i> MOPs
+        </h1>
+        <p class="text-muted">YAML-based mop automation with conditional logic</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- MOPs List -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-folder"></i> Saved MOPs</h5>
+                <button class="btn btn-sm btn-primary" id="create-mop-btn">
+                    <i class="fas fa-plus"></i> New
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div id="mops-list" class="list-group list-group-flush" style="max-height: 600px; overflow-y: auto;">
+                    <div class="p-3 text-center text-muted">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Example Templates -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-lightbulb"></i> Example Templates</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    <a href="#" class="list-group-item list-group-item-action load-example" data-example="maintenance">
+                        <i class="fas fa-tools"></i> Maintenance Window (Deploy Stack)
+                    </a>
+                    <a href="#" class="list-group-item list-group-item-action load-example" data-example="simple">
+                        <i class="fas fa-check"></i> Simple BGP Check & Webhook
+                    </a>
+                    <a href="#" class="list-group-item list-group-item-action load-example" data-example="custom">
+                        <i class="fas fa-hand-paper"></i> Manual Approval Workflow
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOP Editor -->
+    <div class="col-md-8">
+        <div id="no-mop-selected" class="card">
+            <div class="card-body text-center text-muted py-5">
+                <i class="fas fa-arrow-left fa-3x mb-3"></i>
+                <h4>No MOP Selected</h4>
+                <p>Select a mop from the list, create a new one, or load an example</p>
+            </div>
+        </div>
+
+        <div id="mop-editor" class="card" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-edit"></i> <span id="mop-title">MOP Editor</span></h5>
+                <div>
+                    <button class="btn btn-sm btn-success" id="execute-mop-btn">
+                        <i class="fas fa-play"></i> Execute
+                    </button>
+                    <button class="btn btn-sm btn-warning" id="save-mop-btn">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                    <button class="btn btn-sm btn-danger" id="delete-mop-btn">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <input type="hidden" id="current-mop-id">
+
+                <div class="mb-3">
+                    <label for="mop-name" class="form-label">MOP Name</label>
+                    <input type="text" class="form-control" id="mop-name" placeholder="My Network MOP">
+                </div>
+
+                <div class="mb-3">
+                    <label for="mop-description" class="form-label">Description</label>
+                    <textarea class="form-control" id="mop-description" rows="2" placeholder="Brief description of this mop"></textarea>
+                </div>
+
+                <!-- Visual Builder Toggle -->
+                <div class="mb-3">
+                    <ul class="nav nav-tabs" id="editor-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="visual-tab" data-bs-toggle="tab" data-bs-target="#visual-builder" type="button">
+                                <i class="fas fa-grip-vertical"></i> Visual Builder
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="yaml-tab" data-bs-toggle="tab" data-bs-target="#yaml-editor" type="button">
+                                <i class="fas fa-code"></i> YAML Editor
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="tab-content" id="editor-tab-content">
+                    <!-- Visual Builder Tab -->
+                    <div class="tab-pane fade show active" id="visual-builder" role="tabpanel">
+                        <!-- Device Selector -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <strong><i class="fas fa-server"></i> Target Devices</strong>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-2">
+                                    <div class="col-md-9">
+                                        <select class="form-select" id="mop-device-dropdown">
+                                            <option value="">Loading devices...</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-success w-100" id="add-device-btn">
+                                            <i class="fas fa-plus"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="selected-devices-list" class="list-group">
+                                    <div class="text-muted text-center p-2">
+                                        <small>No devices added yet</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Steps Card -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <strong><i class="fas fa-list"></i> Steps</strong>
+                                <button class="btn btn-sm btn-success float-end" id="add-step-btn">
+                                    <i class="fas fa-plus"></i> Add Step
+                                </button>
+                            </div>
+                            <div class="card-body p-2">
+                                <div id="visual-steps-list" class="list-group list-group-flush">
+                                    <div class="text-center text-muted p-3">
+                                        No steps added yet. Click "Add Step" to begin.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" id="generate-yaml-btn">
+                            <i class="fas fa-arrow-right"></i> Generate YAML
+                        </button>
+                        <button class="btn btn-outline-secondary ms-2" id="load-from-yaml-btn">
+                            <i class="fas fa-arrow-left"></i> Load from YAML
+                        </button>
+                    </div>
+
+                    <!-- YAML Editor Tab -->
+                    <div class="tab-pane fade" id="yaml-editor" role="tabpanel">
+                        <div class="mb-3">
+                            <label for="mop-yaml" class="form-label">
+                                <i class="fas fa-code"></i> YAML Definition
+                                <a href="#" id="show-yaml-help" class="text-muted ms-2" data-bs-toggle="collapse" data-bs-target="#yaml-help">
+                                    <i class="fas fa-question-circle"></i> Help
+                                </a>
+                            </label>
+
+                    <!-- YAML Help Panel -->
+                    <div class="collapse" id="yaml-help">
+                        <div class="alert alert-info">
+                            <strong>YAML MOP Syntax:</strong>
+                            <pre class="mb-0" style="font-size: 12px;">name: "My MOP"
+description: "What this mop does"
+devices:
+  - device1.example.com
+  - device2.example.com
+
+steps:
+  - name: "Check BGP Neighbors"
+    id: check_bgp
+    type: check_bgp
+    command: "show ip bgp summary"
+    on_success: deploy_stack
+    on_failure: send_alert
+
+  - name: "Deploy Stack"
+    id: deploy_stack
+    type: deploy_stack
+    stack_name: "my-stack-name"
+    on_success: validate
+    on_failure: send_alert
+
+  - name: "Validate Config"
+    id: validate
+    type: validate_config
+    command: "show running-config"
+    on_success: send_success
+    on_failure: send_alert
+
+  - name: "Send Webhook"
+    id: send_success
+    type: webhook
+    url: "https://hooks.slack.com/..."
+    message: "Deployment Complete"
+
+  - name: "Wait 30 Seconds"
+    id: wait_step
+    type: wait
+    seconds: 30
+
+<strong>Available Step Types:</strong>
+<span class="badge bg-primary">get_config</span> Run show commands (check_bgp, check_interfaces, check_routing, get_config)
+<span class="badge bg-success">set_config</span> Push configuration to devices
+<span class="badge bg-danger">deploy_stack</span> Deploy a service stack
+<span class="badge bg-warning text-dark">validate</span> Validate output patterns (validate_config)
+<span class="badge bg-info">api_call</span> HTTP API calls (api_call, webhook)
+<span class="badge bg-secondary">wait</span> Pause execution
+<span style="background-color: #6f42c1; padding: 2px 6px; border-radius: 4px; color: white; font-size: 11px;">manual</span> Human approval (manual_approval)
+
+<strong>Variables:</strong>
+Use , , , etc.</pre>
+                        </div>
+                    </div>
+
+                            <textarea class="form-control font-monospace" id="mop-yaml" rows="20"
+                                      placeholder="name: My MOP&#10;description: Description here&#10;devices:&#10;  - device1&#10;  - device2&#10;&#10;steps:&#10;  - name: Step 1&#10;    type: check_bgp"></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <button class="btn btn-sm btn-outline-secondary" id="validate-yaml-btn">
+                                <i class="fas fa-check-circle"></i> Validate YAML
+                            </button>
+                            <span id="yaml-validation-result" class="ms-2"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Execution History -->
+                <h5><i class="fas fa-history"></i> Execution History</h5>
+                <div id="mop-executions" class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Started</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mop-executions-body">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No executions yet</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Execution Details Modal -->
+<div class="modal fade" id="executionModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-list"></i> MOP Execution Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="execution-details-content">
+                    <div class="text-center">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="copy-execution-log">
+                    <i class="fas fa-copy"></i> Copy Log
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Step Modal -->
+<div class="modal fade" id="stepModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Step</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="step-form">
+                    <input type="hidden" id="step-index">
+
+                    <div class="mb-3">
+                        <label class="form-label">Step Name *</label>
+                        <input type="text" class="form-control" id="step-name" required>
+                        <small class="text-muted">A descriptive name for this step</small>
+                    </div>
+
+                    <input type="hidden" id="step-id">
+
+                    <div class="mb-3">
+                        <label class="form-label">Step Type *</label>
+                        <select class="form-select" id="step-type" required>
+                            <option value="">-- Select Type --</option>
+                        </select>
+                    </div>
+
+                    <!-- Dynamic parameters container -->
+                    <div id="dynamic-params-container" class="mb-3">
+                        <p class="text-muted"><small>Select a step type to see available parameters</small></p>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">On Success (Step ID)</label>
+                            <input type="text" class="form-control" id="step-on-success">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">On Failure (Step ID)</label>
+                            <input type="text" class="form-control" id="step-on-failure">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-step-btn">Save Step</button>
+            </div>
+        </div>
+    </div>
+</div>        <!-- End Page Content -->
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="/static/js/api-client.js"></script>
+    <script src="/static/js/auth-guard.js"></script>
+    <script src="/static/js/timezone-utils.js"></script>
+    <script src="/static/js/task-manager.js"></script>
+    <script>
+        let systemTimezone = 'UTC';
+        let timezoneLoaded = false;
+
+        // Load system timezone asynchronously
+        async function loadSystemTimezone() {
+            try {
+                const response = await $.ajax({
+                    url: '/api/settings',
+                    method: 'GET'
+                });
+                if (response.success && response.settings.system_timezone) {
+                    systemTimezone = response.settings.system_timezone;
+                    console.log('System timezone loaded:', systemTimezone);
+                }
+            } catch (error) {
+                systemTimezone = 'UTC';
+                console.log('Failed to load system timezone, using UTC');
+            }
+            timezoneLoaded = true;
+        }
+
+        // Update system time tooltip every second
+        function updateSystemTime() {
+            const now = new Date();
+            let timeString;
+
+            try {
+                const options = {
+                    timeZone: systemTimezone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                const formatter = new Intl.DateTimeFormat('en-CA', options);
+                const parts = formatter.formatToParts(now);
+                const dateMap = {};
+                parts.forEach(part => {
+                    dateMap[part.type] = part.value;
+                });
+                timeString = `${dateMap.year}-${dateMap.month}-${dateMap.day} ${dateMap.hour}:${dateMap.minute}:${dateMap.second}`;
+
+                if (systemTimezone === 'UTC') {
+                    timeString += ' UTC';
+                } else {
+                    timeString += ` (${systemTimezone})`;
+                }
+            } catch (e) {
+                timeString = now.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+            }
+
+            const $container = $('#system-time-container');
+            $container.attr('data-bs-original-title', 'Server Time: ' + timeString);
+            $container.attr('title', 'Server Time: ' + timeString);
+        }
+
+        // Handle logout - clear JWT tokens and redirect
+        function handleLogout(event) {
+            event.preventDefault();
+            if (typeof NetStacksAPI !== 'undefined') {
+                NetStacksAPI.clearTokens();
+            } else {
+                localStorage.removeItem('netstacks_jwt_token');
+                localStorage.removeItem('netstacks_jwt_refresh');
+                localStorage.removeItem('netstacks_jwt_expiry');
+            }
+            window.location.href = '/logout';
+        }
+
+        // Initialize on page load
+        $(document).ready(async function() {
+            await loadSystemTimezone();
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            updateSystemTime();
+            setInterval(updateSystemTime, 1000);
+        });
+    </script>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="/static/js/mops.js"></script>
+<script src="/static/js/visual-builder.js"></script>
+    <!-- NetStacks AI Assistant -->
+    <script src="/static/js/assistant.js?v=4"></script>
+</body>
+</html>

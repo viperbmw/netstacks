@@ -289,14 +289,11 @@ function showStatus(status, data = {}) {
 
 function executeGetConfig() {
     const devices = $('#get-device').val(); // Now returns array
-    const library = $('#get-library').val();
     const command = $('#get-command').val();
     const username = $('#get-username').val();
     const password = $('#get-password').val();
-    const enableCache = $('#get-cache').is(':checked');
     const useTextFsm = $('#get-use-textfsm').is(':checked');
     const useTtp = $('#get-use-ttp').is(':checked');
-    const ttpTemplate = $('#get-ttp-template').val();
 
     if (!devices || devices.length === 0) {
         showStatus('error', { message: 'Please select at least one device' });
@@ -308,103 +305,55 @@ function executeGetConfig() {
     const finalUsername = username || creds.username;
     const finalPassword = password || creds.password;
 
-    if (!finalUsername || !finalPassword) {
-        showStatus('error', { message: 'Please provide credentials or set defaults in Settings' });
-        return;
-    }
-
     showStatus('loading');
 
     const taskIds = [];
     let completed = 0;
 
-    // Send command to each device
+    // Send command to each device using new Celery API
     devices.forEach(function(device) {
-        // Fetch device connection info first
-        $.get('/api/device/' + encodeURIComponent(device) + '/connection-info')
-            .done(function(deviceInfo) {
-                const payload = {
-                    connection_args: {
-                        device_type: deviceInfo.device_type || "cisco_ios",
-                        host: deviceInfo.ip_address || device,
-                        username: finalUsername,
-                        password: finalPassword,
-                        timeout: 10
-                    },
-                    command: command,
-                    queue_strategy: "pinned"
-                };
+        $.ajax({
+            url: '/api/celery/getconfig',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                device: device,
+                command: command,
+                use_textfsm: useTextFsm,
+                use_ttp: useTtp,
+                username: finalUsername || null,
+                password: finalPassword || null
+            }),
+            timeout: 30000
+        })
+        .done(function(data) {
+            const taskId = data.task_id;
+            if (taskId) {
+                taskIds.push(taskId);
+            }
+            completed++;
 
-                if (enableCache) {
-                    payload.cache = {
-                        enabled: true,
-                        ttl: 300
-                    };
-                }
+            if (completed === devices.length) {
+                showStatus('success', { taskId: `${taskIds.length} tasks created` });
 
-                // Add args for parsing options
-                if (useTextFsm || useTtp) {
-                    payload.args = {};
-                    if (useTextFsm) {
-                        payload.args.use_textfsm = true;
-                    }
-                    if (useTtp) {
-                        payload.args.use_ttp = true;
-                        if (ttpTemplate && ttpTemplate.trim() !== '') {
-                            payload.args.ttp_template = ttpTemplate;
-                        }
-                    }
-                }
+                // Redirect to job monitor after 3 seconds
+                setTimeout(function() {
+                    window.location.href = '/monitor';
+                }, 3000);
+            }
+        })
+        .fail(function(xhr, status, error) {
+            completed++;
+            let errorMsg = 'Failed to execute command on ' + device;
+            if (xhr.responseJSON && xhr.responseJSON.detail) {
+                errorMsg += ': ' + xhr.responseJSON.detail;
+            }
+            console.error(errorMsg);
 
-                $.ajax({
-                    url: '/api/deploy/getconfig',
-                    method: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({
-                        library: library,
-                        payload: payload,
-                        device_name: device  // Include device name for tracking
-                    }),
-                    timeout: 30000
-                })
-                .done(function(data) {
-                    // API returns: {status: 'success', data: {task_id: '...', ...}}
-                    const taskId = data.data?.task_id || data.task_id || data.id;
-                    if (taskId) {
-                        taskIds.push(taskId);
-                    }
-                    completed++;
-
-                    if (completed === devices.length) {
-                        const taskIdList = taskIds.join(', ');
-                        showStatus('success', { taskId: `${taskIds.length} tasks created` });
-
-                        // Redirect to job monitor after 3 seconds
-                        setTimeout(function() {
-                            window.location.href = '/monitor';
-                        }, 3000);
-                    }
-                })
-                .fail(function(xhr, status, error) {
-                    completed++;
-                    let errorMsg = 'Failed to execute command on ' + device;
-                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                        errorMsg += ': ' + xhr.responseJSON.error;
-                    }
-                    console.error(errorMsg);
-
-                    if (completed === devices.length) {
-                        showStatus('error', { message: `Completed with errors. ${taskIds.length} of ${devices.length} successful` });
-                    }
-                });
-            })
-            .fail(function() {
-                completed++;
-                console.error('Failed to fetch device info for ' + device);
-                if (completed === devices.length) {
-                    showStatus('error', { message: `Failed to fetch device info` });
-                }
-            });
+            if (completed === devices.length) {
+                showStatus('error', { message: `Completed with errors. ${taskIds.length} of ${devices.length} successful` });
+            }
+        });
     });
 }
 
@@ -458,135 +407,66 @@ function deployToDevices(devices, library, commands, username, password, dryRun,
     const finalUsername = username || creds.username;
     const finalPassword = password || creds.password;
 
-    if (!finalUsername || !finalPassword) {
-        showStatus('error', { message: 'Please provide credentials or set defaults in Settings' });
-        return;
-    }
-
-    // Default check options
-    checkOptions = checkOptions || {
-        enabled: false,
-        preCheckCommand: '',
-        preCheckMatch: '',
-        postCheckCommand: '',
-        postCheckMatch: ''
-    };
-
     const taskIds = [];
-    const dryRunResults = [];  // Collect dry run results
+    const dryRunResults = [];
     let completed = 0;
-    const endpoint = dryRun ? '/api/deploy/setconfig/dry-run' : '/api/deploy/setconfig';
 
-    // Send config to each device
+    // Send config to each device using new Celery API
     devices.forEach(function(device) {
-        // Fetch device connection info first
-        $.get('/api/device/' + encodeURIComponent(device) + '/connection-info')
-            .done(function(deviceInfo) {
-                const payload = {
-                    connection_args: {
-                        device_type: deviceInfo.device_type || "cisco_ios",
-                        host: deviceInfo.ip_address || device,
-                        username: finalUsername,
-                        password: finalPassword,
-                        timeout: 10
-                    },
-                    config: commands,
-                    queue_strategy: "pinned"
-                };
-
-                // Add pre_checks if enabled and command is provided
-                if (checkOptions.enabled && checkOptions.preCheckCommand) {
-                    const matchArray = checkOptions.preCheckMatch ?
-                        checkOptions.preCheckMatch.split(',').map(s => s.trim()).filter(s => s) :
-                        [];
-
-                    payload.pre_checks = [{
-                        get_config_args: {
-                            command: checkOptions.preCheckCommand
-                        },
-                        match_type: "include",
-                        match_str: matchArray  // Array of strings that must be in output (empty = just capture)
-                    }];
-                }
-
-                // Add post_checks if enabled and command is provided
-                if (checkOptions.enabled && checkOptions.postCheckCommand) {
-                    const matchArray = checkOptions.postCheckMatch ?
-                        checkOptions.postCheckMatch.split(',').map(s => s.trim()).filter(s => s) :
-                        [];
-
-                    payload.post_checks = [{
-                        get_config_args: {
-                            command: checkOptions.postCheckCommand
-                        },
-                        match_type: "include",
-                        match_str: matchArray
-                    }];
-                }
-
-                $.ajax({
-                    url: endpoint,
-                    method: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({
-                        library: library,
-                        payload: payload,
-                        device_name: device  // Include device name for tracking
-                    }),
-                    timeout: 30000
-                })
-                .done(function(data) {
-                    completed++;
-
-                    if (dryRun) {
-                        // For dry run, collect rendered config
-                        const renderedConfig = data.data?.rendered_config || data.rendered_config || '';
-                        dryRunResults.push({
-                            device: device,
-                            config: Array.isArray(renderedConfig) ? renderedConfig.join('\n') : renderedConfig
-                        });
-
-                        if (completed === devices.length) {
-                            // Show dry run results in modal
-                            showDryRunResults(dryRunResults);
-                        }
-                    } else {
-                        // API returns: {status: 'success', data: {task_id: '...', ...}}
-                        const taskId = data.data?.task_id || data.task_id || data.id;
-                        if (taskId) {
-                            taskIds.push(taskId);
-                        }
-
-                        if (completed === devices.length) {
-                            showStatus('success', { taskId: `${taskIds.length} tasks created` });
-
-                            // Redirect to job monitor after 3 seconds
-                            setTimeout(function() {
-                                window.location.href = '/monitor';
-                            }, 3000);
-                        }
-                    }
-                })
-                .fail(function(xhr, status, error) {
-                    completed++;
-                    let errorMsg = 'Failed to deploy to ' + device;
-                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                        errorMsg += ': ' + xhr.responseJSON.error;
-                    }
-                    console.error(errorMsg);
-
-                    if (completed === devices.length) {
-                        showStatus('error', { message: `Completed with errors. ${taskIds.length} of ${devices.length} successful` });
-                    }
-                });
-            })
-            .fail(function() {
-                completed++;
-                console.error('Failed to fetch device info for ' + device);
-                if (completed === devices.length) {
-                    showStatus('error', { message: `Failed to fetch device info` });
-                }
+        // For dry run, just show what would be sent
+        if (dryRun) {
+            completed++;
+            dryRunResults.push({
+                device: device,
+                config: commands.join('\n')
             });
+            if (completed === devices.length) {
+                showDryRunResults(dryRunResults);
+            }
+            return;
+        }
+
+        $.ajax({
+            url: '/api/celery/setconfig',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                device: device,
+                config_lines: commands,
+                save_config: true,
+                username: finalUsername || null,
+                password: finalPassword || null
+            }),
+            timeout: 30000
+        })
+        .done(function(data) {
+            const taskId = data.task_id;
+            if (taskId) {
+                taskIds.push(taskId);
+            }
+            completed++;
+
+            if (completed === devices.length) {
+                showStatus('success', { taskId: `${taskIds.length} tasks created` });
+
+                // Redirect to job monitor after 3 seconds
+                setTimeout(function() {
+                    window.location.href = '/monitor';
+                }, 3000);
+            }
+        })
+        .fail(function(xhr, status, error) {
+            completed++;
+            let errorMsg = 'Failed to deploy to ' + device;
+            if (xhr.responseJSON && xhr.responseJSON.detail) {
+                errorMsg += ': ' + xhr.responseJSON.detail;
+            }
+            console.error(errorMsg);
+
+            if (completed === devices.length) {
+                showStatus('error', { message: `Completed with errors. ${taskIds.length} of ${devices.length} successful` });
+            }
+        });
     });
 }
 
@@ -667,7 +547,7 @@ function pollTaskResult(taskId, attempts = 0) {
     }
 
     setTimeout(function() {
-        $.get('/api/task/' + taskId)
+        $.get('/api/tasks/' + taskId)
             .done(function(data) {
                 // API returns: {status: 'success', data: {task_status: '...', task_result: ...}}
                 const taskData = data.data || data;

@@ -100,7 +100,7 @@ class AlertProcessor:
         - Related to open incident
         """
         import database as db
-        from models import Alert, Incident
+        from shared.netstacks_core.db.models import Alert, Incident
 
         alert_id = alert_data.get('alert_id')
         device = alert_data.get('device')
@@ -165,8 +165,7 @@ class AlertProcessor:
 
                 for incident in incidents:
                     # Check if incident relates to this device
-                    incident_data = incident.incident_data or {}
-                    affected_devices = incident_data.get('affected_devices', [])
+                    affected_devices = incident.affected_devices or []
 
                     if (device and device in affected_devices) or self._titles_similar(
                         title, incident.title
@@ -281,7 +280,7 @@ class AlertProcessor:
     ) -> Dict[str, Any]:
         """Handle alert that correlates with existing incident."""
         import database as db
-        from models import Alert, Incident
+        from shared.netstacks_core.db.models import Alert, Incident
 
         alert_id = alert_data.get('alert_id')
         incident_id = correlation.get('incident_id')
@@ -308,8 +307,7 @@ class AlertProcessor:
 
                 if incident:
                     # Add to incident timeline
-                    incident_data = incident.incident_data or {}
-                    timeline = incident_data.get('timeline', [])
+                    timeline = incident.timeline or []
                     timeline.append({
                         'timestamp': datetime.utcnow().isoformat(),
                         'type': 'alert_correlated',
@@ -317,9 +315,7 @@ class AlertProcessor:
                         'alert_title': alert_data.get('title'),
                         'correlation_reason': correlation.get('correlation_reason')
                     })
-                    incident_data['timeline'] = timeline
-                    incident.incident_data = incident_data
-                    incident.updated_at = datetime.utcnow()
+                    incident.timeline = timeline
 
                 session.commit()
 
@@ -342,7 +338,7 @@ class AlertProcessor:
         """
         from ai.agents import create_agent
         from ai.agents.base import AgentEventType
-        from models import Alert, AgentSession, AgentMessage, AgentAction
+        from shared.netstacks_core.db.models import Alert, AgentSession, AgentMessage, AgentAction
         import database as db
 
         alert_id = alert_data.get('alert_id')
@@ -427,7 +423,7 @@ class AlertProcessor:
                 ).first()
                 if agent_session:
                     agent_session.status = 'completed'
-                    agent_session.ended_at = datetime.utcnow()
+                    agent_session.completed_at = datetime.utcnow()
                     session.commit()
 
             # Update alert status based on outcome
@@ -502,7 +498,7 @@ class AlertProcessor:
     def _link_alert_to_incident(self, alert_id: str, incident_id: str) -> None:
         """Link an alert to an incident."""
         import database as db
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
         with db.get_db() as session:
             alert = session.query(Alert).filter(
@@ -515,7 +511,7 @@ class AlertProcessor:
     def _update_alert_status(self, alert_id: str, result: Dict[str, Any]) -> None:
         """Update alert status based on triage result."""
         import database as db
-        from models import Alert
+        from shared.netstacks_core.db.models import Alert
 
         with db.get_db() as session:
             alert = session.query(Alert).filter(
@@ -535,7 +531,7 @@ class AlertProcessor:
     def _record_agent_event(self, session_id: str, event) -> None:
         """Record agent event to database."""
         import database as db
-        from models import AgentMessage, AgentAction
+        from shared.netstacks_core.db.models import AgentMessage, AgentAction
         from ai.agents.base import AgentEventType
 
         try:
@@ -555,12 +551,19 @@ class AlertProcessor:
                     AgentEventType.TOOL_CALL,
                     AgentEventType.TOOL_RESULT
                 ]:
+                    # Get next sequence number for this session
+                    max_seq = session.query(AgentAction).filter_by(
+                        session_id=session_id
+                    ).count()
+
                     action = AgentAction(
+                        action_id=str(uuid.uuid4()),
                         session_id=session_id,
+                        sequence=max_seq + 1,
                         action_type=event.type.value,
                         tool_name=event.tool_name,
-                        tool_args=event.tool_args,
-                        result=event.tool_result
+                        tool_input=event.tool_args or {},
+                        tool_output=event.tool_result or {}
                     )
                     session.add(action)
 

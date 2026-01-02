@@ -7,27 +7,17 @@ WebSocket handlers are in agent_websocket.py
 
 import logging
 import uuid
-from flask import Blueprint, render_template, request, jsonify, session
-from functools import wraps
+from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime, timedelta
 from sqlalchemy import func
 
 import database as db
-from models import Agent, AgentSession
+from shared.netstacks_core.db.models import Agent, AgentSession
+from routes.auth import login_required, get_current_user
 
 log = logging.getLogger(__name__)
 
 agents_bp = Blueprint('agents', __name__, url_prefix='/agents')
-
-
-def login_required(f):
-    """Decorator to require login for routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            return jsonify({'error': 'Authentication required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 # ============================================================================
@@ -362,7 +352,7 @@ def get_agent_stats():
 def list_agent_sessions(agent_id):
     """List sessions for an agent"""
     try:
-        from models import AgentSession
+        from shared.netstacks_core.db.models import AgentSession
 
         limit = request.args.get('limit', 50, type=int)
 
@@ -379,8 +369,8 @@ def list_agent_sessions(agent_id):
                         'session_id': s.session_id,
                         'status': s.status,
                         'trigger_type': s.trigger_type,
-                        'created_at': s.created_at.isoformat() if s.created_at else None,
-                        'ended_at': s.ended_at.isoformat() if s.ended_at else None,
+                        'started_at': s.started_at.isoformat() if s.started_at else None,
+                        'completed_at': s.completed_at.isoformat() if s.completed_at else None,
                     }
                     for s in sessions
                 ]
@@ -396,7 +386,7 @@ def list_agent_sessions(agent_id):
 def get_session_detail(session_id):
     """Get session details with messages and actions"""
     try:
-        from models import AgentSession, AgentMessage, AgentAction
+        from shared.netstacks_core.db.models import AgentSession, AgentMessage, AgentAction
 
         with db.get_db() as db_session:
             session_obj = db_session.query(AgentSession).filter(
@@ -420,9 +410,9 @@ def get_session_detail(session_id):
                     'agent_id': session_obj.agent_id,
                     'status': session_obj.status,
                     'trigger_type': session_obj.trigger_type,
-                    'trigger_data': session_obj.trigger_data,
-                    'created_at': session_obj.created_at.isoformat() if session_obj.created_at else None,
-                    'ended_at': session_obj.ended_at.isoformat() if session_obj.ended_at else None,
+                    'context': session_obj.context,
+                    'started_at': session_obj.started_at.isoformat() if session_obj.started_at else None,
+                    'completed_at': session_obj.completed_at.isoformat() if session_obj.completed_at else None,
                 },
                 'messages': [
                     {
@@ -435,11 +425,12 @@ def get_session_detail(session_id):
                 ],
                 'actions': [
                     {
-                        'id': a.id,
+                        'action_id': a.action_id,
                         'action_type': a.action_type,
                         'tool_name': a.tool_name,
-                        'tool_args': a.tool_args,
-                        'result': a.result,
+                        'tool_input': a.tool_input,
+                        'tool_output': a.tool_output,
+                        'sequence': a.sequence,
                         'created_at': a.created_at.isoformat() if a.created_at else None,
                     }
                     for a in actions
@@ -456,15 +447,15 @@ def get_session_detail(session_id):
 def get_session_messages(session_id):
     """Get messages for a session - used by assistant sidebar for history restoration"""
     try:
-        from models import AgentSession, AgentMessage
+        from shared.netstacks_core.db.models import AgentSession, AgentMessage
 
-        username = session.get('username')
+        username = get_current_user()
 
         with db.get_db() as db_session:
             # Verify session belongs to current user
             session_obj = db_session.query(AgentSession).filter(
                 AgentSession.session_id == session_id,
-                AgentSession.user_id == username
+                AgentSession.started_by == username
             ).first()
 
             if not session_obj:
@@ -514,7 +505,7 @@ def list_llm_providers():
 def configure_llm_provider():
     """Configure an LLM provider"""
     try:
-        from models import LLMProvider
+        from shared.netstacks_core.db.models import LLMProvider
         from credential_encryption import encrypt_value
 
         data = request.get_json()

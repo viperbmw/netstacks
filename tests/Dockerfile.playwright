@@ -1,0 +1,13 @@
+FROM mcr.microsoft.com/playwright:v1.57.0-jammy
+
+WORKDIR /app
+
+# Copy test files
+COPY package.json playwright.config.ts ./
+COPY tests/ ./tests/
+
+# Install dependencies
+RUN npm install
+
+# Run tests
+CMD ["npx", "playwright", "test", "--reporter=list"]

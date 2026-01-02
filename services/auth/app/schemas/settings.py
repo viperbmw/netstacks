@@ -21,6 +21,12 @@ class SettingsUpdate(BaseModel):
     cache_ttl: Optional[int] = Field(None, ge=0, le=86400)
     default_username: Optional[str] = None
     default_password: Optional[str] = None
+    # AI settings
+    ai_default_provider: Optional[str] = None
+    ai_default_model: Optional[str] = None
+    ai_default_temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
+    ai_default_max_tokens: Optional[int] = Field(None, ge=256, le=128000)
+    ai_approval_timeout_minutes: Optional[int] = Field(None, ge=1, le=1440)
 
 
 class MenuItemResponse(BaseModel):

@@ -7,25 +7,15 @@ HTTP routes for knowledge document management and search.
 import logging
 import uuid
 import os
-from flask import Blueprint, render_template, request, jsonify, session
-from functools import wraps
+from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime
 
 import database as db
+from routes.auth import login_required, get_current_user
 
 log = logging.getLogger(__name__)
 
 knowledge_bp = Blueprint('knowledge', __name__, url_prefix='/knowledge')
-
-
-def login_required(f):
-    """Decorator to require login for routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            return jsonify({'error': 'Authentication required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 # ============================================================================
@@ -48,7 +38,7 @@ def knowledge_page():
 def list_collections():
     """List knowledge collections"""
     try:
-        from models import KnowledgeCollection, KnowledgeDocument
+        from shared.netstacks_core.db.models import KnowledgeCollection, KnowledgeDocument
         from sqlalchemy import func
 
         with db.get_db() as db_session:
@@ -84,7 +74,7 @@ def list_collections():
 def create_collection():
     """Create a new collection"""
     try:
-        from models import KnowledgeCollection
+        from shared.netstacks_core.db.models import KnowledgeCollection
 
         data = request.get_json()
 
@@ -115,7 +105,7 @@ def create_collection():
 def list_documents():
     """List documents with optional collection filter"""
     try:
-        from models import KnowledgeDocument, KnowledgeCollection
+        from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeCollection
 
         collection_id = request.args.get('collection_id', type=int)
         limit = request.args.get('limit', 100, type=int)
@@ -159,7 +149,7 @@ def list_documents():
 def upload_document():
     """Upload a new document"""
     try:
-        from models import KnowledgeDocument
+        from shared.netstacks_core.db.models import KnowledgeDocument
 
         # Handle both JSON and form data
         if request.is_json:
@@ -219,7 +209,7 @@ def upload_document():
 def get_document(doc_id):
     """Get document details"""
     try:
-        from models import KnowledgeDocument, KnowledgeEmbedding
+        from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeEmbedding
 
         with db.get_db() as db_session:
             doc = db_session.query(KnowledgeDocument).filter(
@@ -256,7 +246,7 @@ def get_document(doc_id):
 def delete_document(doc_id):
     """Delete a document and its embeddings"""
     try:
-        from models import KnowledgeDocument, KnowledgeEmbedding
+        from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeEmbedding
 
         with db.get_db() as db_session:
             # Delete embeddings first
@@ -283,7 +273,7 @@ def delete_document(doc_id):
 def index_all_documents():
     """Index all pending documents"""
     try:
-        from models import KnowledgeDocument
+        from shared.netstacks_core.db.models import KnowledgeDocument
 
         with db.get_db() as db_session:
             pending_docs = db_session.query(KnowledgeDocument).filter(
@@ -317,7 +307,7 @@ def index_all_documents():
 def reindex_document(doc_id):
     """Re-index a document"""
     try:
-        from models import KnowledgeDocument, KnowledgeEmbedding
+        from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeEmbedding
 
         with db.get_db() as db_session:
             doc = db_session.query(KnowledgeDocument).filter(
@@ -426,7 +416,7 @@ def _queue_document_indexing(doc_id):
 
 def _index_document_now(doc_id):
     """Generate embeddings for a document immediately using pgvector"""
-    from models import KnowledgeDocument
+    from shared.netstacks_core.db.models import KnowledgeDocument
     from sqlalchemy import text as sql_text
 
     with db.get_db() as db_session:

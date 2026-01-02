@@ -28,7 +28,7 @@ from credential_encryption import (
 # Timezone utilities - use utc_now() for all timestamps
 from timezone_utils import utc_now, datetime_to_iso
 
-from models import (
+from shared.netstacks_core.db.models import (
     Base, Setting, User, Template, ServiceStack, ServiceInstance,
     Device, DefaultCredential, StackTemplate, APIResource,
     ScheduledStackOperation, AuthConfig, MenuItem, MOP, MOPExecution,

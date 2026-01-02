@@ -141,7 +141,7 @@ function loadTasks() {
 
                     // Fetch details for first 50 tasks (for search)
                     taskIds.slice(0, 50).forEach(function(taskId) {
-                        $.get('/api/task/' + taskId)
+                        $.get('/api/tasks/' + taskId)
                             .done(function(taskResponse) {
                                 const task = taskResponse.data || taskResponse;
                                 const status = task.task_status || task.status || 'unknown';
@@ -180,7 +180,7 @@ function loadTasks() {
 
                     // Also count all tasks for accurate queue/running counts
                     taskIds.forEach(function(taskId) {
-                        $.get('/api/task/' + taskId)
+                        $.get('/api/tasks/' + taskId)
                             .done(function(taskResponse) {
                                 if (!taskResponse) return;
                                 const task = taskResponse.data || taskResponse;
@@ -913,7 +913,7 @@ function showTaskResults(taskId) {
             const deviceName = metadata[taskId]?.device_name || 'Unknown Device';
 
             // Fetch task details
-            $.get('/api/task/' + taskId)
+            $.get('/api/tasks/' + taskId)
                 .done(function(taskResponse) {
                     const task = taskResponse.data || taskResponse;
 
@@ -971,7 +971,7 @@ function showTaskResults(taskId) {
         })
         .fail(function() {
             // If metadata fails, still try to show task
-            $.get('/api/task/' + taskId)
+            $.get('/api/tasks/' + taskId)
                 .done(function(taskResponse) {
                     const task = taskResponse.data || taskResponse;
 
@@ -1091,7 +1091,7 @@ function escapeHtml(text) {
 // ============================================================================
 
 function loadAgentsSummary() {
-    $.get('/agents/api/agents')
+    $.get('/api/agents/')
         .done(function(data) {
             $('#agents-loading').hide();
 
@@ -1172,8 +1172,8 @@ function getAgentTypeBadge(type) {
 function loadAlertsSummary() {
     // Load both alerts and incidents
     Promise.all([
-        $.get('/alerts/api/alerts?status=new&limit=10'),
-        $.get('/alerts/api/incidents?status=open&limit=10')
+        $.get('/api/alerts/?status=new&limit=10'),
+        $.get('/api/incidents/?status=open&limit=10')
     ])
     .then(function([alertsData, incidentsData]) {
         $('#alerts-loading').hide();

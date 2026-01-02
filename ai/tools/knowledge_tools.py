@@ -265,7 +265,7 @@ Use this when you need more context than what was returned in the initial search
         """Get expanded context around a chunk"""
         try:
             import database as db
-            from models import KnowledgeDocument, KnowledgeEmbedding
+            from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeEmbedding
             from sqlalchemy import and_
 
             with db.get_db() as session:
@@ -346,7 +346,7 @@ Use this to understand what knowledge is available before searching."""
         """List knowledge collections and documents"""
         try:
             import database as db
-            from models import KnowledgeCollection, KnowledgeDocument
+            from shared.netstacks_core.db.models import KnowledgeCollection, KnowledgeDocument
             from sqlalchemy import func
 
             with db.get_db() as session:

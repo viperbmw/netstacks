@@ -515,7 +515,7 @@ INCIDENTS = [
 
 def seed_knowledge(session):
     """Seed knowledge documents"""
-    from models import KnowledgeDocument, KnowledgeCollection
+    from shared.netstacks_core.db.models import KnowledgeDocument, KnowledgeCollection
 
     # Get or create collections
     collections = {}
@@ -554,7 +554,7 @@ def seed_knowledge(session):
 
 def seed_alerts(session):
     """Seed alerts"""
-    from models import Alert
+    from shared.netstacks_core.db.models import Alert
 
     existing = session.query(Alert).count()
     if existing >= 5:
@@ -583,7 +583,7 @@ def seed_alerts(session):
 
 def seed_incidents(session):
     """Seed incidents"""
-    from models import Incident
+    from shared.netstacks_core.db.models import Incident
 
     existing = session.query(Incident).count()
     if existing >= 3:
@@ -612,7 +612,7 @@ def seed_incidents(session):
 
 
 if __name__ == "__main__":
-    from models import get_engine, get_session
+    from shared.netstacks_core.db.models import get_engine, get_session
 
     engine = get_engine()
     session = get_session(engine)

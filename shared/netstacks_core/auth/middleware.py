@@ -5,6 +5,7 @@ Provides dependency injection functions for protecting routes.
 """
 
 import logging
+import os
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -16,6 +17,19 @@ log = logging.getLogger(__name__)
 
 # HTTP Bearer token scheme
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# Dev mode - disable auth when NETSTACKS_DEV_MODE=true
+DEV_MODE = os.environ.get("NETSTACKS_DEV_MODE", "").lower() in ("true", "1", "yes")
+
+# Mock user for dev mode
+DEV_USER = TokenData(
+    sub="admin",
+    exp=9999999999,
+    iat=0,
+    type=TokenType.ACCESS,
+    auth_method="dev",
+    roles=["admin"],
+)
 
 
 async def get_current_user(
@@ -40,6 +54,10 @@ async def get_current_user(
     Raises:
         HTTPException: 401 if no valid token is provided
     """
+    # Dev mode bypass
+    if DEV_MODE:
+        return DEV_USER
+
     if credentials is None:
         log.warning("No authorization credentials provided")
         raise HTTPException(

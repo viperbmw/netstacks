@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Monitor - NetStacks</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=4" rel="stylesheet">
+    <link href="/static/css/assistant.css?v=2" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-1">
+        <div class="container-fluid py-0">
+            <a class="navbar-brand brand-logo" href="/">
+                <span class="brand-icon">
+                    <i class="fas fa-layer-group"></i>
+                </span>
+                <span class="brand-text">NetStacks</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <!-- Operations Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-play-circle"></i> Operations
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/deploy"><i class="fas fa-rocket"></i> Deploy Config</a></li>
+                            <li><a class="dropdown-item" href="/monitor"><i class="fas fa-chart-line"></i> Monitor Jobs</a></li>
+                            <li><a class="dropdown-item" href="/mop"><i class="fas fa-list-check"></i> Procedures (MOP)</a></li>
+                        </ul>
+                    </li>
+                    <!-- Configuration Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cogs"></i> Configuration
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/devices"><i class="fas fa-server"></i> Devices & Snapshots</a></li>
+                            <li><a class="dropdown-item" href="/templates"><i class="fas fa-file-code"></i> Templates</a></li>
+                            <li><a class="dropdown-item" href="/service-stacks"><i class="fas fa-layer-group"></i> Service Stacks</a></li>
+                        </ul>
+                    </li>
+                    <!-- AI Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-brain"></i> AI
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/agents"><i class="fas fa-robot"></i> Agents</a></li>
+                            <li><a class="dropdown-item" href="/agents/chat"><i class="fas fa-comments"></i> Agent Chat</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/alerts"><i class="fas fa-bell"></i> Alerts</a></li>
+                            <li><a class="dropdown-item" href="/incidents"><i class="fas fa-exclamation-triangle"></i> Incidents</a></li>
+                            <li><a class="dropdown-item" href="/approvals"><i class="fas fa-shield-alt"></i> Approvals</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/knowledge"><i class="fas fa-book-open"></i> Knowledge</a></li>
+                            <li><a class="dropdown-item" href="/tools"><i class="fas fa-wrench"></i> Tools</a></li>
+                        </ul>
+                    </li>
+                    <!-- Settings Menu -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i> Settings
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/admin"><i class="fas fa-users-cog"></i> Users & Auth</a></li>
+                            <li><a class="dropdown-item" href="/settings"><i class="fas fa-sliders-h"></i> System Settings</a></li>
+                            <li><a class="dropdown-item" href="/settings/ai"><i class="fas fa-brain"></i> AI Settings</a></li>
+                            <li><a class="dropdown-item" href="/platform"><i class="fas fa-heartbeat"></i> Platform Health</a></li>
+                            <li><a class="dropdown-item" href="/step-types"><i class="fas fa-puzzle-piece"></i> MOP Step Types</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/docs" target="_blank"><i class="fas fa-book"></i> NetStacks API</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link text-light">
+                            <i class="fas fa-user"></i> <span id="current-username">Loading...</span>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link text-light" id="system-time-container" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Loading...">
+                            <i class="fas fa-clock"></i>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="handleLogout(event)">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Page Content -->
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-chart-line"></i> Job Monitor
+        </h1>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <button id="refresh-btn" class="btn btn-primary">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button id="auto-refresh-btn" class="btn btn-outline-primary" data-auto="false">
+                            <i class="fas fa-play"></i> Auto-Refresh (5s)
+                        </button>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="show-completed" checked>
+                        <label class="form-check-label" for="show-completed">
+                            Show Completed
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-tasks"></i> Task Queue</h5>
+            </div>
+            <div class="card-body">
+                <div id="tasks-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="tasks-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="tasks-table">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tasks-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-tasks" class="alert alert-info" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No tasks in queue
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-clipboard-list"></i> Recent MOP Executions (Last 20)</h5>
+            </div>
+            <div class="card-body">
+                <div id="mop-executions-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="mop-executions-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>MOP Name</th>
+                                    <th>Current Step</th>
+                                    <th>Status</th>
+                                    <th>Started</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mop-executions-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-mop-executions" class="alert alert-info" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No MOP executions yet
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-history"></i> Recently Completed Tasks (Last 20)</h5>
+            </div>
+            <div class="card-body">
+                <div id="history-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="history-container" style="display: none;">
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Task ID</th>
+                                    <th>Status</th>
+                                    <th>Completed</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-history" class="alert alert-info" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No completed tasks yet
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-spinner"></i> Active Tasks</h5>
+            </div>
+            <div class="card-body">
+                <div id="workers-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="workers-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Task</th>
+                                    <th>State</th>
+                                    <th>Started</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workers-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Task Detail Modal -->
+<div class="modal fade" id="taskDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Task Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="task-detail-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="task-detail-content" style="display: none;">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6>Status: <span id="detail-status" class="badge"></span></h6>
+                            <p class="mb-1"><strong>Task ID:</strong> <small class="font-monospace" id="detail-task-id"></small></p>
+                            <p class="mb-1"><strong>Queue:</strong> <span id="detail-queue"></span></p>
+                            <p class="mb-1"><strong>Worker:</strong> <span id="detail-worker"></span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Created:</strong> <span id="detail-created"></span></p>
+                            <p class="mb-1"><strong>Started:</strong> <span id="detail-started"></span></p>
+                            <p class="mb-1"><strong>Ended:</strong> <span id="detail-ended"></span></p>
+                            <p class="mb-1"><strong>Duration:</strong> <span id="detail-duration"></span></p>
+                        </div>
+                    </div>
+
+                    <div id="detail-errors-section" style="display: none;">
+                        <h6 class="text-danger"><i class="fas fa-exclamation-triangle"></i> Errors:</h6>
+                        <div id="detail-errors" class="alert alert-danger"></div>
+                    </div>
+
+                    <h6>Result:</h6>
+                    <pre id="detail-result" class="p-3 border rounded" style="max-height: 400px; overflow-y: auto; font-size: 0.85rem;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="copy-task-details">
+                    <i class="fas fa-copy"></i> Copy Details
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MOP Execution Detail Modal -->
+<div class="modal fade" id="mopExecutionDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">MOP Execution Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="mop-detail-loading" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div id="mop-detail-content" style="display: none;">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6>Status: <span id="mop-detail-status" class="badge"></span></h6>
+                            <p class="mb-1"><strong>MOP Name:</strong> <span id="mop-detail-name"></span></p>
+                            <p class="mb-1"><strong>Execution ID:</strong> <small class="font-monospace" id="mop-detail-execution-id"></small></p>
+                            <p class="mb-1"><strong>Current Step:</strong> <span id="mop-detail-current-step"></span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Started:</strong> <span id="mop-detail-started"></span></p>
+                            <p class="mb-1"><strong>Completed:</strong> <span id="mop-detail-completed"></span></p>
+                            <p class="mb-1"><strong>Duration:</strong> <span id="mop-detail-duration"></span></p>
+                            <p class="mb-1"><strong>Started By:</strong> <span id="mop-detail-started-by"></span></p>
+                        </div>
+                    </div>
+
+                    <div id="mop-detail-errors-section" style="display: none;">
+                        <h6 class="text-danger"><i class="fas fa-exclamation-triangle"></i> Errors:</h6>
+                        <div id="mop-detail-errors" class="alert alert-danger"></div>
+                    </div>
+
+                    <h6>Execution Log:</h6>
+                    <pre id="mop-detail-log" class="p-3 border rounded bg-dark text-light" style="max-height: 500px; overflow-y: auto; font-size: 0.9rem; white-space: pre-wrap; font-family: 'Courier New', monospace;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="copy-mop-details">
+                    <i class="fas fa-copy"></i> Copy Log
+                </button>
+            </div>
+        </div>
+    </div>
+</div>        <!-- End Page Content -->
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="/static/js/api-client.js"></script>
+    <script src="/static/js/auth-guard.js"></script>
+    <script src="/static/js/timezone-utils.js"></script>
+    <script src="/static/js/task-manager.js"></script>
+    <script>
+        let systemTimezone = 'UTC';
+        let timezoneLoaded = false;
+
+        // Load system timezone asynchronously
+        async function loadSystemTimezone() {
+            try {
+                const response = await $.ajax({
+                    url: '/api/settings',
+                    method: 'GET'
+                });
+                if (response.success && response.data && response.data.system_timezone) {
+                    systemTimezone = response.data.system_timezone;
+                    console.log('System timezone loaded:', systemTimezone);
+                }
+            } catch (error) {
+                systemTimezone = 'UTC';
+                console.log('Failed to load system timezone, using UTC');
+            }
+            timezoneLoaded = true;
+        }
+
+        // Update system time tooltip every second
+        function updateSystemTime() {
+            const now = new Date();
+            let timeString;
+
+            try {
+                const options = {
+                    timeZone: systemTimezone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                const formatter = new Intl.DateTimeFormat('en-CA', options);
+                const parts = formatter.formatToParts(now);
+                const dateMap = {};
+                parts.forEach(part => {
+                    dateMap[part.type] = part.value;
+                });
+                timeString = `${dateMap.year}-${dateMap.month}-${dateMap.day} ${dateMap.hour}:${dateMap.minute}:${dateMap.second}`;
+
+                if (systemTimezone === 'UTC') {
+                    timeString += ' UTC';
+                } else {
+                    timeString += ` (${systemTimezone})`;
+                }
+            } catch (e) {
+                timeString = now.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+            }
+
+            const $container = $('#system-time-container');
+            $container.attr('data-bs-original-title', 'Server Time: ' + timeString);
+            $container.attr('title', 'Server Time: ' + timeString);
+        }
+
+        // Handle logout - clear JWT tokens and redirect
+        function handleLogout(event) {
+            event.preventDefault();
+            if (typeof NetStacksAPI !== 'undefined') {
+                NetStacksAPI.clearTokens();
+            } else {
+                localStorage.removeItem('netstacks_jwt_token');
+                localStorage.removeItem('netstacks_jwt_refresh');
+                localStorage.removeItem('netstacks_jwt_expiry');
+            }
+            window.location.href = '/logout';
+        }
+
+        // Initialize on page load
+        $(document).ready(async function() {
+            await loadSystemTimezone();
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            updateSystemTime();
+            setInterval(updateSystemTime, 1000);
+        });
+    </script>
+<script src="/static/js/timezone-utils.js?v=9"></script>
+<script src="/static/js/monitor.js?v=9"></script>
+<script src="/static/js/monitor-history.js?v=9"></script>
+    <!-- NetStacks AI Assistant -->
+    <script src="/static/js/assistant.js?v=4"></script>
+</body>
+</html>

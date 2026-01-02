@@ -2,11 +2,11 @@
 API Routes
 API resources, menu items, and general API endpoints (non-Celery)
 """
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request
 import logging
 import uuid
 
-from routes.auth import login_required
+from routes.auth import login_required, get_current_user
 import database as db
 from services.microservice_client import microservice_client
 from utils.responses import success_response, error_response
@@ -78,7 +78,7 @@ def create_api_resource():
         raise ValidationError('Name and Base URL are required')
 
     resource_id = str(uuid.uuid4())
-    created_by = session.get('username', 'unknown')
+    created_by = get_current_user()
 
     db.create_api_resource(
         resource_id=resource_id,
