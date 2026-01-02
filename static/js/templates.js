@@ -299,43 +299,37 @@ function createTemplateStackCard(stack) {
         : '<span class="badge bg-warning text-dark ms-1">Manual Validation</span>';
 
     return `
-        <div class="col-md-6 col-lg-3 mb-2">
-            <div class="card template-card ${cardClass} h-100">
-                <div class="card-body">
-                    <h6 class="card-title">
+        <div class="col-md-4 col-lg-3 mb-2">
+            <div class="card template-card template-card-mini ${cardClass} h-100" data-template="${deploy.name || deploy}" style="cursor: pointer;">
+                <div class="card-body p-2 d-flex flex-column">
+                    <h6 class="card-title mb-1" style="font-size: 0.9rem; word-break: break-word;">
                         ${deploy.name || deploy}
-                        ${typeBadge}
-                        ${completeBadge}
                     </h6>
-                    ${deploy.description ? `<p class="text-muted mb-2">${deploy.description}</p>` : ''}
+                    <div class="mb-1">
+                        ${completeBadge}
+                    </div>
+                    ${deploy.description ? `<p class="text-muted mb-1" style="font-size: 0.75rem;">${deploy.description}</p>` : ''}
 
-                    <div class="template-flow">
-                        <!-- Deploy Template -->
-                        <span class="badge bg-primary template-flow-badge" data-template="${deploy.name || deploy}" title="Click to edit">
+                    <div class="template-flow mt-auto" style="font-size: 0.8rem;">
+                        <span class="badge bg-primary template-flow-badge" data-template="${deploy.name || deploy}" title="Click to edit" style="font-size: 0.7rem;">
                             <i class="fas fa-play-circle"></i> Deploy
                         </span>
-
                         <span class="template-flow-arrow">→</span>
-                        <span class="badge bg-success template-flow-badge" data-template="${hasValidation ? validation.name : (deploy.name || deploy)}" title="Click to edit - ${hasValidation ? 'Custom validation' : 'Uses deploy template for validation'}">
-                            <i class="fas fa-check-circle"></i> Validate${hasValidation ? '' : ' (Self)'}
+                        <span class="badge bg-success template-flow-badge" data-template="${hasValidation ? validation.name : (deploy.name || deploy)}" title="Click to edit - ${hasValidation ? 'Custom validation' : 'Uses deploy template for validation'}" style="font-size: 0.7rem;">
+                            <i class="fas fa-check-circle"></i> Validate${hasValidation ? '' : '*'}
                         </span>
-
                         <span class="template-flow-arrow">→</span>
-                        <span class="badge bg-danger template-flow-badge" data-template="${deleteTemplate.name}" title="Click to edit">
+                        <span class="badge bg-danger template-flow-badge" data-template="${deleteTemplate.name}" title="Click to edit" style="font-size: 0.7rem;">
                             <i class="fas fa-trash-alt"></i> Delete
                         </span>
                     </div>
-
-                    <div class="action-buttons mt-2">
-                        <button class="btn btn-sm btn-outline-primary edit-template-btn" data-template="${deploy.name || deploy}">
-                            <i class="fas fa-edit"></i> Edit
+                    ${!hasValidation ? `
+                    <div class="mt-1">
+                        <button class="btn btn-sm btn-outline-success add-validation-btn w-100" data-template="${deploy.name || deploy}" style="font-size: 0.75rem; padding: 0.2rem 0.4rem;">
+                            <i class="fas fa-plus"></i> Custom Validation
                         </button>
-                        ${!hasValidation ? `
-                            <button class="btn btn-sm btn-outline-success add-validation-btn" data-template="${deploy.name || deploy}">
-                                <i class="fas fa-plus"></i> Custom Validation
-                            </button>
-                        ` : ''}
                     </div>
+                    ` : ''}
                 </div>
             </div>
         </div>
@@ -433,42 +427,38 @@ function createNewTemplate(suggestedName = '', relatedTo = null, relationType = 
 
 function loadTemplate(templateName) {
     $.get('/api/templates/' + encodeURIComponent(templateName))
-        .done(function(data) {
-            if (data.success && data.content) {
+        .done(function(response) {
+            // Handle wrapped response format: { success: true, data: { content: ... } }
+            const data = response.data || response;
+            const content = data.content;
+
+            if (response.success && content) {
                 currentTemplate = templateName;
                 isNewTemplate = false;
 
                 $('#editor-mode-title').text('Edit Template');
                 $('#template-name').val(templateName).prop('disabled', true);
-                editor.setValue(data.content);
+                editor.setValue(content);
                 $('#delete-template-btn').show();
                 $('#push-template-btn').show();
 
-                // Load metadata
-                const templateObj = allTemplatesWithMetadata.find(t => {
-                    const name = typeof t === 'string' ? t : t.name;
-                    return name === templateName;
-                });
+                // Load metadata from API response
+                const templateType = data.type || 'deploy';
+                $('#template-description').val(data.description || '');
+                $('#template-type').val(templateType);
 
-                if (templateObj) {
-                    const templateType = templateObj.type || 'deploy'; // Default to deploy if no type set
-                    $('#template-description').val(templateObj.description || '');
-                    $('#template-type').val(templateType);
+                // Handle vendor_types as array (multi-select)
+                const vendorTypes = data.vendor_types || [];
+                $('#vendor-type').val(vendorTypes);
 
-                    // Handle vendor_types as array (multi-select)
-                    const vendorTypes = templateObj.vendor_types || [];
-                    $('#vendor-type').val(vendorTypes);
-
-                    // Show/hide deploy options based on type
-                    // Templates without a type should be treated as deploy templates
-                    if (templateType === 'deploy') {
-                        $('#deploy-template-options').show();
-                        // Default validation template to itself if not set
-                        $('#validation-template').val(templateObj.validation_template || templateName);
-                        $('#delete-template-select').val(templateObj.delete_template || '');
-                    } else {
-                        $('#deploy-template-options').hide();
-                    }
+                // Show/hide deploy options based on type
+                if (templateType === 'deploy') {
+                    $('#deploy-template-options').show();
+                    // Default validation template to itself if not set
+                    $('#validation-template').val(data.validation_template || templateName);
+                    $('#delete-template-select').val(data.delete_template || '');
+                } else {
+                    $('#deploy-template-options').hide();
                 }
 
                 // Populate metadata dropdowns
@@ -550,19 +540,17 @@ function saveTemplate() {
         $('#template-name').val(templateName);
     }
 
-    // Base64 encode the content for API
-    const base64Content = btoa(content);
-
     const templateData = {
         name: templateName,
-        base64_payload: base64Content,
+        content: content,
+        type: templateType || 'deploy',
         description: description || null,
         vendor_types: vendorTypes.length > 0 ? vendorTypes : null,
         validation_template: validationTemplate || null,
         delete_template: deleteTemplate || null
     };
 
-    // Save the template content to database
+    // Save the template
     $.ajax({
         url: '/api/templates',
         method: 'POST',
@@ -571,33 +559,8 @@ function saveTemplate() {
     })
     .done(function(data) {
         if (data.success) {
-            // Template saved successfully, now save metadata
-            const metadataData = {
-                type: templateType || 'deploy',
-                vendor_types: vendorTypes.length > 0 ? vendorTypes : null,
-                description: description || null,
-                validation_template: validationTemplate || null,
-                delete_template: deleteTemplate || null
-            };
-
-            const templateNameNoExt = templateName.replace('.j2', '');
-
-            $.ajax({
-                url: '/api/templates/' + encodeURIComponent(templateNameNoExt) + '/metadata',
-                method: 'PUT',
-                contentType: 'application/json',
-                data: JSON.stringify(metadataData)
-            })
-            .done(function(metadataResult) {
-                editorModal.hide();
-                loadTemplates(); // Reload the template list
-            })
-            .fail(function(xhr) {
-                console.warn('Metadata save failed:', xhr);
-                alert(`Template content saved, but metadata save failed: ${xhr.responseJSON?.error || 'Unknown error'}`);
-                editorModal.hide();
-                loadTemplates();
-            });
+            editorModal.hide();
+            loadTemplates();
         } else {
             alert('Error: ' + (data.error || 'Unknown error'));
             console.error('Save error:', data);
@@ -605,7 +568,9 @@ function saveTemplate() {
     })
     .fail(function(xhr, status, error) {
         let errorMsg = 'Failed to save template';
-        if (xhr.responseJSON && xhr.responseJSON.error) {
+        if (xhr.responseJSON && xhr.responseJSON.detail) {
+            errorMsg += ': ' + JSON.stringify(xhr.responseJSON.detail);
+        } else if (xhr.responseJSON && xhr.responseJSON.error) {
             errorMsg += ': ' + xhr.responseJSON.error;
         } else if (xhr.responseText) {
             errorMsg += ': ' + xhr.responseText;
@@ -621,10 +586,8 @@ function deleteTemplate(templateName) {
     const templateNameNoExt = templateName.replace('.j2', '');
 
     $.ajax({
-        url: '/api/templates',
-        method: 'DELETE',
-        contentType: 'application/json',
-        data: JSON.stringify({ name: templateNameNoExt })
+        url: '/api/templates/' + encodeURIComponent(templateNameNoExt),
+        method: 'DELETE'
     })
     .done(function(data) {
         if (data.success) {

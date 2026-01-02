@@ -28,6 +28,10 @@ const DEFAULT_SETTINGS = {
     netbox_filters: [],
     default_username: '',
     default_password: '',
+    default_timeout: 30,
+    default_conn_timeout: 10,
+    default_auth_timeout: 10,
+    default_banner_timeout: 15,
     cache_ttl: 300,
     timezone: 'auto',
     celery_workers: 20
@@ -106,6 +110,11 @@ function loadSettings() {
                 // Device credentials from backend (for SSH/Netmiko connections)
                 default_username: backendSettings.default_username || localSettings.default_username || '',
                 default_password: backendSettings.default_password !== '****' ? backendSettings.default_password : localSettings.default_password || '',
+                // Timeout settings from backend
+                default_timeout: backendSettings.default_timeout || localSettings.default_timeout || 30,
+                default_conn_timeout: backendSettings.default_conn_timeout || localSettings.default_conn_timeout || 10,
+                default_auth_timeout: backendSettings.default_auth_timeout || localSettings.default_auth_timeout || 10,
+                default_banner_timeout: backendSettings.default_banner_timeout || localSettings.default_banner_timeout || 15,
                 system_timezone: backendSettings.system_timezone || localSettings.system_timezone || 'UTC',
             };
 
@@ -138,6 +147,12 @@ function populateForm(settings) {
     $('#system-timezone').val(settings.system_timezone || 'UTC');
     $('#celery-workers').val(settings.celery_workers || 20);
 
+    // Populate timeout settings
+    $('#default-timeout').val(settings.default_timeout || 30);
+    $('#default-conn-timeout').val(settings.default_conn_timeout || 10);
+    $('#default-auth-timeout').val(settings.default_auth_timeout || 10);
+    $('#default-banner-timeout').val(settings.default_banner_timeout || 15);
+
     // Load filters
     loadFilters(settings.netbox_filters || []);
 
@@ -163,6 +178,10 @@ function saveSettings() {
         netbox_filters: filters,
         default_username: $('#default-username').val().trim(),
         default_password: $('#default-password').val().trim(),
+        default_timeout: parseInt($('#default-timeout').val()) || 30,
+        default_conn_timeout: parseInt($('#default-conn-timeout').val()) || 10,
+        default_auth_timeout: parseInt($('#default-auth-timeout').val()) || 10,
+        default_banner_timeout: parseInt($('#default-banner-timeout').val()) || 15,
         cache_ttl: parseInt($('#cache-ttl').val()),
         timezone: $('#timezone-select').val(),
         system_timezone: $('#system-timezone').val(),
@@ -180,6 +199,24 @@ function saveSettings() {
         return;
     }
 
+    // Validate timeout settings
+    if (settings.default_timeout < 5 || settings.default_timeout > 300) {
+        alert('General timeout must be between 5 and 300 seconds');
+        return;
+    }
+    if (settings.default_conn_timeout < 5 || settings.default_conn_timeout > 120) {
+        alert('Connection timeout must be between 5 and 120 seconds');
+        return;
+    }
+    if (settings.default_auth_timeout < 5 || settings.default_auth_timeout > 120) {
+        alert('Auth timeout must be between 5 and 120 seconds');
+        return;
+    }
+    if (settings.default_banner_timeout < 5 || settings.default_banner_timeout > 60) {
+        alert('Banner timeout must be between 5 and 60 seconds');
+        return;
+    }
+
     // Save to localStorage (for user preferences like filters, credentials)
     localStorage.setItem('netstacks_settings', JSON.stringify(settings));
 
@@ -190,6 +227,10 @@ function saveSettings() {
         verify_ssl: settings.netbox_verify_ssl,
         default_username: settings.default_username,
         default_password: settings.default_password,
+        default_timeout: settings.default_timeout,
+        default_conn_timeout: settings.default_conn_timeout,
+        default_auth_timeout: settings.default_auth_timeout,
+        default_banner_timeout: settings.default_banner_timeout,
         system_timezone: settings.system_timezone,
         celery_workers: settings.celery_workers
     };
@@ -234,6 +275,10 @@ function resetToDefaults() {
     $('#netbox-verify-ssl').prop('checked', DEFAULT_SETTINGS.netbox_verify_ssl);
     $('#default-username').val(DEFAULT_SETTINGS.default_username);
     $('#default-password').val(DEFAULT_SETTINGS.default_password);
+    $('#default-timeout').val(DEFAULT_SETTINGS.default_timeout);
+    $('#default-conn-timeout').val(DEFAULT_SETTINGS.default_conn_timeout);
+    $('#default-auth-timeout').val(DEFAULT_SETTINGS.default_auth_timeout);
+    $('#default-banner-timeout').val(DEFAULT_SETTINGS.default_banner_timeout);
     $('#cache-ttl').val(DEFAULT_SETTINGS.cache_ttl);
     $('#celery-workers').val(DEFAULT_SETTINGS.celery_workers);
 

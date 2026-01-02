@@ -934,9 +934,15 @@ function loadTemplateVariablesForService($serviceItem, templateName, existingVar
     $container.html('<div class="text-center"><small class="text-muted">Loading variables...</small></div>');
 
     $.get('/api/templates/' + encodeURIComponent(templateName) + '/variables')
-        .done(function(data) {
-            if (data.success && data.variables) {
-                renderTemplateVariablesForm($container, data.variables, existingVariables);
+        .done(function(response) {
+            // Handle wrapped response format: { success: true, data: { variables: [...] } }
+            const data = response.data || response;
+            const variables = data.variables || [];
+
+            if (response.success && variables.length > 0) {
+                renderTemplateVariablesForm($container, variables, existingVariables);
+            } else if (response.success) {
+                $container.html('<div class="text-muted text-center"><small>No variables required for this template</small></div>');
             } else {
                 $container.html('<div class="alert alert-warning alert-sm mb-0"><small>No variables found in template</small></div>');
             }
@@ -1262,11 +1268,89 @@ function renderStackDetails(stack) {
 
         ${stack.shared_variables && Object.keys(stack.shared_variables).length > 0 ? `
             <div class="mb-3">
-                <h6>Shared Variables</h6>
-                <pre class="p-2 rounded border"><code>${JSON.stringify(stack.shared_variables, null, 2)}</code></pre>
+                <h6><i class="fas fa-layer-group"></i> Shared Variables</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Variable</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${Object.entries(stack.shared_variables).map(([key, value]) => `
+                                <tr>
+                                    <td><code>${escapeHtml(key)}</code></td>
+                                    <td>${escapeHtml(String(value))}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         ` : ''}
     `;
+
+    // Always show service definitions with device allocations and per-device variables
+    if (stack.services && stack.services.length > 0) {
+        html += `
+            <div class="mb-3">
+                <h6><i class="fas fa-list-alt"></i> Service Definitions & Device Allocations</h6>
+                <div class="accordion" id="serviceDefinitionsAccordion">
+                    ${stack.services.map((service, idx) => `
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button ${idx === 0 ? '' : 'collapsed'}" type="button"
+                                        data-bs-toggle="collapse" data-bs-target="#serviceDefCollapse${idx}">
+                                    <div class="d-flex align-items-center gap-2 w-100">
+                                        <i class="fas fa-cog text-primary"></i>
+                                        <strong>${escapeHtml(service.name)}</strong>
+                                        <span class="badge bg-secondary"><i class="fas fa-file-code"></i> ${escapeHtml(service.template)}</span>
+                                        <span class="badge bg-info"><i class="fas fa-server"></i> ${escapeHtml(service.device)}</span>
+                                    </div>
+                                </button>
+                            </h2>
+                            <div id="serviceDefCollapse${idx}" class="accordion-collapse collapse ${idx === 0 ? 'show' : ''}"
+                                 data-bs-parent="#serviceDefinitionsAccordion">
+                                <div class="accordion-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong><i class="fas fa-server"></i> Target Device:</strong>
+                                            <p class="mb-2">${escapeHtml(service.device)}</p>
+
+                                            <strong><i class="fas fa-file-code"></i> Config Template:</strong>
+                                            <p class="mb-2">${escapeHtml(service.template)}</p>
+                                        </div>
+                                        <div class="col-md-6">
+                                            ${service.variables && Object.keys(service.variables).length > 0 ? `
+                                                <strong><i class="fas fa-sliders-h"></i> Per-Device Variables:</strong>
+                                                <table class="table table-sm table-bordered mt-2 mb-0">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th>Variable</th>
+                                                            <th>Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        ${Object.entries(service.variables).map(([key, value]) => `
+                                                            <tr>
+                                                                <td><code>${escapeHtml(key)}</code></td>
+                                                                <td>${escapeHtml(String(value))}</td>
+                                                            </tr>
+                                                        `).join('')}
+                                                    </tbody>
+                                                </table>
+                                            ` : '<p class="text-muted mb-0"><i class="fas fa-info-circle"></i> No per-device variables</p>'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
 
     // Show validation history
     if (stack.last_validated || stack.validation_status) {
@@ -2479,8 +2563,11 @@ function openDeployFromTemplateModal(templateId) {
                         // Collect all unique variables from all config templates
                         const allVariables = new Set();
                         responses.forEach(response => {
-                            if (response.success && response.variables) {
-                                response.variables.forEach(v => allVariables.add(v));
+                            // Handle wrapped response format: { success: true, data: { variables: [...] } }
+                            const data = response.data || response;
+                            const variables = data.variables || [];
+                            if (response.success && variables.length > 0) {
+                                variables.forEach(v => allVariables.add(v));
                             }
                         });
 
@@ -3091,8 +3178,10 @@ function loadScheduledOperations(stackId) {
 
     $.get('/api/scheduled-operations?stack_id=' + encodeURIComponent(stackId))
         .done(function(data) {
-            if (data.success && data.schedules && data.schedules.length > 0) {
-                renderSchedulesList(data.schedules);
+            // Handle wrapped response format: { success: true, data: { schedules: [...] } }
+            const schedules = data.schedules || (data.data && data.data.schedules) || [];
+            if (data.success && schedules.length > 0) {
+                renderSchedulesList(schedules);
             } else {
                 $('#existing-schedules-list').html('<div class="text-center text-muted"><small>No schedules yet</small></div>');
             }
@@ -3805,7 +3894,7 @@ function extractTemplateVariables() {
     // Fetch variables for each template
     const variablePromises = templates.map(templateName => {
         const cleanName = templateName.endsWith('.j2') ? templateName.slice(0, -3) : templateName;
-        return $.get(`/api/templates/${cleanName}/variables`);
+        return $.get(`/api/templates/${encodeURIComponent(cleanName)}/variables`);
     });
 
     Promise.all(variablePromises)
@@ -3813,8 +3902,11 @@ function extractTemplateVariables() {
             // Collect all unique variables
             const allVariables = new Set();
             responses.forEach(response => {
-                if (response.success && response.variables) {
-                    response.variables.forEach(v => allVariables.add(v));
+                // Handle wrapped response format: { success: true, data: { variables: [...] } }
+                const data = response.data || response;
+                const variables = data.variables || [];
+                if (response.success && variables.length > 0) {
+                    variables.forEach(v => allVariables.add(v));
                 }
             });
 

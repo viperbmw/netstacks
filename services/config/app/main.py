@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from netstacks_core.db import init_db, seed_defaults, get_session
 
 from app.config import settings
-from app.routes import templates, stacks, stack_templates, mops, schedules, step_types
+from app.routes import templates, stacks, stack_templates, mops, schedules, step_types, snapshots
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +76,7 @@ app.include_router(stack_templates.router, prefix="/api/stack-templates", tags=[
 app.include_router(mops.router, prefix="/api/mops", tags=["MOPs"])
 app.include_router(schedules.router, prefix="/api/scheduled-operations", tags=["Schedules"])
 app.include_router(step_types.router, prefix="/api/step-types", tags=["Step Types"])
+app.include_router(snapshots.router, prefix="/api/config-snapshots", tags=["Config Snapshots"])
 
 
 if __name__ == "__main__":

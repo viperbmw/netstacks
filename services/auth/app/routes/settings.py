@@ -34,6 +34,11 @@ DEFAULT_SETTINGS = {
     'cache_ttl': 300,
     'default_username': '',
     'default_password': '',
+    # Connection timeout settings
+    'default_timeout': 30,
+    'default_conn_timeout': 10,
+    'default_auth_timeout': 10,
+    'default_banner_timeout': 15,
     'system_timezone': 'UTC',
     # AI settings
     'ai_default_provider': '',
@@ -45,7 +50,10 @@ DEFAULT_SETTINGS = {
 
 # Field type definitions
 JSON_FIELDS = ['netbox_filters']
-INT_FIELDS = ['cache_ttl', 'ai_default_max_tokens', 'ai_approval_timeout_minutes']
+INT_FIELDS = [
+    'cache_ttl', 'ai_default_max_tokens', 'ai_approval_timeout_minutes',
+    'default_timeout', 'default_conn_timeout', 'default_auth_timeout', 'default_banner_timeout'
+]
 FLOAT_FIELDS = ['ai_default_temperature']
 BOOL_FIELDS = ['verify_ssl']
 SENSITIVE_FIELDS = ['netbox_token', 'default_password']
@@ -493,6 +501,61 @@ async def update_menu_item(
 # =============================================================================
 # Assistant Config Routes
 # =============================================================================
+
+@router.get("/credentials/default")
+async def get_default_credentials(current_user: TokenData = Depends(get_current_user)):
+    """
+    Get default device credentials and timeout settings (unmasked).
+
+    This endpoint returns the actual credentials and connection timeout settings
+    for internal service-to-service communication (e.g., devices service testing connectivity).
+    """
+    session = get_session()
+    try:
+        default_username = ''
+        default_password = ''
+        default_timeout = 30
+        default_conn_timeout = 10
+        default_auth_timeout = 10
+        default_banner_timeout = 15
+
+        username_setting = session.query(Setting).filter(Setting.key == 'default_username').first()
+        if username_setting:
+            default_username = username_setting.value or ''
+
+        password_setting = session.query(Setting).filter(Setting.key == 'default_password').first()
+        if password_setting:
+            default_password = password_setting.value or ''
+
+        # Load timeout settings
+        timeout_setting = session.query(Setting).filter(Setting.key == 'default_timeout').first()
+        if timeout_setting:
+            default_timeout = int(timeout_setting.value) if timeout_setting.value else 30
+
+        conn_timeout_setting = session.query(Setting).filter(Setting.key == 'default_conn_timeout').first()
+        if conn_timeout_setting:
+            default_conn_timeout = int(conn_timeout_setting.value) if conn_timeout_setting.value else 10
+
+        auth_timeout_setting = session.query(Setting).filter(Setting.key == 'default_auth_timeout').first()
+        if auth_timeout_setting:
+            default_auth_timeout = int(auth_timeout_setting.value) if auth_timeout_setting.value else 10
+
+        banner_timeout_setting = session.query(Setting).filter(Setting.key == 'default_banner_timeout').first()
+        if banner_timeout_setting:
+            default_banner_timeout = int(banner_timeout_setting.value) if banner_timeout_setting.value else 15
+
+        return success_response(data={
+            'default_username': default_username,
+            'default_password': default_password,
+            'default_timeout': default_timeout,
+            'default_conn_timeout': default_conn_timeout,
+            'default_auth_timeout': default_auth_timeout,
+            'default_banner_timeout': default_banner_timeout,
+        })
+
+    finally:
+        session.close()
+
 
 @router.get("/assistant/config")
 async def get_assistant_config(current_user: TokenData = Depends(get_current_user)):

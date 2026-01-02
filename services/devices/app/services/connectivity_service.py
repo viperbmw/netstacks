@@ -21,8 +21,17 @@ log = logging.getLogger(__name__)
 class ConnectivityService:
     """Service for testing device connectivity."""
 
-    def __init__(self, timeout: int = 10):
+    def __init__(
+        self,
+        timeout: int = 30,
+        conn_timeout: int = 10,
+        auth_timeout: int = 10,
+        banner_timeout: int = 15
+    ):
         self.timeout = timeout
+        self.conn_timeout = conn_timeout
+        self.auth_timeout = auth_timeout
+        self.banner_timeout = banner_timeout
 
     def test_connectivity(
         self,
@@ -72,8 +81,12 @@ class ConnectivityService:
                 "password": password,
                 "port": port,
                 "timeout": self.timeout,
-                "conn_timeout": self.timeout,
-                "auth_timeout": self.timeout,
+                "conn_timeout": self.conn_timeout,
+                "auth_timeout": self.auth_timeout,
+                "banner_timeout": self.banner_timeout,
+                # Disable SSH keys/agent to force password/keyboard-interactive auth
+                "use_keys": False,
+                "allow_agent": False,
             }
 
             if secret:

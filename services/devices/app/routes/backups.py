@@ -95,7 +95,7 @@ def get_backup_summary(db: Session) -> BackupSummary:
     )
 
 
-@router.get("", response_model=BackupListResponse)
+@router.get("")
 async def list_config_backups(
     device: Optional[str] = Query(None, description="Filter by device name"),
     limit: int = Query(100, ge=1, le=1000),
@@ -111,35 +111,41 @@ async def list_config_backups(
     backups = query.offset(offset).limit(limit).all()
     summary = get_backup_summary(db)
 
-    # Convert to response models (exclude config_content for list view)
+    # Convert to response dicts (exclude config_content for list view)
     backup_list = []
     for b in backups:
-        backup_list.append(BackupResponse(
-            backup_id=b.backup_id,
-            device_name=b.device_name,
-            device_ip=b.device_ip,
-            platform=b.platform,
-            config_content=None,  # Exclude content in list
-            config_format=b.config_format or "native",
-            config_hash=b.config_hash,
-            backup_type=b.backup_type or "scheduled",
-            status=b.status or "success",
-            error_message=b.error_message,
-            file_size=b.file_size,
-            snapshot_id=b.snapshot_id,
-            created_at=b.created_at,
-            created_by=b.created_by
-        ))
+        backup_list.append({
+            "backup_id": b.backup_id,
+            "device_name": b.device_name,
+            "device_ip": b.device_ip,
+            "platform": b.platform,
+            "config_content": None,  # Exclude content in list
+            "config_format": b.config_format or "native",
+            "config_hash": b.config_hash,
+            "backup_type": b.backup_type or "scheduled",
+            "status": b.status or "success",
+            "error_message": b.error_message,
+            "file_size": b.file_size,
+            "snapshot_id": b.snapshot_id,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "created_by": b.created_by
+        })
 
-    return BackupListResponse(
-        backups=backup_list,
-        summary=summary,
-        limit=limit,
-        offset=offset
-    )
+    return {
+        "success": True,
+        "backups": backup_list,
+        "summary": {
+            "total_backups": summary.total_backups,
+            "unique_devices": summary.total_devices,
+            "latest_backup": summary.last_backup.isoformat() if summary.last_backup else None,
+            "total_size_bytes": summary.total_size_bytes
+        },
+        "limit": limit,
+        "offset": offset
+    }
 
 
-@router.get("/{backup_id}", response_model=BackupResponse)
+@router.get("/{backup_id}")
 async def get_config_backup(
     backup_id: str,
     db: Session = Depends(get_db)
@@ -152,22 +158,25 @@ async def get_config_backup(
     if not backup:
         raise HTTPException(status_code=404, detail=f"Backup not found: {backup_id}")
 
-    return BackupResponse(
-        backup_id=backup.backup_id,
-        device_name=backup.device_name,
-        device_ip=backup.device_ip,
-        platform=backup.platform,
-        config_content=backup.config_content,
-        config_format=backup.config_format or "native",
-        config_hash=backup.config_hash,
-        backup_type=backup.backup_type or "scheduled",
-        status=backup.status or "success",
-        error_message=backup.error_message,
-        file_size=backup.file_size,
-        snapshot_id=backup.snapshot_id,
-        created_at=backup.created_at,
-        created_by=backup.created_by
-    )
+    return {
+        "success": True,
+        "backup": {
+            "backup_id": backup.backup_id,
+            "device_name": backup.device_name,
+            "device_ip": backup.device_ip,
+            "platform": backup.platform,
+            "config_content": backup.config_content,
+            "config_format": backup.config_format or "native",
+            "config_hash": backup.config_hash,
+            "backup_type": backup.backup_type or "scheduled",
+            "status": backup.status or "success",
+            "error_message": backup.error_message,
+            "file_size": backup.file_size,
+            "snapshot_id": backup.snapshot_id,
+            "created_at": backup.created_at.isoformat() if backup.created_at else None,
+            "created_by": backup.created_by
+        }
+    }
 
 
 @router.delete("/{backup_id}")

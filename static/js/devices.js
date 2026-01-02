@@ -1318,9 +1318,27 @@ function testDeviceConnectivity(deviceName, $btn) {
         timeout: 60000
     })
     .done(function(response) {
-        if (response.success && response.data && response.data.task_id) {
-            // Poll for task result
-            pollConnectivityTest(response.data.task_id, deviceName, $btn, originalHtml);
+        if (response.success && response.data) {
+            // Check if async task (task_id) or sync response (direct success field)
+            if (response.data.task_id) {
+                // Poll for task result
+                pollConnectivityTest(response.data.task_id, deviceName, $btn, originalHtml);
+            } else if (response.data.success !== undefined) {
+                // Synchronous response - handle directly
+                $btn.prop('disabled', false);
+                if (response.data.success) {
+                    $btn.html('<i class="fas fa-check text-success"></i>');
+                    showToast('success', `${deviceName}: Connected successfully (${response.data.response_ms || 0}ms)`);
+                } else {
+                    $btn.html('<i class="fas fa-times text-danger"></i>');
+                    showToast('error', `${deviceName}: ${response.data.message || 'Connection failed'}`);
+                }
+                // Reset button after 3 seconds
+                setTimeout(() => $btn.html(originalHtml), 3000);
+            } else {
+                $btn.prop('disabled', false).html(originalHtml);
+                showToast('error', 'Failed to start connectivity test: Unknown response format');
+            }
         } else {
             $btn.prop('disabled', false).html(originalHtml);
             showToast('error', 'Failed to start connectivity test: ' + (response.error || 'Unknown error'));
@@ -1328,7 +1346,7 @@ function testDeviceConnectivity(deviceName, $btn) {
     })
     .fail(function(xhr) {
         $btn.prop('disabled', false).html(originalHtml);
-        const error = xhr.responseJSON?.error || 'Failed to test connectivity';
+        const error = xhr.responseJSON?.error || xhr.responseJSON?.detail || 'Failed to test connectivity';
         showToast('error', error);
     });
 }

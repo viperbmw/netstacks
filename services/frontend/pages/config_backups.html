@@ -1171,7 +1171,66 @@
             </div>
         </div>
     </div>
-</div>        <!-- End Page Content -->
+</div>
+
+<!-- All Backups Modal -->
+<div class="modal fade" id="allBackupsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-database"></i> All Configuration Backups</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <select class="form-select form-select-sm" id="filter-backup-device">
+                            <option value="">All Devices</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-sm btn-outline-secondary" id="refresh-backups-btn">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <span class="text-muted">Showing <span id="backup-count">0</span> backups</span>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover table-sm">
+                        <thead class="table-dark sticky-top">
+                            <tr>
+                                <th>Device</th>
+                                <th>Created</th>
+                                <th>Format</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="all-backups-table-body">
+                        </tbody>
+                    </table>
+                </div>
+                <nav class="mt-2">
+                    <ul class="pagination pagination-sm justify-content-center mb-0">
+                        <li class="page-item" id="prev-page-item">
+                            <a class="page-link" href="#" id="prev-page">Previous</a>
+                        </li>
+                        <li class="page-item" id="next-page-item">
+                            <a class="page-link" href="#" id="next-page">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+        <!-- End Page Content -->
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -1283,6 +1342,10 @@ let deviceOverrides = {};  // Map of device_name -> override settings
 let runningTasks = [];
 let taskPollInterval = null;
 
+// State - All Backups Modal
+let backupsPage = 0;
+const backupsPageSize = 50;
+
 // Initialize
 $(document).ready(function() {
     // Load data
@@ -1393,6 +1456,32 @@ $(document).ready(function() {
     // Backup modal handlers
     $('#copy-backup-btn').click(copyBackupConfig);
     $('#download-backup-btn').click(downloadBackupConfig);
+
+    // View All Backups handlers
+    $('#view-all-backups-btn').click(function() {
+        loadAllBackups();
+        const modal = new bootstrap.Modal(document.getElementById('allBackupsModal'));
+        modal.show();
+    });
+    $('#refresh-backups-btn').click(function() {
+        loadAllBackups($('#filter-backup-device').val());
+    });
+    $('#filter-backup-device').change(function() {
+        backupsPage = 0;
+        loadAllBackups($(this).val());
+    });
+    $('#prev-page').click(function(e) {
+        e.preventDefault();
+        if (backupsPage > 0) {
+            backupsPage--;
+            loadAllBackups($('#filter-backup-device').val());
+        }
+    });
+    $('#next-page').click(function(e) {
+        e.preventDefault();
+        backupsPage++;
+        loadAllBackups($('#filter-backup-device').val());
+    });
 });
 
 // Load summary stats
@@ -2565,6 +2654,115 @@ function escapeHtml(text) {
 }
 
 // =============================================================================
+// All Backups Modal Functions
+// =============================================================================
+
+function loadAllBackups(deviceFilter = '') {
+    const offset = backupsPage * backupsPageSize;
+    let url = `/api/config-backups?limit=${backupsPageSize}&offset=${offset}`;
+    if (deviceFilter) {
+        url += `&device=${encodeURIComponent(deviceFilter)}`;
+    }
+
+    $.get(url)
+        .done(function(response) {
+            const data = response.data || response;
+            if (response.success && data.backups) {
+                renderAllBackupsTable(data.backups);
+                $('#backup-count').text(data.backups.length);
+                $('#prev-page-item').toggleClass('disabled', backupsPage === 0);
+                $('#next-page-item').toggleClass('disabled', data.backups.length < backupsPageSize);
+
+                // Populate device filter if not already done
+                if (data.summary && data.summary.devices_with_backups) {
+                    const $filter = $('#filter-backup-device');
+                    if ($filter.find('option').length <= 1) {
+                        data.summary.devices_with_backups.forEach(d => {
+                            $filter.append(`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`);
+                        });
+                    }
+                }
+            }
+        })
+        .fail(function() {
+            $('#all-backups-table-body').html('<tr><td colspan="6" class="text-center text-danger">Failed to load backups</td></tr>');
+        });
+}
+
+function renderAllBackupsTable(backups) {
+    const $tbody = $('#all-backups-table-body');
+    $tbody.empty();
+
+    if (!backups || backups.length === 0) {
+        $tbody.html('<tr><td colspan="6" class="text-center text-muted">No backups found</td></tr>');
+        return;
+    }
+
+    backups.forEach(function(backup) {
+        const statusBadge = backup.status === 'success'
+            ? '<span class="badge bg-success">Success</span>'
+            : '<span class="badge bg-danger">Failed</span>';
+
+        const formatBadge = backup.config_format === 'set'
+            ? '<span class="badge bg-info">Set</span>'
+            : '<span class="badge bg-secondary">Native</span>';
+
+        $tbody.append(`
+            <tr>
+                <td><i class="fas fa-server text-muted"></i> ${escapeHtml(backup.device_name)}</td>
+                <td><small>${formatDate(backup.created_at)}</small></td>
+                <td>${formatBadge}</td>
+                <td><small>${formatFileSize(backup.file_size || 0)}</small></td>
+                <td>${statusBadge}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary view-all-backup-btn" data-id="${backup.backup_id}" data-device="${escapeHtml(backup.device_name)}">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger delete-all-backup-btn" data-id="${backup.backup_id}">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `);
+    });
+
+    // Bind handlers
+    $('.view-all-backup-btn').click(function() {
+        const backupId = $(this).data('id');
+        const deviceName = $(this).data('device');
+        // Close allBackupsModal, open viewBackupModal
+        bootstrap.Modal.getInstance(document.getElementById('allBackupsModal')).hide();
+        viewBackupConfig(backupId, deviceName);
+    });
+
+    $('.delete-all-backup-btn').click(function() {
+        const backupId = $(this).data('id');
+        deleteBackupFromList(backupId);
+    });
+}
+
+function deleteBackupFromList(backupId) {
+    if (!confirm('Are you sure you want to delete this backup?')) return;
+
+    $.ajax({
+        url: `/api/config-backups/${backupId}`,
+        method: 'DELETE'
+    })
+    .done(function(response) {
+        if (response.success) {
+            loadAllBackups($('#filter-backup-device').val());
+            loadSummary();
+            loadDeviceBackupStatus();
+        } else {
+            alert('Error: ' + (response.error || 'Failed to delete backup'));
+        }
+    })
+    .fail(function() {
+        alert('Failed to delete backup');
+    });
+}
+
+// =============================================================================
 // Device Management Functions
 // =============================================================================
 
@@ -2623,7 +2821,7 @@ function renderDevicesTable(devices) {
 
     devices.forEach(device => {
         const name = device.name || device.device_name || 'Unknown';
-        const ip = device.primary_ip || device.ip || device.management_ip || '-';
+        const ip = device.primary_ip || device.host || device.ip || device.management_ip || '-';
         const deviceType = device.platform || device.device_type || '-';
         const source = device.source || 'netbox';
         const isManual = source === 'manual';

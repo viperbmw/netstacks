@@ -108,6 +108,66 @@ class StackService:
         log.info(f"Stack deleted: {stack_id}")
         return True
 
+    def update_state(self, stack_id: str, state: str, deploy_started_at: Optional[datetime] = None) -> bool:
+        """Update stack deployment state."""
+        stack = self.session.query(ServiceStack).filter(
+            ServiceStack.stack_id == stack_id
+        ).first()
+
+        if not stack:
+            return False
+
+        stack.state = state
+        if deploy_started_at:
+            stack.deploy_started_at = deploy_started_at
+        stack.updated_at = datetime.utcnow()
+
+        self.session.commit()
+        log.info(f"Stack state updated: {stack_id} -> {state}")
+        return True
+
+    def update_validation_status(
+        self,
+        stack_id: str,
+        status: str,
+        last_validated: Optional[datetime] = None
+    ) -> bool:
+        """Update stack validation status."""
+        stack = self.session.query(ServiceStack).filter(
+            ServiceStack.stack_id == stack_id
+        ).first()
+
+        if not stack:
+            return False
+
+        stack.validation_status = status
+        if last_validated:
+            stack.last_validated = last_validated
+        stack.updated_at = datetime.utcnow()
+
+        self.session.commit()
+        log.info(f"Stack validation status updated: {stack_id} -> {status}")
+        return True
+
+    def update_deployed_services(self, stack_id: str, service_ids: List[str]) -> bool:
+        """Update the list of deployed service task IDs."""
+        stack = self.session.query(ServiceStack).filter(
+            ServiceStack.stack_id == stack_id
+        ).first()
+
+        if not stack:
+            return False
+
+        stack.deployed_services = service_ids
+        stack.deploy_completed_at = datetime.utcnow()
+        stack.updated_at = datetime.utcnow()
+        stack.has_pending_changes = False
+        stack.pending_since = None
+
+        self.session.commit()
+        log.info(f"Stack deployed services updated: {stack_id} with {len(service_ids)} services")
+        return True
+
     def _to_dict(self, stack: ServiceStack) -> Dict:
         """Convert stack model to dict."""
         return {

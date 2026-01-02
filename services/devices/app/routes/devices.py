@@ -103,6 +103,35 @@ async def clear_device_cache(
     return success_response(message="Cache cleared successfully")
 
 
+@router.post("/reload")
+async def reload_devices(
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Reload devices from NetBox.
+
+    Clears the cache and syncs fresh data from NetBox.
+    """
+    from app.services.netbox_service import NetBoxService
+
+    # Clear cache first
+    device_service = DeviceService(session)
+    device_service.clear_cache()
+
+    # Sync from NetBox
+    netbox_service = NetBoxService(session)
+    result = netbox_service.sync_devices()
+
+    if result.get('success'):
+        return success_response(
+            data=result,
+            message=f"Reloaded {result.get('synced', 0)} devices from NetBox"
+        )
+    else:
+        return success_response(data=result)
+
+
 @router.post("/sync")
 async def sync_devices_from_netbox(
     session: Session = Depends(get_db),
@@ -272,20 +301,29 @@ async def test_device_connectivity(
         DeviceOverride.device_name == device_name
     ).first()
 
-    # Get default credentials from auth service settings
+    # Get default credentials from auth service (unmasked endpoint)
     # Forward the JWT token from the incoming request
     default_username = None
     default_password = None
+    default_timeout = 30
+    default_conn_timeout = 10
+    default_auth_timeout = 10
+    default_banner_timeout = 15
     try:
         auth_url = os.environ.get('AUTH_SERVICE_URL', 'http://auth:8011')
         auth_header = request.headers.get('Authorization', '')
         headers = {'Authorization': auth_header} if auth_header else {}
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{auth_url}/api/settings", headers=headers)
+            resp = await client.get(f"{auth_url}/api/settings/credentials/default", headers=headers)
             if resp.status_code == 200:
-                settings_data = resp.json().get('data', {})
+                resp_data = resp.json()
+                settings_data = resp_data.get('data', resp_data)
                 default_username = settings_data.get('default_username')
                 default_password = settings_data.get('default_password')
+                default_timeout = settings_data.get('default_timeout', 30)
+                default_conn_timeout = settings_data.get('default_conn_timeout', 10)
+                default_auth_timeout = settings_data.get('default_auth_timeout', 10)
+                default_banner_timeout = settings_data.get('default_banner_timeout', 15)
     except Exception as e:
         log.warning(f"Could not fetch default credentials: {e}")
 
@@ -314,6 +352,22 @@ async def test_device_connectivity(
     if override and override.secret:
         secret = override.secret
 
+    # Apply timeout settings - device override takes precedence, then global defaults
+    timeout = default_timeout
+    conn_timeout = default_conn_timeout
+    auth_timeout = default_auth_timeout
+    banner_timeout = default_banner_timeout
+
+    # Override timeouts from device-specific settings if present
+    if override and override.timeout:
+        timeout = override.timeout
+    if override and hasattr(override, 'conn_timeout') and override.conn_timeout:
+        conn_timeout = override.conn_timeout
+    if override and hasattr(override, 'auth_timeout') and override.auth_timeout:
+        auth_timeout = override.auth_timeout
+    if override and hasattr(override, 'banner_timeout') and override.banner_timeout:
+        banner_timeout = override.banner_timeout
+
     # Validate credentials exist
     if not username or not password:
         raise HTTPException(
@@ -330,7 +384,12 @@ async def test_device_connectivity(
     # Test connectivity
     from app.services.connectivity_service import ConnectivityService
 
-    conn_service = ConnectivityService(timeout=10)
+    conn_service = ConnectivityService(
+        timeout=timeout,
+        conn_timeout=conn_timeout,
+        auth_timeout=auth_timeout,
+        banner_timeout=banner_timeout
+    )
     result = conn_service.test_connectivity(
         host=host,
         device_type=device_type,

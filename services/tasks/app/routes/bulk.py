@@ -8,8 +8,11 @@ import logging
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Depends
+from sqlalchemy.orm import Session
 import httpx
+
+from netstacks_core.db import get_db, TaskHistory
 
 from app.config import get_settings
 from app.services.celery_client import celery_app
@@ -81,19 +84,19 @@ async def get_device_with_credentials(
             if not device_data:
                 return None
 
-            # Get device overrides
+            # Get device overrides with unmasked credentials
             override_resp = await client.get(
-                f"{devices_url}/api/device-overrides/{device_name}",
+                f"{devices_url}/api/device-overrides/{device_name}/connection-args",
                 headers=headers
             )
             override = {}
             if override_resp.status_code == 200:
                 resp_data = override_resp.json().get("data", {})
-                override = resp_data.get("override") or {}
+                override = resp_data.get("connection_args") or {}
 
-            # Get default settings for credentials
+            # Get default credentials (unmasked)
             settings_resp = await client.get(
-                f"{auth_url}/api/settings",
+                f"{auth_url}/api/settings/credentials/default",
                 headers=headers
             )
             default_settings = {}
@@ -105,8 +108,8 @@ async def get_device_with_credentials(
             # 2. Device-specific overrides
             # 3. Default settings
             connection_args = {
-                "device_type": device_data.get("device_type", "cisco_ios"),
-                "host": device_data.get("host"),
+                "device_type": override.get("device_type") or device_data.get("device_type", "cisco_ios"),
+                "host": override.get("host") or device_data.get("host"),
                 "port": override.get("port") or device_data.get("port") or 22,
                 "username": (
                     custom_username or
@@ -118,6 +121,14 @@ async def get_device_with_credentials(
                     override.get("password") or
                     default_settings.get("default_password", "")
                 ),
+                # Disable SSH keys/agent to force password/keyboard-interactive auth
+                "use_keys": False,
+                "allow_agent": False,
+                # Timeout settings from device overrides or global defaults
+                "timeout": override.get("timeout") or default_settings.get("default_timeout", 30),
+                "conn_timeout": override.get("conn_timeout") or default_settings.get("default_conn_timeout", 10),
+                "auth_timeout": override.get("auth_timeout") or default_settings.get("default_auth_timeout", 10),
+                "banner_timeout": override.get("banner_timeout") or default_settings.get("default_banner_timeout", 15),
             }
 
             # Add enable secret if available
@@ -140,6 +151,23 @@ def submit_celery_task(task_name: str, **kwargs) -> str:
     """Submit a task to Celery."""
     task = celery_app.send_task(task_name, kwargs=kwargs)
     return task.id
+
+
+def record_task(session: Session, task_id: str, device_name: str, task_name: str = None):
+    """Record a task to the database for history tracking."""
+    try:
+        entry = TaskHistory(
+            task_id=task_id,
+            device_name=device_name,
+            task_name=task_name,
+            status='pending'
+        )
+        session.add(entry)
+        session.commit()
+        log.debug(f"Recorded task {task_id} for device {device_name}")
+    except Exception as e:
+        log.error(f"Failed to record task history: {e}")
+        session.rollback()
 
 
 @router.post("/test")
@@ -313,7 +341,8 @@ async def bulk_set_config(
 @router.post("/backup")
 async def bulk_backup_devices(
     request: BulkBackupRequest,
-    authorization: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None),
+    session: Session = Depends(get_db)
 ):
     """
     Backup configuration from multiple devices.
@@ -354,17 +383,22 @@ async def bulk_backup_devices(
 
         clean_args = {k: v for k, v in connection_args.items() if v is not None}
 
+        task_name = "tasks.backup_tasks.backup_device_config"
         task_id = submit_celery_task(
-            "tasks.backup_tasks.backup_device_config",
+            task_name,
             connection_args=clean_args,
             device_name=device_name,
             device_platform=device_data.get("platform"),
             created_by=username
         )
+
+        # Record task to database for monitoring
+        record_task(session, task_id, f"backup:{device_name}", task_name)
+
         task_ids.append(task_id)
         log.info(f"Dispatched backup task {task_id} for {device_name}")
 
-    return {"task_ids": task_ids}
+    return {"task_ids": task_ids, "success": True}
 
 
 @router.post("/delete")

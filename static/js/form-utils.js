@@ -41,13 +41,20 @@ function loadTemplateVariables(templateName, containerId, inputMode) {
     container.html('<div class="text-center"><div class="spinner-border spinner-border-sm"></div> Loading variables...</div>');
 
     $.get('/api/templates/' + encodeURIComponent(templateName) + '/variables')
-        .done(function(data) {
-            if (data.success && data.variables) {
+        .done(function(response) {
+            // Handle wrapped response format: { success: true, data: { variables: [...] } }
+            const data = response.data || response;
+            const variables = data.variables || [];
+
+            if (response.success && variables.length > 0) {
                 if (inputMode === 'form') {
-                    renderVariableForm(data.variables, container);
+                    renderVariableForm(variables, container);
                 } else {
-                    renderVariableJSON(data.variables, container);
+                    renderVariableJSON(variables, container);
                 }
+                container.show();
+            } else if (response.success) {
+                container.html('<div class="alert alert-info">This template has no variables</div>');
                 container.show();
             } else {
                 container.html('<div class="alert alert-warning">No variables found in template</div>');

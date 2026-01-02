@@ -94,3 +94,51 @@ async def delete_override(
     service.delete(device_name)
     log.info(f"Device override deleted for {device_name} by {current_user.sub}")
     return success_response(message=f"Override deleted for {device_name}")
+
+
+@router.get("/{device_name}/connection-args")
+async def get_override_connection_args(
+    device_name: str,
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Get device override connection args with unmasked credentials.
+
+    This endpoint returns the actual credentials for internal service-to-service
+    communication (e.g., tasks service connecting to devices).
+    """
+    from netstacks_core.db import DeviceOverride
+
+    override = session.query(DeviceOverride).filter(
+        DeviceOverride.device_name == device_name
+    ).first()
+
+    if not override:
+        return success_response(data={"connection_args": None})
+
+    # Return connection args with actual credentials (not masked)
+    connection_args = {}
+
+    if override.device_type:
+        connection_args["device_type"] = override.device_type
+    if override.host:
+        connection_args["host"] = override.host
+    if override.port:
+        connection_args["port"] = override.port
+    if override.username:
+        connection_args["username"] = override.username
+    if override.password:
+        connection_args["password"] = override.password
+    if override.secret:
+        connection_args["secret"] = override.secret
+    if override.timeout:
+        connection_args["timeout"] = override.timeout
+    if override.conn_timeout:
+        connection_args["conn_timeout"] = override.conn_timeout
+    if override.auth_timeout:
+        connection_args["auth_timeout"] = override.auth_timeout
+    if override.banner_timeout:
+        connection_args["banner_timeout"] = override.banner_timeout
+
+    return success_response(data={"connection_args": connection_args})

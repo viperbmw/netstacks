@@ -112,34 +112,65 @@ async def get_device_connection_info(
             # Unwrap the response: {"success": true, "data": {"device": {...}}}
             device = response_data.get("data", {}).get("device", response_data)
 
-            # Get credentials
-            cred_response = await client.get(
-                f"{devices_url}/api/credentials/{device_name}",
+            # Get device overrides with unmasked credentials
+            overrides = {}
+            override_response = await client.get(
+                f"{devices_url}/api/device-overrides/{device_name}/connection-args",
                 headers=headers
             )
+            if override_response.status_code == 200:
+                override_data = override_response.json()
+                if override_data.get("success"):
+                    overrides = override_data.get("data", {}).get("connection_args", {}) or {}
+                else:
+                    overrides = override_data.get("connection_args", {}) or {}
 
-            credentials = {}
-            if cred_response.status_code == 200:
-                cred_data = cred_response.json()
-                # Unwrap credentials response too
-                credentials = cred_data.get("data", cred_data) if cred_data.get("success") else cred_data
-
-            # Build connection args
+            # Build connection args starting with device defaults
             connection_args = {
                 "device_type": device.get("device_type") or device.get("platform", "cisco_ios"),
                 "host": device.get("host") or device.get("primary_ip") or device.get("hostname") or device_name,
                 "port": device.get("port", 22),
+                # Disable SSH keys/agent to force password/keyboard-interactive auth
+                "use_keys": False,
+                "allow_agent": False,
             }
 
-            # Apply credentials (override takes precedence)
+            # Apply overrides (from device-overrides endpoint)
+            if overrides.get("device_type"):
+                connection_args["device_type"] = overrides["device_type"]
+            if overrides.get("host"):
+                connection_args["host"] = overrides["host"]
+            if overrides.get("port"):
+                connection_args["port"] = overrides["port"]
+
+            # Apply timeout settings from overrides
+            if overrides.get("timeout"):
+                connection_args["timeout"] = overrides["timeout"]
+            if overrides.get("conn_timeout"):
+                connection_args["conn_timeout"] = overrides["conn_timeout"]
+            if overrides.get("auth_timeout"):
+                connection_args["auth_timeout"] = overrides["auth_timeout"]
+            if overrides.get("banner_timeout"):
+                connection_args["banner_timeout"] = overrides["banner_timeout"]
+
+            # Apply credentials (inline override takes highest precedence, then device overrides)
             if credential_override:
                 connection_args["username"] = credential_override.get("username")
                 connection_args["password"] = credential_override.get("password")
+            elif overrides.get("username"):
+                connection_args["username"] = overrides.get("username")
+                # Password is masked in response, need to get from auth service or device
+                # For now, use the masked value as a flag that credentials exist
+                if overrides.get("password"):
+                    connection_args["password"] = overrides.get("password")
+                if overrides.get("secret"):
+                    connection_args["secret"] = overrides.get("secret")
             else:
-                connection_args["username"] = credentials.get("username")
-                connection_args["password"] = credentials.get("password")
-                if credentials.get("secret"):
-                    connection_args["secret"] = credentials["secret"]
+                # Fallback to device's stored credentials
+                connection_args["username"] = device.get("username")
+                connection_args["password"] = device.get("password")
+                if device.get("enable_password"):
+                    connection_args["secret"] = device["enable_password"]
 
             return {
                 "device": device,

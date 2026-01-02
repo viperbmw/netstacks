@@ -5,6 +5,7 @@ Template CRUD and rendering operations.
 """
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -132,6 +133,37 @@ async def delete_template(
 
     log.info(f"Template deleted: {template_name} by {current_user.sub}")
     return success_response(message=f"Template {template_name} deleted")
+
+
+@router.get("/{template_name}/variables")
+async def get_template_variables(
+    template_name: str,
+    session: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """Extract variables from a Jinja2 template."""
+    # Strip .j2 extension if present
+    if template_name.endswith('.j2'):
+        template_name = template_name[:-3]
+
+    service = TemplateService(session)
+    template = service.get(template_name)
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template_content = template.get("content", "")
+
+    # Extract variables using regex - match {{ variable_name }} patterns
+    # This matches simple variable references like {{ vlan_id }}
+    variable_pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}'
+    variables = list(set(re.findall(variable_pattern, template_content)))
+    variables.sort()
+
+    return success_response(data={
+        "variables": variables,
+        "template_content": template_content
+    })
 
 
 @router.post("/{template_name}/render")

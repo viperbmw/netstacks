@@ -178,8 +178,14 @@ class ScheduleService:
 
         try:
             if schedule_type == 'once':
-                # Parse ISO datetime
-                return datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+                # Parse ISO datetime - handle various formats
+                # datetime-local format: 2026-01-02T21:07
+                # ISO format with Z: 2026-01-02T21:07:00Z
+                # ISO format with offset: 2026-01-02T21:07:00+00:00
+                clean_time = scheduled_time.replace('Z', '')
+                if '+' in clean_time:
+                    clean_time = clean_time.split('+')[0]
+                return datetime.fromisoformat(clean_time)
 
             # Parse time (HH:MM)
             parts = scheduled_time.split(':')

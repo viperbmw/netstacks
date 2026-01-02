@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routes import tasks, workers, deploy, bulk
+from app.routes import tasks, workers, deploy, bulk, config_backups, services, platform
 
 # Configure logging
 logging.basicConfig(
@@ -59,6 +59,9 @@ app.include_router(tasks.router)
 app.include_router(workers.router)
 app.include_router(deploy.router)
 app.include_router(bulk.router)
+app.include_router(config_backups.router)
+app.include_router(services.router)
+app.include_router(platform.router)
 
 
 @app.get("/health")

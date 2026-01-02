@@ -75,7 +75,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.devices.rule=(PathPrefix(`/api/devices`) && !PathPrefix(`/api/devices/bulk`)) || PathPrefix(`/api/device/`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/backups`) || PathPrefix(`/api/config-backups`) || PathPrefix(`/api/backup-schedule`)"
+      - "traefik.http.routers.devices.rule=(PathPrefix(`/api/devices`) && !PathPrefix(`/api/devices/bulk`)) || PathPrefix(`/api/device/`) || PathPrefix(`/api/credentials`) || PathPrefix(`/api/device-overrides`) || PathPrefix(`/api/netbox`) || PathPrefix(`/api/test-netbox`) || PathPrefix(`/api/backups`) || (PathPrefix(`/api/config-backups`) && !PathPrefix(`/api/config-backups/run`)) || PathPrefix(`/api/backup-schedule`)"
       - "traefik.http.routers.devices.entrypoints=web"
       - "traefik.http.routers.devices.priority=10"
       - "traefik.http.services.devices.loadbalancer.server.port=8004"
@@ -105,7 +105,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.config.rule=PathPrefix(`/api/templates`) || PathPrefix(`/api/service-stacks`) || PathPrefix(`/api/mops`) || PathPrefix(`/api/step-types`) || PathPrefix(`/api/scheduled-operations`)"
+      - "traefik.http.routers.config.rule=PathPrefix(`/api/templates`) || PathPrefix(`/api/service-stacks`) || PathPrefix(`/api/stack-templates`) || PathPrefix(`/api/mops`) || PathPrefix(`/api/step-types`) || PathPrefix(`/api/scheduled-operations`) || PathPrefix(`/api/config-snapshots`)"
       - "traefik.http.routers.config.entrypoints=web"
       - "traefik.http.routers.config.priority=10"
       - "traefik.http.services.config.loadbalancer.server.port=8002"
@@ -140,7 +140,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.tasks.rule=PathPrefix(`/api/tasks`) || PathPrefix(`/api/workers`) || PathPrefix(`/api/celery`) || PathPrefix(`/api/devices/bulk`)"
+      - "traefik.http.routers.tasks.rule=PathPrefix(`/api/tasks`) || PathPrefix(`/api/workers`) || PathPrefix(`/api/celery`) || PathPrefix(`/api/devices/bulk`) || PathPrefix(`/api/config-backups/run`) || PathPrefix(`/api/services`) || PathPrefix(`/api/platform`)"
       - "traefik.http.routers.tasks.entrypoints=web"
       - "traefik.http.routers.tasks.priority=10"
       - "traefik.http.services.tasks.loadbalancer.server.port=8006"

@@ -164,6 +164,13 @@ app.include_router(
     tags=["NetBox"]
 )
 
+# Test NetBox endpoint (separate route at /api/test-netbox)
+app.include_router(
+    netbox.test_router,
+    prefix="/api",
+    tags=["NetBox"]
+)
+
 # Config backups - routers already have prefixes defined
 app.include_router(backups.router, tags=["Config Backups"])
 app.include_router(backups.schedule_router, tags=["Backup Schedule"])

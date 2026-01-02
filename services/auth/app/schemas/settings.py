@@ -21,6 +21,11 @@ class SettingsUpdate(BaseModel):
     cache_ttl: Optional[int] = Field(None, ge=0, le=86400)
     default_username: Optional[str] = None
     default_password: Optional[str] = None
+    # Connection timeout settings
+    default_timeout: Optional[int] = Field(None, ge=5, le=300)
+    default_conn_timeout: Optional[int] = Field(None, ge=5, le=120)
+    default_auth_timeout: Optional[int] = Field(None, ge=5, le=120)
+    default_banner_timeout: Optional[int] = Field(None, ge=5, le=60)
     # AI settings
     ai_default_provider: Optional[str] = None
     ai_default_model: Optional[str] = None
