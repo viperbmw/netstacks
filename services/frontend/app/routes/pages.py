@@ -140,6 +140,11 @@ async def ai_settings():
     return serve_page("ai_settings")
 
 
+@router.get("/settings/ingestion")
+async def ingestion_settings():
+    return serve_page("settings-ingestion")
+
+
 @router.get("/platform")
 async def platform():
     return serve_page("platform")

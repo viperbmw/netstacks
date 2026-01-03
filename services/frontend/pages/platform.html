@@ -353,18 +353,25 @@
                             <circle cx="180" cy="10" r="8" fill="#6b7280" class="status-indicator"/>
                         </g>
 
-                        <!-- NetBox External -->
-                        <g id="node-netbox" class="service-node external" data-service="netbox" transform="translate(650, 380)">
-                            <rect x="0" y="0" width="180" height="60" rx="8" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="5,5" class="node-bg"/>
-                            <text x="90" y="25" text-anchor="middle" fill="#9ca3af" font-weight="bold" font-size="12">
-                                <tspan class="fas">&#xf0c1;</tspan> NetBox
+                        <!-- Ingestion Service -->
+                        <g id="node-ingestion" class="service-node" data-service="ingestion" transform="translate(600, 380)">
+                            <rect x="0" y="0" width="200" height="70" rx="8" fill="url(#unknownGradient)" filter="url(#shadow)" class="node-bg"/>
+                            <rect x="0" y="0" width="200" height="70" rx="8" fill="none" stroke="#a855f7" stroke-width="2" class="node-border"/>
+                            <text x="100" y="25" text-anchor="middle" fill="white" font-weight="bold" font-size="14">
+                                <tspan class="fas">&#xf1eb;</tspan> Ingestion Service
                             </text>
-                            <text x="90" y="45" text-anchor="middle" fill="#6b7280" font-size="10">External DCIM</text>
+                            <text x="100" y="42" text-anchor="middle" fill="#9ca3af" font-size="10">SNMP + Databus</text>
+                            <text x="100" y="58" text-anchor="middle" fill="#9ca3af" font-size="10" id="ingestion-stats-text">Traps: --</text>
+                            <circle cx="180" cy="10" r="8" fill="#6b7280" class="status-indicator"/>
                         </g>
+
+                        <!-- Connection: Ingestion to AI (alerts) -->
+                        <path id="conn-ingestion-ai" class="connection-line" d="M 700,380 L 700,320" stroke="#4b5563" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
 
                         <!-- Data flow labels -->
                         <text x="320" y="275" fill="#6b7280" font-size="9" transform="rotate(-30, 320, 275)">SQL Queries</text>
                         <text x="350" y="405" fill="#6b7280" font-size="9">Task Queue</text>
+                        <text x="710" y="350" fill="#6b7280" font-size="9">Alerts</text>
                     </svg>
                 </div>
             </div>
@@ -617,6 +624,74 @@
             </div>
         </div>
     </div>
+
+    <!-- Tasks Service Card -->
+    <div class="col-md-4">
+        <div class="card service-card h-100" id="tasks-card" data-service="tasks">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-clipboard-list text-orange"></i> Tasks Service</span>
+                <span class="badge bg-secondary" id="tasks-status">...</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <div class="metric-box">
+                            <small class="text-muted">Response Time</small>
+                            <div class="fs-5" id="tasks-response-time">--</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="metric-box">
+                            <small class="text-muted">Port</small>
+                            <div class="fs-5">8006</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="small text-muted" id="tasks-details">
+                    <i class="fas fa-info-circle"></i> Job orchestration and platform health
+                </div>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-sm btn-outline-primary w-100" onclick="showServiceDetails('tasks')">
+                    <i class="fas fa-search"></i> View Details
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ingestion Service Card -->
+    <div class="col-md-4">
+        <div class="card service-card h-100" id="ingestion-card" data-service="ingestion">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-satellite-dish text-purple-light"></i> Ingestion Service</span>
+                <span class="badge bg-secondary" id="ingestion-status">...</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <div class="metric-box">
+                            <small class="text-muted">SNMP Traps</small>
+                            <div class="fs-5" id="ingestion-trap-count">--</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="metric-box">
+                            <small class="text-muted">Databus Msgs</small>
+                            <div class="fs-5" id="ingestion-databus-count">--</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="small text-muted" id="ingestion-details">
+                    <i class="fas fa-info-circle"></i> SNMP traps + Kafka/Redis consumers
+                </div>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-sm btn-outline-primary w-100" onclick="showServiceDetails('ingestion')">
+                    <i class="fas fa-search"></i> View Details
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Service Details Modal -->
@@ -738,8 +813,10 @@
 
 /* Text colors */
 .text-purple { color: #8b5cf6 !important; }
+.text-purple-light { color: #a855f7 !important; }
 .text-pink { color: #ec4899 !important; }
 .text-teal { color: #14b8a6 !important; }
+.text-orange { color: #f97316 !important; }
 
 /* Refresh animation */
 .fa-spin-click {
@@ -962,6 +1039,13 @@ function updateServiceCard(serviceName, data) {
             const workerText = document.getElementById('worker-count-text');
             if (workerText) workerText.textContent = `Workers: ${data.workers || 0}`;
         }
+        if (serviceName === 'ingestion') {
+            document.getElementById('ingestion-trap-count').textContent = data.trap_count ?? '0';
+            document.getElementById('ingestion-databus-count').textContent = data.databus_message_count ?? '0';
+            // Update SVG ingestion stats
+            const ingestionText = document.getElementById('ingestion-stats-text');
+            if (ingestionText) ingestionText.textContent = `Traps: ${data.trap_count ?? 0} | Msgs: ${data.databus_message_count ?? 0}`;
+        }
     } else if (data.status === 'unhealthy') {
         card.classList.add('unhealthy');
         statusBadge.className = 'badge bg-danger';
@@ -1030,9 +1114,11 @@ function updateOverallStatus(status, services) {
     const devicesHealthy = services.devices?.status === 'healthy';
     const configHealthy = services.config?.status === 'healthy';
     const aiHealthy = services.ai?.status === 'healthy';
+    const tasksHealthy = services.tasks?.status === 'healthy';
     const postgresHealthy = services.postgres?.status === 'healthy';
     const redisHealthy = services.redis?.status === 'healthy';
     const workersHealthy = services.workers?.status === 'healthy';
+    const ingestionHealthy = services.ingestion?.status === 'healthy';
 
     updateConnectionLine('conn-traefik-auth', authHealthy);
     updateConnectionLine('conn-traefik-devices', devicesHealthy);
@@ -1043,6 +1129,7 @@ function updateOverallStatus(status, services) {
     updateConnectionLine('conn-config-db', configHealthy && postgresHealthy);
     updateConnectionLine('conn-workers-redis', workersHealthy && redisHealthy);
     updateConnectionLine('conn-devices-workers', devicesHealthy && workersHealthy);
+    updateConnectionLine('conn-ingestion-ai', ingestionHealthy && aiHealthy);
 }
 
 function refreshHealth() {
@@ -1051,7 +1138,7 @@ function refreshHealth() {
     refreshIcon.classList.add('fa-spin-click');
 
     // Reset all to loading state
-    ['auth', 'devices', 'config', 'ai', 'postgres', 'redis', 'workers'].forEach(service => {
+    ['auth', 'devices', 'config', 'ai', 'tasks', 'postgres', 'redis', 'workers', 'ingestion'].forEach(service => {
         const statusBadge = document.getElementById(`${service}-status`);
         if (statusBadge) {
             statusBadge.className = 'badge bg-secondary';
@@ -1087,7 +1174,7 @@ function refreshHealth() {
         },
         error: function(xhr, status, error) {
             console.error('Error fetching health:', error);
-            ['auth', 'devices', 'config', 'ai', 'postgres', 'redis', 'workers'].forEach(service => {
+            ['auth', 'devices', 'config', 'ai', 'tasks', 'postgres', 'redis', 'workers', 'ingestion'].forEach(service => {
                 updateServiceCard(service, { status: 'unknown', error: 'API Error' });
             });
             updateOverallStatus('degraded', {});
@@ -1178,6 +1265,34 @@ function showServiceDetails(serviceName) {
                 { method: 'TASK', path: 'set_config', desc: 'Push configuration to device' },
                 { method: 'TASK', path: 'backup_device_config', desc: 'Backup device config' },
                 { method: 'TASK', path: 'test_connectivity', desc: 'Test device connectivity' },
+            ]
+        },
+        tasks: {
+            title: 'Tasks Service',
+            icon: 'fa-clipboard-list',
+            color: '#f97316',
+            port: 8006,
+            description: 'Orchestrates background jobs, monitors Celery workers, and provides platform health endpoints.',
+            endpoints: [
+                { method: 'GET', path: '/api/platform/health', desc: 'Platform health status' },
+                { method: 'GET', path: '/api/platform/stats', desc: 'Platform statistics' },
+                { method: 'GET', path: '/api/workers', desc: 'List Celery workers' },
+                { method: 'GET', path: '/api/tasks', desc: 'List running tasks' },
+                { method: 'POST', path: '/api/config-backups/run', desc: 'Trigger config backup' },
+            ]
+        },
+        ingestion: {
+            title: 'Ingestion Service',
+            icon: 'fa-satellite-dish',
+            color: '#a855f7',
+            port: 8162,
+            description: 'Unified alert ingestion service that receives SNMP traps and consumes from external Kafka/Redis databuses.',
+            endpoints: [
+                { method: 'GET', path: '/health', desc: 'Service health status' },
+                { method: 'GET', path: '/stats', desc: 'Ingestion statistics' },
+                { method: 'GET', path: '/sources', desc: 'List configured sources' },
+                { method: 'GET', path: '/mappings', desc: 'SNMP OID mappings' },
+                { method: 'UDP', path: ':162', desc: 'SNMP trap receiver port' },
             ]
         }
     };
@@ -1272,6 +1387,43 @@ function showServiceDetails(serviceName) {
                     <div class="card-body text-center">
                         <h6 class="text-muted">Running Tasks</h6>
                         <span class="fs-5">${data.active_tasks || 0}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    if (serviceName === 'ingestion') {
+        metricsHtml += `
+            <div class="col-md-3">
+                <div class="card bg-dark">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">SNMP Traps</h6>
+                        <span class="fs-5">${data.trap_count ?? 0}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-dark">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">SNMP Errors</h6>
+                        <span class="fs-5">${data.snmp_errors ?? 0}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-dark">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">Databus Msgs</h6>
+                        <span class="fs-5">${data.databus_message_count ?? 0}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-dark">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">Databus Errors</h6>
+                        <span class="fs-5">${data.databus_errors ?? 0}</span>
                     </div>
                 </div>
             </div>

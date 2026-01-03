@@ -27,6 +27,7 @@ SERVICE_ENDPOINTS = {
     'config': os.environ.get('CONFIG_SERVICE_URL', 'http://config:8002'),
     'ai': os.environ.get('AI_SERVICE_URL', 'http://ai:8003'),
     'tasks': os.environ.get('TASKS_SERVICE_URL', 'http://tasks:8006'),
+    'ingestion': os.environ.get('INGESTION_SERVICE_URL', 'http://ingestion:8162'),
 }
 
 
@@ -39,10 +40,25 @@ async def check_service_health(service_name: str, base_url: str) -> Dict[str, An
             response_ms = int((time.time() - start_time) * 1000)
 
             if response.status_code == 200:
-                return {
+                result = {
                     'status': 'healthy',
                     'response_ms': response_ms
                 }
+                # For ingestion service, include additional stats from response
+                if service_name == 'ingestion':
+                    try:
+                        data = response.json()
+                        if 'trap_count' in data:
+                            result['trap_count'] = data['trap_count']
+                        if 'snmp_errors' in data:
+                            result['snmp_errors'] = data['snmp_errors']
+                        if 'databus_message_count' in data:
+                            result['databus_message_count'] = data['databus_message_count']
+                        if 'databus_errors' in data:
+                            result['databus_errors'] = data['databus_errors']
+                    except Exception:
+                        pass
+                return result
             else:
                 return {
                     'status': 'unhealthy',
@@ -136,6 +152,7 @@ async def get_platform_health():
     - Config microservice
     - AI microservice
     - Tasks microservice
+    - SNMP trap receiver
     - Redis
     - PostgreSQL
     - Celery workers

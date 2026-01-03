@@ -811,6 +811,40 @@ class AlertSource(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class DatabusSource(Base):
+    """Databus source configurations for alert ingestion (Kafka, Redis Streams, etc.)"""
+    __tablename__ = 'databus_sources'
+
+    source_id = Column(String(36), primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)
+    source_type = Column(String(30), nullable=False)  # 'kafka', 'redis_stream'
+    is_enabled = Column(Boolean, default=True)
+
+    # Connection settings
+    connection_config = Column(JSONB, default=dict)  # bootstrap_servers, url, password, etc.
+    topic_or_stream = Column(String(255), nullable=False)  # Kafka topic or Redis stream name
+    consumer_group = Column(String(255), nullable=True)  # Consumer group name
+
+    # Message transformation
+    transform_type = Column(String(30), default='json')  # 'json', 'syslog', 'cef', 'raw'
+    field_mappings = Column(JSONB, default=dict)  # Map source fields to alert fields
+
+    # Statistics
+    message_count = Column(Integer, default=0)
+    error_count = Column(Integer, default=0)
+    last_message_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        Index('idx_databus_sources_type', 'source_type'),
+        Index('idx_databus_sources_enabled', 'is_enabled'),
+    )
+
+
 class Alert(Base):
     """Incoming alerts from monitoring systems"""
     __tablename__ = 'alerts'

@@ -8,11 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY services/snmp/requirements.txt .
+COPY services/ingestion/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY services/snmp/app/ ./app/
+COPY services/ingestion/app/ ./app/
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -21,6 +21,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose ports
 # 162 - SNMP trap receiver (UDP)
 # 8162 - Health check HTTP
+# Note: This service also consumes from external Kafka/Redis if configured
 EXPOSE 162/udp
 EXPOSE 8162
 

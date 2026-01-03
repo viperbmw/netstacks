@@ -1,4 +1,4 @@
-"""SNMP Trap Receiver Service.
+"""SNMP Trap Receiver Adapter.
 
 Listens for SNMP traps and converts them to NetStacks alerts.
 Uses pysnmp with a separate thread for the dispatcher.
@@ -15,18 +15,14 @@ from pysnmp.entity.rfc3413 import ntfrcv
 from .config import settings
 from .trap_mappings import trap_mapper
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 
-class TrapReceiver:
+class SNMPTrapReceiver:
     """SNMP Trap Receiver that forwards traps as alerts to NetStacks API."""
 
-    def __init__(self):
+    def __init__(self, api_url: str):
+        self.api_url = api_url
         self.snmp_engine: Optional[engine.SnmpEngine] = None
         self.trap_count = 0
         self.error_count = 0
@@ -36,7 +32,10 @@ class TrapReceiver:
 
     async def start(self, loop: asyncio.AbstractEventLoop):
         """Start the SNMP trap receiver."""
-        logger.info(f"Starting SNMP Trap Receiver on {settings.trap_address}:{settings.trap_port}")
+        trap_address = settings.snmp_trap_address
+        trap_port = settings.snmp_trap_port
+
+        logger.info(f"Starting SNMP Trap Receiver on {trap_address}:{trap_port}")
 
         self._running = True
         self._main_loop = loop
@@ -48,11 +47,11 @@ class TrapReceiver:
         config.addTransport(
             self.snmp_engine,
             udp.domainName,
-            udp.UdpTransport().openServerMode((settings.trap_address, settings.trap_port))
+            udp.UdpTransport().openServerMode((trap_address, trap_port))
         )
 
         # Configure community strings for SNMPv1/v2c
-        for community in settings.community_strings.split(','):
+        for community in settings.snmp_community_strings.split(','):
             community = community.strip()
             if community:
                 config.addV1System(self.snmp_engine, community, community)
@@ -62,22 +61,24 @@ class TrapReceiver:
         ntfrcv.NotificationReceiver(self.snmp_engine, self._trap_callback)
 
         logger.info("SNMP Trap Receiver started successfully")
-        logger.info(f"Will forward alerts to: {settings.netstacks_api_url}/api/alerts/")
+        logger.info(f"Will forward alerts to: {self.api_url}/api/alerts/")
 
         # Start dispatcher in a separate thread
         self.snmp_engine.transportDispatcher.jobStarted(1)
         self._dispatcher_thread = threading.Thread(target=self._run_dispatcher, daemon=True)
         self._dispatcher_thread.start()
 
-        # Keep running until stopped
-        while self._running:
-            await asyncio.sleep(1)
-
     def _run_dispatcher(self):
         """Run the SNMP dispatcher in a separate thread."""
         try:
             logger.info("SNMP dispatcher thread started")
-            self.snmp_engine.transportDispatcher.runDispatcher()
+            # Run dispatcher loop manually to prevent immediate exit
+            while self._running:
+                try:
+                    self.snmp_engine.transportDispatcher.runDispatcher(timeout=1.0)
+                except Exception as e:
+                    if self._running:
+                        logger.debug(f"Dispatcher iteration: {e}")
         except Exception as e:
             logger.error(f"Dispatcher error: {e}", exc_info=True)
         finally:
@@ -141,7 +142,7 @@ class TrapReceiver:
     async def _send_alert(self, alert_payload: Dict[str, Any]):
         """Send alert to NetStacks API."""
         try:
-            url = f"{settings.netstacks_api_url}/api/alerts/"
+            url = f"{self.api_url}/api/alerts/"
             logger.debug(f"Sending alert to {url}: {alert_payload}")
 
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -173,12 +174,10 @@ class TrapReceiver:
     def get_stats(self) -> Dict[str, Any]:
         """Get receiver statistics."""
         return {
+            "source_type": "snmp_trap",
             "trap_count": self.trap_count,
             "error_count": self.error_count,
-            "listening_address": settings.trap_address,
-            "listening_port": settings.trap_port
+            "listening_address": settings.snmp_trap_address,
+            "listening_port": settings.snmp_trap_port,
+            "running": self._running
         }
-
-
-# Global receiver instance
-trap_receiver = TrapReceiver()

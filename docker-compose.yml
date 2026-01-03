@@ -242,19 +242,25 @@ services:
       - postgres
     restart: unless-stopped
 
-  # SNMP Trap Receiver Service
-  snmp:
+  # Ingestion Service (SNMP Traps + Databus Consumers)
+  ingestion:
     build:
       context: .
-      dockerfile: services/snmp/Dockerfile
-    container_name: netstacks-snmp
+      dockerfile: services/ingestion/Dockerfile
+    container_name: netstacks-ingestion
     environment:
-      - SNMP_TRAP_PORT=162
-      - SNMP_TRAP_ADDRESS=0.0.0.0
-      - SNMP_COMMUNITY_STRINGS=${SNMP_COMMUNITY_STRINGS:-public,private}
-      - SNMP_NETSTACKS_API_URL=http://ai:8003
-      - SNMP_LOG_LEVEL=INFO
-      - SNMP_HEALTH_PORT=8162
+      # SNMP Configuration
+      - INGESTION_SNMP_ENABLED=${INGESTION_SNMP_ENABLED:-true}
+      - INGESTION_SNMP_TRAP_PORT=162
+      - INGESTION_SNMP_TRAP_ADDRESS=0.0.0.0
+      - INGESTION_SNMP_COMMUNITY_STRINGS=${SNMP_COMMUNITY_STRINGS:-public,private}
+      # API Configuration
+      - INGESTION_NETSTACKS_API_URL=http://ai:8003
+      - INGESTION_LOG_LEVEL=INFO
+      - INGESTION_HEALTH_PORT=8162
+      # Databus Sources (JSON array - configure external Kafka/Redis sources here)
+      # Example: '[{"source_id":"kafka1","name":"Kafka Alerts","source_type":"kafka","connection_config":{"bootstrap_servers":"kafka:9092"},"topic":"alerts"}]'
+      - INGESTION_DATABUS_SOURCES=${INGESTION_DATABUS_SOURCES:-[]}
       - TZ=${TZ:-America/New_York}
     ports:
       - "162:162/udp"  # SNMP trap port (UDP)
