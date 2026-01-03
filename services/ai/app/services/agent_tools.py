@@ -600,7 +600,7 @@ async def _execute_search_knowledge(params: Dict, context: Dict) -> Dict:
 
 async def _execute_get_alerts(params: Dict, context: Dict) -> Dict:
     """Get alerts from the AI service."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             headers = _get_auth_headers(context)
             query_params = {}
@@ -614,7 +614,7 @@ async def _execute_get_alerts(params: Dict, context: Dict) -> Dict:
 
             # Alerts are in the AI service (this service)
             response = await client.get(
-                "http://localhost:8003/api/alerts",
+                "http://localhost:8003/api/alerts/",
                 params=query_params,
                 headers=headers
             )
@@ -632,11 +632,11 @@ async def _execute_get_alerts(params: Dict, context: Dict) -> Dict:
 
 async def _execute_create_incident(params: Dict, context: Dict) -> Dict:
     """Create a new incident."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             headers = _get_auth_headers(context)
             response = await client.post(
-                "http://localhost:8003/api/incidents",
+                "http://localhost:8003/api/incidents/",
                 json={
                     "title": params.get("title"),
                     "description": params.get("description"),
@@ -664,7 +664,7 @@ async def _execute_update_incident(params: Dict, context: Dict) -> Dict:
     if not incident_id:
         return {"error": "incident_id is required"}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             headers = _get_auth_headers(context)
             update_data = {}

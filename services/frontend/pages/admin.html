@@ -937,12 +937,25 @@ $(document).ready(function() {
         });
     }
 
-    // Hide password change for LDAP/OIDC users
-    {% if user_auth_source in ['ldap', 'oidc'] %}
+    // Hide password change for LDAP/OIDC users (check via API)
+    function checkAuthSourceAndHidePassword() {
+        const username = localStorage.getItem('netstacks_username') || 'admin';
+        $.get('/api/users/' + encodeURIComponent(username))
+            .done(function(response) {
+                const authSource = response.auth_source || 'local';
+                if (authSource === 'ldap' || authSource === 'oidc') {
+                    $('#change-password-card').hide();
+                }
+            })
+            .fail(function() {
+                // If we can't determine, keep the password form visible
+                console.log('Could not determine auth source, keeping password form visible');
+            });
+    }
+
     $(document).ready(function() {
-        $('#change-password-card').hide();
+        checkAuthSourceAndHidePassword();
     });
-    {% endif %}
 });
 </script>
     <!-- NetStacks AI Assistant -->

@@ -722,6 +722,9 @@ $(document).ready(function() {
             'escalated': '<span class="badge badge-ai-escalated"><i class="fas fa-arrow-up"></i> Escalated</span>',
             'analyzed': '<span class="badge badge-ai-analyzed"><i class="fas fa-check"></i> Analyzed</span>',
             'handed_off': '<span class="badge badge-ai-handed-off"><i class="fas fa-hand-point-right"></i> Handed Off</span>',
+            'triaged': '<span class="badge bg-info"><i class="fas fa-clipboard-check"></i> Triaged</span>',
+            'investigated': '<span class="badge badge-ai-analyzed"><i class="fas fa-search"></i> Investigated</span>',
+            'noise': '<span class="badge bg-secondary"><i class="fas fa-volume-mute"></i> Noise</span>',
             'acknowledged': '<span class="badge bg-success"><i class="fas fa-check-circle"></i> Acknowledged</span>',
             'resolved': '<span class="badge bg-secondary"><i class="fas fa-check-double"></i> Resolved</span>',
             'error': '<span class="badge bg-danger"><i class="fas fa-times"></i> Error</span>'
@@ -736,19 +739,21 @@ $(document).ready(function() {
         $.ajax({
             url: `/api/alerts/${alertId}`,
             method: 'GET',
-            success: function(alert) {
+            success: function(response) {
+                // API returns {success: true, alert: {...}} structure
+                const alert = response.alert || response;
                 currentAlertId = alertId;
 
-                $('#detail-title').text(alert.title);
+                $('#detail-title').text(alert.title || 'Unknown');
                 $('#detail-description').text(alert.description || 'No description');
                 $('#detail-severity').html(getSeverityBadge(alert.severity));
                 $('#detail-status').html(getAIStatusBadge(alert.status, alert.incident_id));
-                $('#detail-device').text(alert.device || '-');
-                $('#detail-source').text(alert.source);
+                $('#detail-device').text(alert.device_name || alert.device || '-');
+                $('#detail-source').text(alert.source || '-');
                 $('#detail-created').text(formatDate(alert.created_at));
 
-                // AI Status display
-                const aiStatuses = ['processing', 'incident_created', 'correlated', 'escalated', 'analyzed', 'handed_off', 'error'];
+                // AI Status display - include triaged, investigated, noise statuses
+                const aiStatuses = ['processing', 'incident_created', 'correlated', 'escalated', 'analyzed', 'handed_off', 'error', 'triaged', 'investigated', 'noise'];
                 if (aiStatuses.includes(alert.status)) {
                     $('#detail-ai-status').html('<span class="text-success"><i class="fas fa-check"></i> Processed</span>');
                     showAIAnalysis(alert);
@@ -772,7 +777,8 @@ $(document).ready(function() {
                     $('#incident-info').hide();
                 }
 
-                $('#detail-data').text(JSON.stringify(alert.alert_data || {}, null, 2));
+                // Show raw_data or alert_data
+                $('#detail-data').text(JSON.stringify(alert.raw_data || alert.alert_data || {}, null, 2));
 
                 // Update button states
                 $('#ack-alert-btn').prop('disabled', alert.status === 'acknowledged');
@@ -797,6 +803,9 @@ $(document).ready(function() {
             'escalated': '<span class="text-danger"><i class="fas fa-arrow-up"></i> Escalated to operators</span>',
             'analyzed': '<span class="text-success"><i class="fas fa-check"></i> Analyzed - no action needed</span>',
             'handed_off': '<span class="text-purple"><i class="fas fa-hand-point-right"></i> Handed to specialist agent</span>',
+            'triaged': '<span class="text-info"><i class="fas fa-clipboard-check"></i> Triaged by AI</span>',
+            'investigated': '<span class="text-success"><i class="fas fa-search"></i> Investigated by specialist</span>',
+            'noise': '<span class="text-muted"><i class="fas fa-volume-mute"></i> Determined to be noise</span>',
             'error': '<span class="text-danger"><i class="fas fa-times"></i> Processing failed</span>'
         };
         $('#ai-analysis-status').html(statusMap[alert.status] || '<span class="text-muted">Unknown</span>');
@@ -808,6 +817,9 @@ $(document).ready(function() {
             'escalated': 'AI escalated this issue for human operator attention.',
             'analyzed': 'AI analyzed the alert and determined no immediate action is required.',
             'handed_off': 'AI handed this to a specialist agent for deeper analysis.',
+            'triaged': 'AI triage agent analyzed this alert and determined next steps.',
+            'investigated': 'AI specialist agent investigated and provided analysis.',
+            'noise': 'AI determined this is noise/false positive - no action required.',
             'processing': 'AI is currently analyzing this alert...',
             'error': 'AI processing encountered an error.'
         };
@@ -825,12 +837,20 @@ $(document).ready(function() {
                 if (response.sessions && response.sessions.length > 0) {
                     $('#ai-analysis-details').show();
                     let content = '';
-                    response.sessions.forEach(function(session) {
-                        content += `Session: ${session.session_id.substring(0, 8)}...\n`;
-                        content += `Status: ${session.status}\n`;
+                    response.sessions.forEach(function(session, index) {
+                        const agentType = session.agent_id ? 'Agent' : 'Unknown';
+                        content += `--- Session ${index + 1} ---\n`;
+                        content += `Session ID: ${session.session_id.substring(0, 8)}...\n`;
+                        content += `Status: ${session.status || 'unknown'}\n`;
+                        if (session.resolution_status) {
+                            content += `Resolution: ${session.resolution_status}\n`;
+                        }
                         content += `Started: ${formatDate(session.created_at)}\n`;
-                        if (session.ended_at) {
-                            content += `Ended: ${formatDate(session.ended_at)}\n`;
+                        if (session.completed_at) {
+                            content += `Completed: ${formatDate(session.completed_at)}\n`;
+                        }
+                        if (session.summary) {
+                            content += `\nSummary:\n${session.summary}\n`;
                         }
                         content += '\n';
                     });

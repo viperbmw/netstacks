@@ -1,11 +1,17 @@
 # services/ai/app/routes/alerts.py
-from fastapi import APIRouter, HTTPException, Depends, Query
+import asyncio
+import logging
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
 from netstacks_core.db import get_session, Alert as AlertModel
 from netstacks_core.auth import get_current_user
+
+from app.services.alert_processor import process_alert_async, TriageResult
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -75,14 +81,32 @@ async def list_alerts(
         session.close()
 
 
+async def _trigger_ai_processing(alert_id: str, skip_ai: bool):
+    """Background task to trigger AI processing for an alert."""
+    if skip_ai:
+        log.info(f"Skipping AI processing for alert {alert_id} per request")
+        return
+
+    try:
+        log.info(f"Starting AI triage for alert {alert_id}")
+        result = await process_alert_async(alert_id, skip_ai=False)
+        log.info(f"AI triage completed for alert {alert_id}: status={result.status}")
+    except Exception as e:
+        log.error(f"AI processing failed for alert {alert_id}: {e}", exc_info=True)
+
+
 @router.post("/", response_model=dict)
-async def create_alert(alert: AlertCreate):
-    """Create alert (webhook endpoint - no auth required)."""
+async def create_alert(alert: AlertCreate, background_tasks: BackgroundTasks):
+    """Create alert (webhook endpoint - no auth required).
+
+    Automatically triggers AI triage in the background unless skip_ai=True.
+    """
     session = get_session()
     try:
         import uuid
+        alert_id = str(uuid.uuid4())
         new_alert = AlertModel(
-            alert_id=str(uuid.uuid4()),
+            alert_id=alert_id,
             title=alert.title,
             severity=alert.severity,
             description=alert.description,
@@ -94,9 +118,14 @@ async def create_alert(alert: AlertCreate):
         )
         session.add(new_alert)
         session.commit()
+
+        # Trigger AI processing in background
+        if not alert.skip_ai:
+            background_tasks.add_task(_trigger_ai_processing, alert_id, alert.skip_ai)
+
         return {
             "status": "received",
-            "alert_id": new_alert.alert_id,
+            "alert_id": alert_id,
             "ai_processing": not alert.skip_ai
         }
     finally:
@@ -149,28 +178,76 @@ async def acknowledge_alert(alert_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/{alert_id}/process")
-async def process_alert(alert_id: str, user=Depends(get_current_user)):
+async def process_alert(alert_id: str, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     """Trigger AI processing for alert."""
-    # TODO: Implement AI processing trigger
-    return {"success": True, "message": "AI processing triggered", "alert_id": alert_id}
+    session = get_session()
+    try:
+        alert = session.query(AlertModel).filter(AlertModel.alert_id == alert_id).first()
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+
+        # Trigger AI processing in background
+        background_tasks.add_task(_trigger_ai_processing, alert_id, False)
+
+        return {
+            "success": True,
+            "message": "AI processing triggered",
+            "alert_id": alert_id
+        }
+    finally:
+        session.close()
 
 
 @router.get("/{alert_id}/sessions")
 async def get_alert_sessions(alert_id: str, user=Depends(get_current_user)):
     """Get AI sessions for alert."""
-    # TODO: Implement session lookup
-    return {"alert_id": alert_id, "sessions": []}
+    from netstacks_core.db import AgentSession
+
+    session = get_session()
+    try:
+        # Get sessions triggered by this alert
+        sessions = session.query(AgentSession).filter(
+            AgentSession.trigger_type == "alert",
+            AgentSession.trigger_id == alert_id,
+        ).order_by(AgentSession.created_at.desc()).all()
+
+        return {
+            "success": True,
+            "alert_id": alert_id,
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "agent_id": s.agent_id,
+                    "status": s.status,
+                    "initial_prompt": s.initial_prompt,
+                    "summary": s.summary,
+                    "resolution_status": s.resolution_status,
+                    "started_by": s.started_by,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                }
+                for s in sessions
+            ]
+        }
+    finally:
+        session.close()
 
 
 # Webhook endpoints
 @router.post("/webhooks/generic", response_model=dict)
-async def generic_webhook(data: dict):
-    """Generic alert webhook."""
+async def generic_webhook(data: dict, background_tasks: BackgroundTasks):
+    """Generic alert webhook.
+
+    Automatically triggers AI triage for each alert unless skip_ai=true in data.
+    """
     session = get_session()
     try:
         import uuid
+        alert_id = str(uuid.uuid4())
+        skip_ai = data.get("skip_ai", False)
+
         alert = AlertModel(
-            alert_id=str(uuid.uuid4()),
+            alert_id=alert_id,
             title=data.get("title", "Untitled Alert"),
             severity=data.get("severity", "warning"),
             description=data.get("description"),
@@ -182,14 +259,26 @@ async def generic_webhook(data: dict):
         )
         session.add(alert)
         session.commit()
-        return {"status": "received", "alert_id": alert.alert_id}
+
+        # Trigger AI processing
+        if not skip_ai:
+            background_tasks.add_task(_trigger_ai_processing, alert_id, skip_ai)
+
+        return {
+            "status": "received",
+            "alert_id": alert_id,
+            "ai_processing": not skip_ai
+        }
     finally:
         session.close()
 
 
 @router.post("/webhooks/prometheus", response_model=dict)
-async def prometheus_webhook(data: dict):
-    """Prometheus AlertManager webhook."""
+async def prometheus_webhook(data: dict, background_tasks: BackgroundTasks):
+    """Prometheus AlertManager webhook.
+
+    Automatically triggers AI triage for each alert.
+    """
     session = get_session()
     try:
         import uuid
@@ -199,9 +288,10 @@ async def prometheus_webhook(data: dict):
         for alert_data in alerts_data:
             labels = alert_data.get("labels", {})
             annotations = alert_data.get("annotations", {})
+            alert_id = str(uuid.uuid4())
 
             alert = AlertModel(
-                alert_id=str(uuid.uuid4()),
+                alert_id=alert_id,
                 title=labels.get("alertname", "Prometheus Alert"),
                 severity=labels.get("severity", "warning"),
                 description=annotations.get("summary") or annotations.get("description"),
@@ -212,9 +302,19 @@ async def prometheus_webhook(data: dict):
                 status="new",
             )
             session.add(alert)
-            created_ids.append(alert.alert_id)
+            created_ids.append(alert_id)
 
         session.commit()
-        return {"status": "received", "count": len(created_ids), "alert_ids": created_ids}
+
+        # Trigger AI processing for each alert
+        for alert_id in created_ids:
+            background_tasks.add_task(_trigger_ai_processing, alert_id, False)
+
+        return {
+            "status": "received",
+            "count": len(created_ids),
+            "alert_ids": created_ids,
+            "ai_processing": True
+        }
     finally:
         session.close()

@@ -759,7 +759,7 @@ $(document).ready(function() {
     }
 
     function isAICreated(source) {
-        return source === 'agent' || source === 'agent_escalation';
+        return source === 'agent' || source === 'agent_escalation' || source === 'ai_triage';
     }
 
     function getSeverityBadge(severity) {
@@ -847,14 +847,16 @@ $(document).ready(function() {
         $.ajax({
             url: `/api/incidents/${incidentId}`,
             method: 'GET',
-            success: function(incident) {
+            success: function(response) {
+                // API returns {success: true, incident: {...}}
+                const incident = response.incident || response;
                 currentIncidentId = incidentId;
 
-                $('#detail-title').text(incident.title);
+                $('#detail-title').text(incident.title || 'Unknown');
                 $('#detail-description').text(incident.description || 'No description provided');
                 $('#detail-severity').html(getSeverityBadge(incident.severity));
                 $('#detail-status').html(getStatusBadge(incident.status));
-                $('#detail-source-badge').html(getSourceBadge(incident.source));
+                $('#detail-source-badge').html(getSourceBadge(incident.source || 'manual'));
                 $('#detail-created').text(formatDate(incident.created_at));
                 $('#detail-resolved').text(incident.resolved_at ? formatDate(incident.resolved_at) : '-');
 
@@ -862,8 +864,8 @@ $(document).ready(function() {
                 const duration = calculateDuration(incident.created_at, incident.resolved_at);
                 $('#detail-duration').html(duration);
 
-                // Alert count
-                const alertCount = incident.alerts ? incident.alerts.length : 0;
+                // Alert count - use affected_devices as indicator
+                const alertCount = incident.alerts ? incident.alerts.length : (incident.affected_devices ? incident.affected_devices.length : 0);
                 $('#detail-alert-count').text(alertCount);
 
                 // AI Analysis section
@@ -884,7 +886,7 @@ $(document).ready(function() {
                     $('#edit-resolution').val('');
                 }
 
-                // Linked alerts
+                // Linked alerts / affected devices
                 const $alertsBody = $('#linked-alerts-body');
                 $alertsBody.empty();
 
@@ -897,9 +899,25 @@ $(document).ready(function() {
                             <tr>
                                 <td>${getSeverityBadge(alert.severity)}</td>
                                 <td>${escapeHtml(alert.title)}</td>
-                                <td>${escapeHtml(alert.device || '-')}</td>
+                                <td>${escapeHtml(alert.device || alert.device_name || '-')}</td>
                                 <td><span class="badge bg-secondary">${alert.status || 'linked'}</span></td>
                                 <td><small>${alert.created_at ? formatDate(alert.created_at) : '-'}</small></td>
+                            </tr>
+                        `);
+                    });
+                } else if (incident.affected_devices && incident.affected_devices.length > 0) {
+                    // Show affected devices if no alert objects
+                    $('#linked-alerts-container').show();
+                    $('#no-linked-alerts').hide();
+
+                    incident.affected_devices.forEach(function(device) {
+                        $alertsBody.append(`
+                            <tr>
+                                <td>${getSeverityBadge(incident.severity)}</td>
+                                <td>Affected Device</td>
+                                <td>${escapeHtml(device || '-')}</td>
+                                <td><span class="badge bg-secondary">affected</span></td>
+                                <td><small>-</small></td>
                             </tr>
                         `);
                     });
