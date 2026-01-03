@@ -593,6 +593,117 @@ class AgentAction(Base):
     )
 
 
+class WorkflowLog(Base):
+    """
+    Comprehensive workflow log for AI agent processing.
+    Tracks the entire lifecycle of alert processing from intake to resolution.
+    """
+    __tablename__ = 'workflow_logs'
+
+    workflow_id = Column(String(36), primary_key=True)
+    alert_id = Column(String(36), ForeignKey('alerts.alert_id', ondelete='CASCADE'), nullable=True)
+    incident_id = Column(String(36), ForeignKey('incidents.incident_id', ondelete='SET NULL'), nullable=True)
+    workflow_type = Column(String(50), nullable=False)  # 'alert_triage', 'incident_investigation', 'correlation', 'remediation'
+    status = Column(String(30), nullable=False, default='started')  # 'started', 'in_progress', 'completed', 'failed', 'escalated'
+
+    # Summary info for quick display
+    title = Column(String(255), nullable=True)  # Human-readable title
+    summary = Column(Text, nullable=True)  # Final summary of what happened
+    outcome = Column(String(50), nullable=True)  # 'resolved', 'escalated', 'noise', 'monitoring', 'failed'
+
+    # Timing metrics
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Integer, nullable=True)  # Total duration
+
+    # Token usage tracking
+    total_input_tokens = Column(Integer, default=0)
+    total_output_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    estimated_cost_usd = Column(Float, default=0.0)  # Estimated cost in USD
+
+    # Session references
+    primary_session_id = Column(String(36), nullable=True)  # Main agent session
+    session_ids = Column(JSONB, default=list)  # All sessions involved
+
+    # Context
+    trigger_source = Column(String(50), nullable=True)  # 'webhook', 'polling', 'manual', 'scheduled'
+    initiated_by = Column(String(255), nullable=True)  # User or 'system'
+    context_data = Column(JSONB, default=dict)  # Additional context
+
+    steps = relationship("WorkflowStep", back_populates="workflow", cascade="all, delete-orphan", order_by="WorkflowStep.sequence")
+
+    __table_args__ = (
+        Index('idx_workflow_logs_alert', 'alert_id'),
+        Index('idx_workflow_logs_incident', 'incident_id'),
+        Index('idx_workflow_logs_status', 'status'),
+        Index('idx_workflow_logs_started', 'started_at'),
+    )
+
+
+class WorkflowStep(Base):
+    """
+    Individual step within a workflow log.
+    Provides granular detail for drill-down capability.
+    """
+    __tablename__ = 'workflow_steps'
+
+    step_id = Column(String(36), primary_key=True)
+    workflow_id = Column(String(36), ForeignKey('workflow_logs.workflow_id', ondelete='CASCADE'), nullable=False)
+    sequence = Column(Integer, nullable=False)  # Order within workflow
+
+    # Step identification
+    step_type = Column(String(50), nullable=False)  # 'intake', 'triage', 'tool_call', 'analysis', 'decision', 'handoff', 'escalation', 'resolution'
+    step_name = Column(String(255), nullable=False)  # Human-readable name
+    description = Column(Text, nullable=True)  # What this step does
+
+    # Agent info
+    agent_type = Column(String(50), nullable=True)  # 'triage', 'bgp', 'ospf', etc.
+    agent_name = Column(String(255), nullable=True)
+    session_id = Column(String(36), nullable=True)  # Reference to agent session
+
+    # Status and timing
+    status = Column(String(30), default='pending')  # 'pending', 'running', 'completed', 'failed', 'skipped'
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+
+    # Token tracking per step
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    model_used = Column(String(100), nullable=True)  # Which LLM model was used
+
+    # Input/Output for drill-down
+    input_data = Column(JSONB, default=dict)  # What went into this step
+    output_data = Column(JSONB, default=dict)  # What came out
+
+    # For tool calls
+    tool_name = Column(String(100), nullable=True)
+    tool_input = Column(JSONB, default=dict)
+    tool_output = Column(JSONB, default=dict)
+
+    # AI reasoning (thoughts)
+    reasoning = Column(Text, nullable=True)  # AI's thought process
+
+    # Error handling
+    error = Column(Text, nullable=True)
+    error_details = Column(JSONB, default=dict)
+
+    # Risk assessment
+    risk_level = Column(String(20), nullable=True)  # 'low', 'medium', 'high', 'critical'
+    requires_approval = Column(Boolean, default=False)
+    approval_status = Column(String(20), nullable=True)  # 'pending', 'approved', 'rejected'
+
+    workflow = relationship("WorkflowLog", back_populates="steps")
+
+    __table_args__ = (
+        Index('idx_workflow_steps_workflow', 'workflow_id'),
+        Index('idx_workflow_steps_type', 'step_type'),
+        Index('idx_workflow_steps_sequence', 'workflow_id', 'sequence'),
+    )
+
+
 class AgentTool(Base):
     """Tool definitions for agents"""
     __tablename__ = 'agent_tools'
@@ -749,6 +860,7 @@ class Incident(Base):
     priority = Column(String(20), default='medium')  # 'critical', 'high', 'medium', 'low'
     status = Column(String(20), default='open')  # 'open', 'investigating', 'identified', 'resolved', 'closed'
     incident_type = Column(String(100), nullable=True)  # 'network', 'bgp', 'ospf', 'isis', 'layer2'
+    source = Column(String(50), default='manual')  # 'manual', 'ai_triage', 'alert_correlation', 'api'
     affected_devices = Column(JSONB, default=list)
     affected_services = Column(JSONB, default=list)
     root_cause = Column(Text, nullable=True)

@@ -370,6 +370,85 @@
                     </div>
                 </div>
 
+                <!-- AI Workflow Timeline Section -->
+                <div class="mb-4" id="workflow-section" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="fas fa-stream text-info"></i> AI Workflow Timeline</h6>
+                        <div class="d-flex align-items-center gap-3">
+                            <small class="text-muted" id="workflow-tokens">
+                                <i class="fas fa-coins"></i> <span id="total-tokens">0</span> tokens
+                                (<span id="estimated-cost">$0.00</span>)
+                            </small>
+                            <small class="text-muted" id="workflow-duration">
+                                <i class="fas fa-clock"></i> <span id="total-duration">0</span>ms
+                            </small>
+                        </div>
+                    </div>
+                    <div class="workflow-timeline-container p-3 rounded" id="workflow-timeline">
+                        <!-- Timeline steps will be injected here -->
+                    </div>
+                </div>
+
+                <!-- Step Details Modal (nested) -->
+                <div class="collapse" id="step-details-collapse">
+                    <div class="step-details-card p-3 rounded mb-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="mb-0" id="step-detail-title">Step Details</h6>
+                            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#step-details-collapse">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="row mb-2">
+                            <div class="col-md-4">
+                                <small class="text-muted">Type:</small>
+                                <div id="step-detail-type">-</div>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">Agent:</small>
+                                <div id="step-detail-agent">-</div>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">Duration:</small>
+                                <div id="step-detail-duration">-</div>
+                            </div>
+                        </div>
+                        <div class="row mb-2">
+                            <div class="col-md-6">
+                                <small class="text-muted">Tokens:</small>
+                                <div id="step-detail-tokens">-</div>
+                            </div>
+                            <div class="col-md-6">
+                                <small class="text-muted">Model:</small>
+                                <div id="step-detail-model">-</div>
+                            </div>
+                        </div>
+                        <div id="step-tool-section" style="display: none;">
+                            <small class="text-muted">Tool Call:</small>
+                            <div class="mb-2">
+                                <strong id="step-tool-name"></strong>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <small class="text-muted">Input:</small>
+                                    <pre class="p-2 rounded mt-1 small" id="step-tool-input" style="max-height: 150px; overflow-y: auto;"></pre>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">Output:</small>
+                                    <pre class="p-2 rounded mt-1 small" id="step-tool-output" style="max-height: 150px; overflow-y: auto;"></pre>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="step-reasoning-section" style="display: none;">
+                            <small class="text-muted">AI Reasoning:</small>
+                            <pre class="p-2 rounded mt-1 small" id="step-reasoning" style="max-height: 100px; overflow-y: auto;"></pre>
+                        </div>
+                        <div id="step-error-section" style="display: none;">
+                            <small class="text-muted text-danger">Error:</small>
+                            <pre class="p-2 rounded mt-1 small text-danger" id="step-error"></pre>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Linked Incident Section -->
                 <div class="mb-3" id="incident-info" style="display: none;">
                     <h6><i class="fas fa-exclamation-triangle text-warning"></i> Linked Incident</h6>
@@ -500,6 +579,125 @@
 .badge-ai-handed-off {
     background-color: #a855f7;
     color: white;
+}
+
+/* Workflow Timeline Styles */
+[data-bs-theme="dark"] .workflow-timeline-container {
+    background-color: #1a1a2e;
+    border: 1px solid #2a2a4e;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+[data-bs-theme="light"] .workflow-timeline-container {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.workflow-step {
+    display: flex;
+    align-items: flex-start;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+[data-bs-theme="dark"] .workflow-step {
+    background-color: #252540;
+    border-left: 3px solid #6366f1;
+}
+
+[data-bs-theme="light"] .workflow-step {
+    background-color: #ffffff;
+    border-left: 3px solid #6366f1;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.workflow-step:hover {
+    background-color: #3a3a5e;
+}
+
+[data-bs-theme="light"] .workflow-step:hover {
+    background-color: #e9ecef;
+}
+
+.workflow-step.step-intake { border-left-color: #10b981; }
+.workflow-step.step-triage { border-left-color: #6366f1; }
+.workflow-step.step-tool_call { border-left-color: #f59e0b; }
+.workflow-step.step-analysis { border-left-color: #8b5cf6; }
+.workflow-step.step-decision { border-left-color: #3b82f6; }
+.workflow-step.step-handoff { border-left-color: #ec4899; }
+.workflow-step.step-investigation { border-left-color: #06b6d4; }
+.workflow-step.step-escalation { border-left-color: #ef4444; }
+.workflow-step.step-resolution { border-left-color: #22c55e; }
+.workflow-step.step-error { border-left-color: #ef4444; background-color: rgba(239, 68, 68, 0.1); }
+
+.workflow-step-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
+    font-size: 12px;
+}
+
+.workflow-step-icon.icon-intake { background-color: #10b981; color: white; }
+.workflow-step-icon.icon-triage { background-color: #6366f1; color: white; }
+.workflow-step-icon.icon-tool_call { background-color: #f59e0b; color: white; }
+.workflow-step-icon.icon-analysis { background-color: #8b5cf6; color: white; }
+.workflow-step-icon.icon-decision { background-color: #3b82f6; color: white; }
+.workflow-step-icon.icon-handoff { background-color: #ec4899; color: white; }
+.workflow-step-icon.icon-investigation { background-color: #06b6d4; color: white; }
+.workflow-step-icon.icon-escalation { background-color: #ef4444; color: white; }
+.workflow-step-icon.icon-resolution { background-color: #22c55e; color: white; }
+.workflow-step-icon.icon-error { background-color: #ef4444; color: white; }
+
+.workflow-step-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.workflow-step-name {
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.workflow-step-desc {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workflow-step-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 0.7rem;
+    color: #6b7280;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.workflow-step-meta .badge {
+    font-size: 0.65rem;
+}
+
+[data-bs-theme="dark"] .step-details-card {
+    background-color: #1e1e3f;
+    border: 1px solid #3a3a5e;
+}
+
+[data-bs-theme="light"] .step-details-card {
+    background-color: #f0f4ff;
+    border: 1px solid #c4d4ff;
 }
 </style>        <!-- End Page Content -->
     </div>
@@ -863,6 +1061,181 @@ $(document).ready(function() {
                 $('#ai-analysis-details').hide();
             }
         });
+
+        // Also load workflow timeline
+        loadWorkflowTimeline(alertId);
+    }
+
+    // Current workflow data for drill-down
+    let currentWorkflowData = null;
+
+    function loadWorkflowTimeline(alertId) {
+        $.ajax({
+            url: `/api/workflows/by-alert/${alertId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.workflows && response.workflows.length > 0) {
+                    // Load the most recent workflow
+                    const latestWorkflow = response.workflows[0];
+                    loadWorkflowDetails(latestWorkflow.workflow_id);
+                } else {
+                    $('#workflow-section').hide();
+                }
+            },
+            error: function() {
+                $('#workflow-section').hide();
+            }
+        });
+    }
+
+    function loadWorkflowDetails(workflowId) {
+        $.ajax({
+            url: `/api/workflows/${workflowId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.workflow) {
+                    currentWorkflowData = response.workflow;
+                    renderWorkflowTimeline(response.workflow);
+                } else {
+                    $('#workflow-section').hide();
+                }
+            },
+            error: function() {
+                $('#workflow-section').hide();
+            }
+        });
+    }
+
+    function renderWorkflowTimeline(workflow) {
+        $('#workflow-section').show();
+
+        // Update totals
+        $('#total-tokens').text(workflow.total_tokens?.toLocaleString() || '0');
+        $('#estimated-cost').text('$' + (workflow.estimated_cost_usd || 0).toFixed(4));
+        $('#total-duration').text(workflow.duration_ms?.toLocaleString() || '0');
+
+        // Render steps
+        const $timeline = $('#workflow-timeline');
+        $timeline.empty();
+
+        if (!workflow.steps || workflow.steps.length === 0) {
+            $timeline.html('<div class="text-muted text-center py-3">No workflow steps recorded</div>');
+            return;
+        }
+
+        const stepIcons = {
+            'intake': 'fa-inbox',
+            'triage': 'fa-robot',
+            'tool_call': 'fa-wrench',
+            'analysis': 'fa-brain',
+            'decision': 'fa-gavel',
+            'handoff': 'fa-hand-point-right',
+            'investigation': 'fa-search',
+            'escalation': 'fa-arrow-up',
+            'resolution': 'fa-check-circle',
+            'error': 'fa-times-circle'
+        };
+
+        workflow.steps.forEach(function(step) {
+            const icon = stepIcons[step.step_type] || 'fa-circle';
+            const statusBadge = getStepStatusBadge(step.status);
+            const hasDetails = step.has_tool_data || step.has_reasoning || step.error;
+            const tokenInfo = step.total_tokens ? `<span class="ms-2"><i class="fas fa-coins"></i> ${step.total_tokens}</span>` : '';
+            const durationInfo = step.duration_ms ? `<span><i class="fas fa-clock"></i> ${step.duration_ms}ms</span>` : '';
+
+            $timeline.append(`
+                <div class="workflow-step step-${step.step_type}" data-step-id="${step.step_id}" data-workflow-id="${workflow.workflow_id}">
+                    <div class="workflow-step-icon icon-${step.step_type}">
+                        <i class="fas ${icon}"></i>
+                    </div>
+                    <div class="workflow-step-content">
+                        <div class="workflow-step-name">
+                            ${escapeHtml(step.step_name)}
+                            ${step.agent_type ? `<span class="badge bg-secondary ms-1" style="font-size: 0.65rem;">${step.agent_type}</span>` : ''}
+                        </div>
+                        <div class="workflow-step-desc">${escapeHtml(step.description || '')}</div>
+                    </div>
+                    <div class="workflow-step-meta">
+                        ${durationInfo}
+                        ${tokenInfo}
+                        ${statusBadge}
+                        ${hasDetails ? '<i class="fas fa-chevron-right ms-2"></i>' : ''}
+                    </div>
+                </div>
+            `);
+        });
+    }
+
+    function getStepStatusBadge(status) {
+        const badges = {
+            'completed': '<span class="badge bg-success">Done</span>',
+            'running': '<span class="badge bg-primary"><i class="fas fa-spinner fa-spin"></i></span>',
+            'pending': '<span class="badge bg-secondary">Pending</span>',
+            'failed': '<span class="badge bg-danger">Failed</span>',
+            'skipped': '<span class="badge bg-warning">Skipped</span>'
+        };
+        return badges[status] || '';
+    }
+
+    // Click handler for workflow steps (drill-down)
+    $(document).on('click', '.workflow-step', function() {
+        const stepId = $(this).data('step-id');
+        const workflowId = $(this).data('workflow-id');
+        loadStepDetails(workflowId, stepId);
+    });
+
+    function loadStepDetails(workflowId, stepId) {
+        $.ajax({
+            url: `/api/workflows/${workflowId}/steps/${stepId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.step) {
+                    showStepDetails(response.step);
+                }
+            },
+            error: function() {
+                console.error('Failed to load step details');
+            }
+        });
+    }
+
+    function showStepDetails(step) {
+        // Update step details panel
+        $('#step-detail-title').text(step.step_name);
+        $('#step-detail-type').text(step.step_type);
+        $('#step-detail-agent').text(step.agent_type ? `${step.agent_name || step.agent_type}` : '-');
+        $('#step-detail-duration').text(step.duration_ms ? `${step.duration_ms}ms` : '-');
+        $('#step-detail-tokens').text(step.total_tokens ? `${step.input_tokens} in / ${step.output_tokens} out (${step.total_tokens} total)` : '-');
+        $('#step-detail-model').text(step.model_used || '-');
+
+        // Tool section
+        if (step.tool_name) {
+            $('#step-tool-section').show();
+            $('#step-tool-name').text(step.tool_name);
+            $('#step-tool-input').text(JSON.stringify(step.tool_input || {}, null, 2));
+            $('#step-tool-output').text(JSON.stringify(step.tool_output || {}, null, 2));
+        } else {
+            $('#step-tool-section').hide();
+        }
+
+        // Reasoning section
+        if (step.reasoning) {
+            $('#step-reasoning-section').show();
+            $('#step-reasoning').text(step.reasoning);
+        } else {
+            $('#step-reasoning-section').hide();
+        }
+
+        // Error section
+        if (step.error) {
+            $('#step-error-section').show();
+            $('#step-error').text(step.error);
+        } else {
+            $('#step-error-section').hide();
+        }
+
+        // Show the collapse
+        const collapse = new bootstrap.Collapse($('#step-details-collapse'), { toggle: true });
     }
 
     function loadIncidentInfo(incidentId) {
