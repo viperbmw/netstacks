@@ -370,11 +370,12 @@
                     </div>
                 </div>
 
-                <!-- AI Workflow Timeline Section -->
+                <!-- AI Workflow Diagram Section -->
                 <div class="mb-4" id="workflow-section" style="display: none;">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="mb-0"><i class="fas fa-stream text-info"></i> AI Workflow Timeline</h6>
+                        <h6 class="mb-0"><i class="fas fa-project-diagram text-info"></i> AI Workflow</h6>
                         <div class="d-flex align-items-center gap-3">
+                            <span class="badge bg-secondary" id="workflow-outcome-badge"></span>
                             <small class="text-muted" id="workflow-tokens">
                                 <i class="fas fa-coins"></i> <span id="total-tokens">0</span> tokens
                                 (<span id="estimated-cost">$0.00</span>)
@@ -384,67 +385,95 @@
                             </small>
                         </div>
                     </div>
-                    <div class="workflow-timeline-container p-3 rounded" id="workflow-timeline">
-                        <!-- Timeline steps will be injected here -->
+                    <!-- Workflow Diagram Canvas -->
+                    <div class="workflow-diagram-container" id="workflow-diagram">
+                        <svg id="workflow-svg" width="100%" height="400">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+                                </marker>
+                                <marker id="arrowhead-success" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/>
+                                </marker>
+                                <marker id="arrowhead-error" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+                                </marker>
+                            </defs>
+                            <g id="workflow-connections"></g>
+                            <g id="workflow-nodes"></g>
+                        </svg>
                     </div>
-                </div>
-
-                <!-- Step Details Modal (nested) -->
-                <div class="collapse" id="step-details-collapse">
-                    <div class="step-details-card p-3 rounded mb-3">
+                    <!-- Node Details Panel (shown when node clicked) -->
+                    <div class="node-details-panel" id="node-details-panel" style="display: none;">
                         <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h6 class="mb-0" id="step-detail-title">Step Details</h6>
-                            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#step-details-collapse">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="node-detail-icon" id="node-detail-icon"></div>
+                                <div>
+                                    <h6 class="mb-0" id="node-detail-title">Step Details</h6>
+                                    <small class="text-muted" id="node-detail-type"></small>
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="hideNodeDetails()">
                                 <i class="fas fa-times"></i>
                             </button>
                         </div>
-                        <div class="row mb-2">
-                            <div class="col-md-4">
-                                <small class="text-muted">Type:</small>
-                                <div id="step-detail-type">-</div>
+                        <div class="row mb-2 g-2">
+                            <div class="col-md-3">
+                                <div class="node-detail-stat">
+                                    <small class="text-muted">Duration</small>
+                                    <div id="node-detail-duration" class="fw-bold">-</div>
+                                </div>
                             </div>
-                            <div class="col-md-4">
-                                <small class="text-muted">Agent:</small>
-                                <div id="step-detail-agent">-</div>
+                            <div class="col-md-3">
+                                <div class="node-detail-stat">
+                                    <small class="text-muted">Status</small>
+                                    <div id="node-detail-status">-</div>
+                                </div>
                             </div>
-                            <div class="col-md-4">
-                                <small class="text-muted">Duration:</small>
-                                <div id="step-detail-duration">-</div>
+                            <div class="col-md-3">
+                                <div class="node-detail-stat">
+                                    <small class="text-muted">Tokens</small>
+                                    <div id="node-detail-tokens" class="fw-bold">-</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="node-detail-stat">
+                                    <small class="text-muted">Agent</small>
+                                    <div id="node-detail-agent">-</div>
+                                </div>
                             </div>
                         </div>
-                        <div class="row mb-2">
-                            <div class="col-md-6">
-                                <small class="text-muted">Tokens:</small>
-                                <div id="step-detail-tokens">-</div>
-                            </div>
-                            <div class="col-md-6">
-                                <small class="text-muted">Model:</small>
-                                <div id="step-detail-model">-</div>
-                            </div>
+                        <div id="node-description-section" class="mb-2">
+                            <small class="text-muted">Description:</small>
+                            <div id="node-detail-description" class="small"></div>
                         </div>
-                        <div id="step-tool-section" style="display: none;">
-                            <small class="text-muted">Tool Call:</small>
-                            <div class="mb-2">
-                                <strong id="step-tool-name"></strong>
+                        <div id="node-tool-section" style="display: none;">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <i class="fas fa-wrench text-warning"></i>
+                                <strong id="node-tool-name"></strong>
                             </div>
-                            <div class="row">
+                            <div class="row g-2">
                                 <div class="col-md-6">
                                     <small class="text-muted">Input:</small>
-                                    <pre class="p-2 rounded mt-1 small" id="step-tool-input" style="max-height: 150px; overflow-y: auto;"></pre>
+                                    <pre class="node-data-pre" id="node-tool-input"></pre>
                                 </div>
                                 <div class="col-md-6">
                                     <small class="text-muted">Output:</small>
-                                    <pre class="p-2 rounded mt-1 small" id="step-tool-output" style="max-height: 150px; overflow-y: auto;"></pre>
+                                    <pre class="node-data-pre" id="node-tool-output"></pre>
                                 </div>
                             </div>
                         </div>
-                        <div id="step-reasoning-section" style="display: none;">
-                            <small class="text-muted">AI Reasoning:</small>
-                            <pre class="p-2 rounded mt-1 small" id="step-reasoning" style="max-height: 100px; overflow-y: auto;"></pre>
+                        <div id="node-input-section" style="display: none;">
+                            <small class="text-muted">Input Data:</small>
+                            <pre class="node-data-pre" id="node-input-data"></pre>
                         </div>
-                        <div id="step-error-section" style="display: none;">
-                            <small class="text-muted text-danger">Error:</small>
-                            <pre class="p-2 rounded mt-1 small text-danger" id="step-error"></pre>
+                        <div id="node-output-section" style="display: none;">
+                            <small class="text-muted">Output Data:</small>
+                            <pre class="node-data-pre" id="node-output-data"></pre>
+                        </div>
+                        <div id="node-error-section" style="display: none;">
+                            <small class="text-muted text-danger"><i class="fas fa-exclamation-circle"></i> Error:</small>
+                            <pre class="node-data-pre text-danger" id="node-error"></pre>
                         </div>
                     </div>
                 </div>
@@ -581,123 +610,207 @@
     color: white;
 }
 
-/* Workflow Timeline Styles */
-[data-bs-theme="dark"] .workflow-timeline-container {
-    background-color: #1a1a2e;
-    border: 1px solid #2a2a4e;
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-[data-bs-theme="light"] .workflow-timeline-container {
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.workflow-step {
-    display: flex;
-    align-items: flex-start;
-    padding: 8px 12px;
-    margin-bottom: 4px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-[data-bs-theme="dark"] .workflow-step {
-    background-color: #252540;
-    border-left: 3px solid #6366f1;
-}
-
-[data-bs-theme="light"] .workflow-step {
-    background-color: #ffffff;
-    border-left: 3px solid #6366f1;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-
-.workflow-step:hover {
-    background-color: #3a3a5e;
-}
-
-[data-bs-theme="light"] .workflow-step:hover {
-    background-color: #e9ecef;
-}
-
-.workflow-step.step-intake { border-left-color: #10b981; }
-.workflow-step.step-triage { border-left-color: #6366f1; }
-.workflow-step.step-tool_call { border-left-color: #f59e0b; }
-.workflow-step.step-analysis { border-left-color: #8b5cf6; }
-.workflow-step.step-decision { border-left-color: #3b82f6; }
-.workflow-step.step-handoff { border-left-color: #ec4899; }
-.workflow-step.step-investigation { border-left-color: #06b6d4; }
-.workflow-step.step-escalation { border-left-color: #ef4444; }
-.workflow-step.step-resolution { border-left-color: #22c55e; }
-.workflow-step.step-error { border-left-color: #ef4444; background-color: rgba(239, 68, 68, 0.1); }
-
-.workflow-step-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 12px;
-    flex-shrink: 0;
-    font-size: 12px;
-}
-
-.workflow-step-icon.icon-intake { background-color: #10b981; color: white; }
-.workflow-step-icon.icon-triage { background-color: #6366f1; color: white; }
-.workflow-step-icon.icon-tool_call { background-color: #f59e0b; color: white; }
-.workflow-step-icon.icon-analysis { background-color: #8b5cf6; color: white; }
-.workflow-step-icon.icon-decision { background-color: #3b82f6; color: white; }
-.workflow-step-icon.icon-handoff { background-color: #ec4899; color: white; }
-.workflow-step-icon.icon-investigation { background-color: #06b6d4; color: white; }
-.workflow-step-icon.icon-escalation { background-color: #ef4444; color: white; }
-.workflow-step-icon.icon-resolution { background-color: #22c55e; color: white; }
-.workflow-step-icon.icon-error { background-color: #ef4444; color: white; }
-
-.workflow-step-content {
-    flex: 1;
-    min-width: 0;
-}
-
-.workflow-step-name {
-    font-weight: 500;
-    font-size: 0.9rem;
-}
-
-.workflow-step-desc {
-    font-size: 0.75rem;
-    color: #9ca3af;
+/* Workflow Diagram Styles */
+.workflow-diagram-container {
+    position: relative;
+    border-radius: 8px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    min-height: 250px;
 }
 
-.workflow-step-meta {
-    display: flex;
-    gap: 12px;
-    font-size: 0.7rem;
-    color: #6b7280;
-    margin-left: auto;
-    flex-shrink: 0;
+[data-bs-theme="dark"] .workflow-diagram-container {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #2a2a4e;
 }
 
-.workflow-step-meta .badge {
-    font-size: 0.65rem;
+[data-bs-theme="light"] .workflow-diagram-container {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 1px solid #cbd5e1;
 }
 
-[data-bs-theme="dark"] .step-details-card {
-    background-color: #1e1e3f;
+#workflow-svg {
+    display: block;
+}
+
+/* Workflow Node Styles */
+.workflow-node {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.workflow-node:hover {
+    filter: brightness(1.1);
+}
+
+.workflow-node.selected .node-body {
+    stroke-width: 3;
+}
+
+.node-body {
+    rx: 8;
+    ry: 8;
+    stroke-width: 2;
+    transition: all 0.2s ease;
+}
+
+/* Node type colors */
+.node-intake .node-body { fill: #10b981; stroke: #059669; }
+.node-triage .node-body { fill: #6366f1; stroke: #4f46e5; }
+.node-tool_call .node-body { fill: #f59e0b; stroke: #d97706; }
+.node-analysis .node-body { fill: #8b5cf6; stroke: #7c3aed; }
+.node-decision .node-body { fill: #3b82f6; stroke: #2563eb; }
+.node-handoff .node-body { fill: #ec4899; stroke: #db2777; }
+.node-investigation .node-body { fill: #06b6d4; stroke: #0891b2; }
+.node-escalation .node-body { fill: #ef4444; stroke: #dc2626; }
+.node-resolution .node-body { fill: #22c55e; stroke: #16a34a; }
+.node-error .node-body { fill: #ef4444; stroke: #dc2626; }
+
+.node-label {
+    fill: white;
+    font-size: 11px;
+    font-weight: 500;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-sublabel {
+    fill: rgba(255,255,255,0.7);
+    font-size: 9px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-icon {
+    fill: white;
+    font-size: 14px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-status-indicator {
+    stroke-width: 2;
+}
+
+.node-status-completed { fill: #22c55e; }
+.node-status-running { fill: #3b82f6; }
+.node-status-failed { fill: #ef4444; }
+.node-status-pending { fill: #6b7280; }
+
+/* Connection lines */
+.workflow-connection {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+[data-bs-theme="dark"] .workflow-connection { stroke: #4b5563; }
+[data-bs-theme="light"] .workflow-connection { stroke: #9ca3af; }
+
+.workflow-connection.connection-success { stroke: #10b981; }
+.workflow-connection.connection-error { stroke: #ef4444; }
+
+/* Node Details Panel */
+.node-details-panel {
+    margin-top: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+[data-bs-theme="dark"] .node-details-panel {
+    background: linear-gradient(135deg, #1e1e3f 0%, #252550 100%);
     border: 1px solid #3a3a5e;
 }
 
-[data-bs-theme="light"] .step-details-card {
-    background-color: #f0f4ff;
+[data-bs-theme="light"] .node-details-panel {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
     border: 1px solid #c4d4ff;
+}
+
+.node-detail-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: white;
+}
+
+.node-detail-stat {
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+[data-bs-theme="dark"] .node-detail-stat {
+    background-color: rgba(255,255,255,0.05);
+}
+
+[data-bs-theme="light"] .node-detail-stat {
+    background-color: rgba(0,0,0,0.03);
+}
+
+.node-data-pre {
+    margin: 4px 0 0 0;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    max-height: 120px;
+    overflow: auto;
+}
+
+[data-bs-theme="dark"] .node-data-pre {
+    background-color: rgba(0,0,0,0.3);
+    border: 1px solid #3a3a5e;
+}
+
+[data-bs-theme="light"] .node-data-pre {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+/* Workflow summary badge */
+#workflow-outcome-badge {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+}
+
+.outcome-noise { background-color: #6b7280 !important; }
+.outcome-resolved { background-color: #22c55e !important; }
+.outcome-escalated { background-color: #ef4444 !important; }
+.outcome-incident_created { background-color: #f97316 !important; }
+.outcome-monitoring { background-color: #3b82f6 !important; }
+.outcome-failed { background-color: #ef4444 !important; }
+
+/* Processing indicator pulse animation */
+.processing-pulse {
+    animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 5px rgba(13, 202, 240, 0.5); }
+    50% { opacity: 0.7; box-shadow: 0 0 15px rgba(13, 202, 240, 0.8); }
+}
+
+/* Running node animation */
+.node-status-running {
+    animation: running-pulse 1s ease-in-out infinite;
+}
+
+@keyframes running-pulse {
+    0%, 100% { r: 5; }
+    50% { r: 7; }
 }
 </style>        <!-- End Page Content -->
     </div>
@@ -797,6 +910,18 @@ $(document).ready(function() {
     let alerts = [];
     let selectedAlerts = [];
     let currentAlertId = null;
+
+    // Stop workflow refresh when modal is closed
+    $('#alertDetailsModal').on('hidden.bs.modal', function() {
+        if (typeof stopWorkflowAutoRefresh === 'function') {
+            stopWorkflowAutoRefresh();
+        }
+        if (typeof stopWorkflowPolling === 'function') {
+            stopWorkflowPolling();
+        }
+        currentWorkflowId = null;
+        currentPollingAlertId = null;
+    });
 
     // Set webhook URLs
     const baseUrl = window.location.origin;
@@ -1068,8 +1193,15 @@ $(document).ready(function() {
 
     // Current workflow data for drill-down
     let currentWorkflowData = null;
+    let workflowRefreshInterval = null;
+    let currentWorkflowId = null;
+    const WORKFLOW_REFRESH_MS = 2000; // Refresh every 2 seconds while processing
+
+    let workflowPollInterval = null;
+    let currentPollingAlertId = null;
 
     function loadWorkflowTimeline(alertId) {
+        currentPollingAlertId = alertId;
         $.ajax({
             url: `/api/workflows/by-alert/${alertId}`,
             method: 'GET',
@@ -1077,9 +1209,18 @@ $(document).ready(function() {
                 if (response.workflows && response.workflows.length > 0) {
                     // Load the most recent workflow
                     const latestWorkflow = response.workflows[0];
+                    stopWorkflowPolling();
                     loadWorkflowDetails(latestWorkflow.workflow_id);
                 } else {
-                    $('#workflow-section').hide();
+                    // No workflow yet - check if alert is in processing state
+                    const alert = alerts.find(a => a.alert_id === alertId);
+                    if (alert && alert.status === 'processing') {
+                        // Show waiting indicator and start polling for workflow creation
+                        showWaitingForWorkflow();
+                        startWorkflowPolling(alertId);
+                    } else {
+                        $('#workflow-section').hide();
+                    }
                 }
             },
             error: function() {
@@ -1088,7 +1229,49 @@ $(document).ready(function() {
         });
     }
 
+    function showWaitingForWorkflow() {
+        $('#workflow-section').show();
+        $('#workflow-diagram').html(
+            '<div class="text-center py-4">' +
+            '<i class="fas fa-spinner fa-spin fa-2x text-info mb-2"></i>' +
+            '<div class="text-muted">Starting AI processing...</div>' +
+            '</div>'
+        );
+        $('#workflow-outcome-badge').text('starting').removeClass().addClass('badge bg-secondary');
+        $('#total-tokens').text('0');
+        $('#estimated-cost').text('$0.0000');
+        $('#total-duration').text('0');
+    }
+
+    function startWorkflowPolling(alertId) {
+        stopWorkflowPolling();
+        workflowPollInterval = setInterval(function() {
+            if (currentPollingAlertId === alertId) {
+                $.ajax({
+                    url: `/api/workflows/by-alert/${alertId}`,
+                    method: 'GET',
+                    success: function(response) {
+                        if (response.workflows && response.workflows.length > 0) {
+                            stopWorkflowPolling();
+                            loadWorkflowDetails(response.workflows[0].workflow_id);
+                        }
+                    }
+                });
+            } else {
+                stopWorkflowPolling();
+            }
+        }, 1000); // Poll every 1 second for workflow creation
+    }
+
+    function stopWorkflowPolling() {
+        if (workflowPollInterval) {
+            clearInterval(workflowPollInterval);
+            workflowPollInterval = null;
+        }
+    }
+
     function loadWorkflowDetails(workflowId) {
+        currentWorkflowId = workflowId;
         $.ajax({
             url: `/api/workflows/${workflowId}`,
             method: 'GET',
@@ -1096,34 +1279,473 @@ $(document).ready(function() {
                 if (response.success && response.workflow) {
                     currentWorkflowData = response.workflow;
                     renderWorkflowTimeline(response.workflow);
+
+                    // Check if workflow is still in progress - start auto-refresh
+                    const inProgressStatuses = ['started', 'in_progress', 'running'];
+                    if (inProgressStatuses.includes(response.workflow.status)) {
+                        startWorkflowAutoRefresh(workflowId);
+                    } else {
+                        stopWorkflowAutoRefresh();
+                    }
                 } else {
                     $('#workflow-section').hide();
+                    stopWorkflowAutoRefresh();
                 }
             },
             error: function() {
                 $('#workflow-section').hide();
+                stopWorkflowAutoRefresh();
             }
         });
     }
 
+    function startWorkflowAutoRefresh(workflowId) {
+        // Clear any existing interval
+        stopWorkflowAutoRefresh();
+
+        // Show processing indicator
+        showWorkflowProcessingIndicator(true);
+
+        // Start new interval
+        workflowRefreshInterval = setInterval(function() {
+            if (currentWorkflowId === workflowId) {
+                refreshWorkflowSilent(workflowId);
+            } else {
+                stopWorkflowAutoRefresh();
+            }
+        }, WORKFLOW_REFRESH_MS);
+    }
+
+    function stopWorkflowAutoRefresh() {
+        if (workflowRefreshInterval) {
+            clearInterval(workflowRefreshInterval);
+            workflowRefreshInterval = null;
+        }
+        showWorkflowProcessingIndicator(false);
+    }
+
+    function refreshWorkflowSilent(workflowId) {
+        // Silent refresh - don't show loading indicators
+        $.ajax({
+            url: `/api/workflows/${workflowId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.workflow) {
+                    const prevStepCount = currentWorkflowData?.steps?.length || 0;
+                    const newStepCount = response.workflow.steps?.length || 0;
+
+                    currentWorkflowData = response.workflow;
+
+                    // Only re-render if steps changed (to avoid flicker)
+                    if (newStepCount !== prevStepCount) {
+                        renderWorkflowTimeline(response.workflow);
+                    } else {
+                        // Still update status badges and stats
+                        updateWorkflowStats(response.workflow);
+                    }
+
+                    // Check if workflow completed
+                    const inProgressStatuses = ['started', 'in_progress', 'running'];
+                    if (!inProgressStatuses.includes(response.workflow.status)) {
+                        stopWorkflowAutoRefresh();
+                        // Final full render
+                        renderWorkflowTimeline(response.workflow);
+                    }
+                }
+            },
+            error: function() {
+                // On error, stop refreshing
+                stopWorkflowAutoRefresh();
+            }
+        });
+    }
+
+    function updateWorkflowStats(workflow) {
+        // Update stats without full re-render
+        $('#total-tokens').text(workflow.total_tokens?.toLocaleString() || '0');
+        $('#estimated-cost').text('$' + (workflow.estimated_cost_usd || 0).toFixed(4));
+        $('#total-duration').text(workflow.duration_ms?.toLocaleString() || '0');
+
+        if (workflow.outcome) {
+            $('#workflow-outcome-badge')
+                .text(workflow.outcome.replace('_', ' '))
+                .removeClass()
+                .addClass('badge outcome-' + workflow.outcome);
+        }
+    }
+
+    function showWorkflowProcessingIndicator(show) {
+        if (show) {
+            // Add pulsing indicator to the workflow section header
+            if ($('#workflow-processing-indicator').length === 0) {
+                $('#workflow-section h6').append(
+                    '<span id="workflow-processing-indicator" class="ms-2 badge bg-info processing-pulse">' +
+                    '<i class="fas fa-spinner fa-spin"></i> Processing...' +
+                    '</span>'
+                );
+            }
+        } else {
+            $('#workflow-processing-indicator').remove();
+        }
+    }
+
+    // Workflow diagram rendering
+    const NODE_WIDTH = 140;
+    const NODE_HEIGHT = 50;
+    const NODE_SPACING_X = 180;
+    const NODE_SPACING_Y = 80;
+    const PADDING = 40;
+
+    const stepIcons = {
+        'intake': '\uf01c',      // inbox
+        'triage': '\uf544',      // robot
+        'tool_call': '\uf0ad',   // wrench
+        'analysis': '\uf5dc',    // brain
+        'decision': '\uf0e3',    // gavel
+        'handoff': '\uf0a4',     // hand-point-right
+        'investigation': '\uf002', // search
+        'escalation': '\uf062',  // arrow-up
+        'resolution': '\uf058',  // check-circle
+        'error': '\uf057'        // times-circle
+    };
+
+    const stepColors = {
+        'intake': '#10b981',
+        'triage': '#6366f1',
+        'tool_call': '#f59e0b',
+        'analysis': '#8b5cf6',
+        'decision': '#3b82f6',
+        'handoff': '#ec4899',
+        'investigation': '#06b6d4',
+        'escalation': '#ef4444',
+        'resolution': '#22c55e',
+        'error': '#ef4444'
+    };
+
     function renderWorkflowTimeline(workflow) {
         $('#workflow-section').show();
+        hideNodeDetails();
 
         // Update totals
         $('#total-tokens').text(workflow.total_tokens?.toLocaleString() || '0');
         $('#estimated-cost').text('$' + (workflow.estimated_cost_usd || 0).toFixed(4));
         $('#total-duration').text(workflow.duration_ms?.toLocaleString() || '0');
 
-        // Render steps
-        const $timeline = $('#workflow-timeline');
-        $timeline.empty();
+        // Update outcome badge
+        if (workflow.outcome) {
+            $('#workflow-outcome-badge')
+                .text(workflow.outcome.replace('_', ' '))
+                .removeClass()
+                .addClass('badge outcome-' + workflow.outcome);
+        }
 
         if (!workflow.steps || workflow.steps.length === 0) {
-            $timeline.html('<div class="text-muted text-center py-3">No workflow steps recorded</div>');
+            $('#workflow-diagram').html('<div class="text-muted text-center py-5">No workflow steps recorded</div>');
             return;
         }
 
-        const stepIcons = {
+        // Build flow layout - organize steps into rows by type
+        const layout = buildFlowLayout(workflow.steps);
+        const svgHeight = Math.max(300, (layout.maxRow + 1) * NODE_SPACING_Y + PADDING * 2);
+
+        const svg = document.getElementById('workflow-svg');
+        svg.setAttribute('height', svgHeight);
+
+        // Clear existing nodes and connections
+        document.getElementById('workflow-connections').innerHTML = '';
+        document.getElementById('workflow-nodes').innerHTML = '';
+
+        // Draw connections first (so they're behind nodes)
+        drawConnections(layout.nodes, workflow.workflow_id);
+
+        // Draw nodes
+        layout.nodes.forEach((node, index) => {
+            drawNode(node, workflow.workflow_id, index);
+        });
+    }
+
+    function buildFlowLayout(steps) {
+        const nodes = [];
+        let currentX = PADDING;
+        let currentRow = 0;
+        let maxRow = 0;
+
+        // Group steps logically
+        // Main flow: intake -> triage -> (tools) -> decision/outcome
+        // Tool calls branch off and rejoin
+
+        const mainFlowTypes = ['intake', 'triage', 'investigation', 'handoff', 'decision', 'escalation', 'resolution', 'error'];
+        let toolCallsInRow = 0;
+        let lastMainNode = null;
+
+        steps.forEach((step, index) => {
+            const isToolCall = step.step_type === 'tool_call';
+            const isAnalysis = step.step_type === 'analysis';
+
+            let x, y;
+
+            if (isToolCall || isAnalysis) {
+                // Tool calls and analysis go in a sub-row
+                if (toolCallsInRow === 0) {
+                    currentRow++;
+                }
+                // Arrange tool calls horizontally
+                x = PADDING + (toolCallsInRow * NODE_SPACING_X);
+                y = PADDING + (currentRow * NODE_SPACING_Y);
+                toolCallsInRow++;
+
+                // Limit tools per row
+                if (toolCallsInRow >= 4) {
+                    toolCallsInRow = 0;
+                    currentRow++;
+                }
+            } else {
+                // Main flow nodes
+                if (toolCallsInRow > 0) {
+                    // Coming back from tool calls
+                    currentRow++;
+                    toolCallsInRow = 0;
+                }
+                x = PADDING + (nodes.filter(n => !['tool_call', 'analysis'].includes(n.step.step_type)).length * NODE_SPACING_X);
+                // Main flow stays on row 0 or continues after tools
+                if (step.step_type === 'intake') {
+                    y = PADDING;
+                    currentRow = 0;
+                } else {
+                    y = PADDING + (currentRow * NODE_SPACING_Y);
+                }
+                lastMainNode = { x, y, step };
+            }
+
+            maxRow = Math.max(maxRow, currentRow);
+
+            nodes.push({
+                step: step,
+                x: x,
+                y: y,
+                index: index
+            });
+        });
+
+        return { nodes, maxRow };
+    }
+
+    function drawConnections(nodes, workflowId) {
+        const connectionsG = document.getElementById('workflow-connections');
+
+        for (let i = 0; i < nodes.length - 1; i++) {
+            const from = nodes[i];
+            const to = nodes[i + 1];
+
+            const fromX = from.x + NODE_WIDTH;
+            const fromY = from.y + NODE_HEIGHT / 2;
+            const toX = to.x;
+            const toY = to.y + NODE_HEIGHT / 2;
+
+            // Determine connection type
+            let connectionClass = 'workflow-connection';
+            let marker = 'url(#arrowhead)';
+            if (to.step.status === 'completed') {
+                connectionClass += ' connection-success';
+                marker = 'url(#arrowhead-success)';
+            } else if (to.step.status === 'failed') {
+                connectionClass += ' connection-error';
+                marker = 'url(#arrowhead-error)';
+            }
+
+            // Create curved path
+            let path;
+            if (from.y === to.y) {
+                // Straight horizontal line
+                path = `M ${fromX} ${fromY} L ${toX} ${toY}`;
+            } else {
+                // Curved connection
+                const midX = fromX + (toX - fromX) / 2;
+                path = `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`;
+            }
+
+            const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathEl.setAttribute('d', path);
+            pathEl.setAttribute('class', connectionClass);
+            pathEl.setAttribute('marker-end', marker);
+            connectionsG.appendChild(pathEl);
+        }
+    }
+
+    function drawNode(node, workflowId, index) {
+        const nodesG = document.getElementById('workflow-nodes');
+        const step = node.step;
+
+        // Create group for the node
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', `workflow-node node-${step.step_type}`);
+        g.setAttribute('data-step-id', step.step_id);
+        g.setAttribute('data-workflow-id', workflowId);
+        g.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+        g.style.cursor = 'pointer';
+
+        // Node body (rectangle)
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('class', 'node-body');
+        rect.setAttribute('width', NODE_WIDTH);
+        rect.setAttribute('height', NODE_HEIGHT);
+        rect.setAttribute('rx', 8);
+        rect.setAttribute('ry', 8);
+        g.appendChild(rect);
+
+        // Icon circle
+        const iconBg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        iconBg.setAttribute('cx', 20);
+        iconBg.setAttribute('cy', NODE_HEIGHT / 2);
+        iconBg.setAttribute('r', 12);
+        iconBg.setAttribute('fill', 'rgba(255,255,255,0.2)');
+        g.appendChild(iconBg);
+
+        // Icon (using Font Awesome unicode)
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        icon.setAttribute('class', 'node-icon');
+        icon.setAttribute('x', 20);
+        icon.setAttribute('y', NODE_HEIGHT / 2 + 1);
+        icon.setAttribute('font-family', 'Font Awesome 5 Free');
+        icon.setAttribute('font-weight', '900');
+        icon.setAttribute('font-size', '12');
+        icon.textContent = stepIcons[step.step_type] || '\uf111';
+        g.appendChild(icon);
+
+        // Label - shortened step name
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('class', 'node-label');
+        label.setAttribute('x', NODE_WIDTH / 2 + 10);
+        label.setAttribute('y', NODE_HEIGHT / 2 - 6);
+        const shortName = step.step_name.replace('Tool: ', '').substring(0, 15);
+        label.textContent = shortName + (step.step_name.length > 15 ? '...' : '');
+        g.appendChild(label);
+
+        // Sublabel - duration or agent
+        const sublabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        sublabel.setAttribute('class', 'node-sublabel');
+        sublabel.setAttribute('x', NODE_WIDTH / 2 + 10);
+        sublabel.setAttribute('y', NODE_HEIGHT / 2 + 10);
+        if (step.duration_ms) {
+            sublabel.textContent = step.duration_ms + 'ms';
+        } else if (step.agent_type) {
+            sublabel.textContent = step.agent_type;
+        }
+        g.appendChild(sublabel);
+
+        // Status indicator (small circle in corner)
+        const statusCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        statusCircle.setAttribute('cx', NODE_WIDTH - 10);
+        statusCircle.setAttribute('cy', 10);
+        statusCircle.setAttribute('r', 5);
+        statusCircle.setAttribute('class', `node-status-indicator node-status-${step.status}`);
+        statusCircle.setAttribute('stroke', 'white');
+        g.appendChild(statusCircle);
+
+        // Click handler
+        g.addEventListener('click', function() {
+            // Remove selected class from all nodes
+            document.querySelectorAll('.workflow-node').forEach(n => n.classList.remove('selected'));
+            g.classList.add('selected');
+            loadNodeDetails(workflowId, step.step_id);
+        });
+
+        nodesG.appendChild(g);
+    }
+
+    function loadNodeDetails(workflowId, stepId) {
+        $.ajax({
+            url: `/api/workflows/${workflowId}/steps/${stepId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.step) {
+                    showNodeDetails(response.step);
+                }
+            },
+            error: function() {
+                console.error('Failed to load step details');
+            }
+        });
+    }
+
+    function showNodeDetails(step) {
+        const panel = document.getElementById('node-details-panel');
+        panel.style.display = 'block';
+
+        // Update icon
+        const iconEl = document.getElementById('node-detail-icon');
+        iconEl.style.backgroundColor = stepColors[step.step_type] || '#6b7280';
+        iconEl.innerHTML = `<i class="fas ${getStepFaIcon(step.step_type)}"></i>`;
+
+        // Update header
+        document.getElementById('node-detail-title').textContent = step.step_name;
+        document.getElementById('node-detail-type').textContent = step.step_type.replace('_', ' ');
+
+        // Update stats
+        document.getElementById('node-detail-duration').textContent = step.duration_ms ? step.duration_ms + 'ms' : '-';
+        document.getElementById('node-detail-tokens').textContent = step.total_tokens || '-';
+        document.getElementById('node-detail-agent').textContent = step.agent_type || '-';
+
+        // Status badge
+        const statusBadges = {
+            'completed': '<span class="badge bg-success">Completed</span>',
+            'running': '<span class="badge bg-primary">Running</span>',
+            'pending': '<span class="badge bg-secondary">Pending</span>',
+            'failed': '<span class="badge bg-danger">Failed</span>',
+            'skipped': '<span class="badge bg-warning">Skipped</span>'
+        };
+        document.getElementById('node-detail-status').innerHTML = statusBadges[step.status] || step.status;
+
+        // Description
+        if (step.description) {
+            document.getElementById('node-description-section').style.display = 'block';
+            document.getElementById('node-detail-description').textContent = step.description;
+        } else {
+            document.getElementById('node-description-section').style.display = 'none';
+        }
+
+        // Tool section
+        if (step.tool_name) {
+            document.getElementById('node-tool-section').style.display = 'block';
+            document.getElementById('node-tool-name').textContent = step.tool_name;
+            document.getElementById('node-tool-input').textContent = JSON.stringify(step.tool_input || {}, null, 2);
+            document.getElementById('node-tool-output').textContent = JSON.stringify(step.tool_output || {}, null, 2);
+        } else {
+            document.getElementById('node-tool-section').style.display = 'none';
+        }
+
+        // Input data
+        if (step.input_data && Object.keys(step.input_data).length > 0) {
+            document.getElementById('node-input-section').style.display = 'block';
+            document.getElementById('node-input-data').textContent = JSON.stringify(step.input_data, null, 2);
+        } else {
+            document.getElementById('node-input-section').style.display = 'none';
+        }
+
+        // Output data
+        if (step.output_data && Object.keys(step.output_data).length > 0) {
+            document.getElementById('node-output-section').style.display = 'block';
+            document.getElementById('node-output-data').textContent = JSON.stringify(step.output_data, null, 2);
+        } else {
+            document.getElementById('node-output-section').style.display = 'none';
+        }
+
+        // Error section
+        if (step.error) {
+            document.getElementById('node-error-section').style.display = 'block';
+            document.getElementById('node-error').textContent = step.error;
+        } else {
+            document.getElementById('node-error-section').style.display = 'none';
+        }
+    }
+
+    function hideNodeDetails() {
+        document.getElementById('node-details-panel').style.display = 'none';
+        document.querySelectorAll('.workflow-node').forEach(n => n.classList.remove('selected'));
+    }
+
+    function getStepFaIcon(stepType) {
+        const icons = {
             'intake': 'fa-inbox',
             'triage': 'fa-robot',
             'tool_call': 'fa-wrench',
@@ -1135,107 +1757,7 @@ $(document).ready(function() {
             'resolution': 'fa-check-circle',
             'error': 'fa-times-circle'
         };
-
-        workflow.steps.forEach(function(step) {
-            const icon = stepIcons[step.step_type] || 'fa-circle';
-            const statusBadge = getStepStatusBadge(step.status);
-            const hasDetails = step.has_tool_data || step.has_reasoning || step.error;
-            const tokenInfo = step.total_tokens ? `<span class="ms-2"><i class="fas fa-coins"></i> ${step.total_tokens}</span>` : '';
-            const durationInfo = step.duration_ms ? `<span><i class="fas fa-clock"></i> ${step.duration_ms}ms</span>` : '';
-
-            $timeline.append(`
-                <div class="workflow-step step-${step.step_type}" data-step-id="${step.step_id}" data-workflow-id="${workflow.workflow_id}">
-                    <div class="workflow-step-icon icon-${step.step_type}">
-                        <i class="fas ${icon}"></i>
-                    </div>
-                    <div class="workflow-step-content">
-                        <div class="workflow-step-name">
-                            ${escapeHtml(step.step_name)}
-                            ${step.agent_type ? `<span class="badge bg-secondary ms-1" style="font-size: 0.65rem;">${step.agent_type}</span>` : ''}
-                        </div>
-                        <div class="workflow-step-desc">${escapeHtml(step.description || '')}</div>
-                    </div>
-                    <div class="workflow-step-meta">
-                        ${durationInfo}
-                        ${tokenInfo}
-                        ${statusBadge}
-                        ${hasDetails ? '<i class="fas fa-chevron-right ms-2"></i>' : ''}
-                    </div>
-                </div>
-            `);
-        });
-    }
-
-    function getStepStatusBadge(status) {
-        const badges = {
-            'completed': '<span class="badge bg-success">Done</span>',
-            'running': '<span class="badge bg-primary"><i class="fas fa-spinner fa-spin"></i></span>',
-            'pending': '<span class="badge bg-secondary">Pending</span>',
-            'failed': '<span class="badge bg-danger">Failed</span>',
-            'skipped': '<span class="badge bg-warning">Skipped</span>'
-        };
-        return badges[status] || '';
-    }
-
-    // Click handler for workflow steps (drill-down)
-    $(document).on('click', '.workflow-step', function() {
-        const stepId = $(this).data('step-id');
-        const workflowId = $(this).data('workflow-id');
-        loadStepDetails(workflowId, stepId);
-    });
-
-    function loadStepDetails(workflowId, stepId) {
-        $.ajax({
-            url: `/api/workflows/${workflowId}/steps/${stepId}`,
-            method: 'GET',
-            success: function(response) {
-                if (response.success && response.step) {
-                    showStepDetails(response.step);
-                }
-            },
-            error: function() {
-                console.error('Failed to load step details');
-            }
-        });
-    }
-
-    function showStepDetails(step) {
-        // Update step details panel
-        $('#step-detail-title').text(step.step_name);
-        $('#step-detail-type').text(step.step_type);
-        $('#step-detail-agent').text(step.agent_type ? `${step.agent_name || step.agent_type}` : '-');
-        $('#step-detail-duration').text(step.duration_ms ? `${step.duration_ms}ms` : '-');
-        $('#step-detail-tokens').text(step.total_tokens ? `${step.input_tokens} in / ${step.output_tokens} out (${step.total_tokens} total)` : '-');
-        $('#step-detail-model').text(step.model_used || '-');
-
-        // Tool section
-        if (step.tool_name) {
-            $('#step-tool-section').show();
-            $('#step-tool-name').text(step.tool_name);
-            $('#step-tool-input').text(JSON.stringify(step.tool_input || {}, null, 2));
-            $('#step-tool-output').text(JSON.stringify(step.tool_output || {}, null, 2));
-        } else {
-            $('#step-tool-section').hide();
-        }
-
-        // Reasoning section
-        if (step.reasoning) {
-            $('#step-reasoning-section').show();
-            $('#step-reasoning').text(step.reasoning);
-        } else {
-            $('#step-reasoning-section').hide();
-        }
-
-        // Error section
-        if (step.error) {
-            $('#step-error-section').show();
-            $('#step-error').text(step.error);
-        } else {
-            $('#step-error-section').hide();
-        }
-
-        // Show the collapse
-        const collapse = new bootstrap.Collapse($('#step-details-collapse'), { toggle: true });
+        return icons[stepType] || 'fa-circle';
     }
 
     function loadIncidentInfo(incidentId) {

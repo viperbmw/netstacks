@@ -282,6 +282,55 @@ async def get_workflows_by_alert(
         session.close()
 
 
+@router.get("/by-incident/{incident_id}", response_model=dict)
+async def get_workflows_by_incident(
+    incident_id: str,
+    user=Depends(get_current_user)
+):
+    """
+    Get all workflows associated with a specific incident.
+
+    Returns workflows in reverse chronological order, useful for
+    showing the complete AI processing history for an incident.
+    """
+    session = get_session()
+    try:
+        workflows = session.query(WorkflowLog).filter(
+            WorkflowLog.incident_id == incident_id
+        ).order_by(WorkflowLog.started_at.desc()).all()
+
+        result = []
+        for w in workflows:
+            # Get step count and summary
+            step_count = session.query(WorkflowStep).filter(
+                WorkflowStep.workflow_id == w.workflow_id
+            ).count()
+
+            result.append({
+                "workflow_id": w.workflow_id,
+                "alert_id": w.alert_id,
+                "workflow_type": w.workflow_type,
+                "status": w.status,
+                "title": w.title,
+                "summary": w.summary,
+                "outcome": w.outcome,
+                "started_at": w.started_at.isoformat() if w.started_at else None,
+                "completed_at": w.completed_at.isoformat() if w.completed_at else None,
+                "duration_ms": w.duration_ms,
+                "total_tokens": w.total_tokens,
+                "estimated_cost_usd": round(w.estimated_cost_usd, 6) if w.estimated_cost_usd else 0,
+                "step_count": step_count,
+            })
+
+        return {
+            "success": True,
+            "incident_id": incident_id,
+            "workflows": result
+        }
+    finally:
+        session.close()
+
+
 @router.get("/stats/summary", response_model=dict)
 async def get_workflow_stats(
     since_hours: int = Query(24, description="Stats for last N hours"),

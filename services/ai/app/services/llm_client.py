@@ -55,6 +55,7 @@ class EventType(str, Enum):
     TOOL_RESULT = "tool_result"
     TEXT = "text"
     FINAL_RESPONSE = "final_response"
+    TOKEN_USAGE = "token_usage"
     ERROR = "error"
     DONE = "done"
 

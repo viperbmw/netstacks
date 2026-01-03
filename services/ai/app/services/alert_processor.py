@@ -195,11 +195,12 @@ class WorkflowLogger:
         output_tokens: int = 0,
         model_used: str = None,
         risk_level: str = None,
+        session_id: str = None,
     ):
         """Update an existing workflow step."""
-        session = get_session()
+        db_session = get_session()
         try:
-            step = session.query(WorkflowStep).filter(
+            step = db_session.query(WorkflowStep).filter(
                 WorkflowStep.step_id == step_id
             ).first()
             if not step:
@@ -238,13 +239,15 @@ class WorkflowLogger:
                 step.model_used = model_used
             if risk_level:
                 step.risk_level = risk_level
+            if session_id:
+                step.session_id = session_id
 
-            session.commit()
+            db_session.commit()
         except Exception as e:
             log.error(f"Failed to update workflow step: {e}")
-            session.rollback()
+            db_session.rollback()
         finally:
-            session.close()
+            db_session.close()
 
     def add_tool_call_step(
         self,
