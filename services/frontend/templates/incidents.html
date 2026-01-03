@@ -1,0 +1,1878 @@
+{% extends "base.html" %}
+
+{% block title %}Incidents - NetStacks{% endblock %}
+
+{% block head_extra %}
+    <style>
+/* Dark theme specific styles for incidents page */
+[data-bs-theme="dark"] .ai-analysis-card {
+    background-color: #2a2a2a;
+    border: 1px solid #404040;
+}
+
+[data-bs-theme="light"] .ai-analysis-card {
+    background-color: #f0f4ff;
+    border: 1px solid #c4d4ff;
+}
+
+/* Source badges */
+.badge-source-agent {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+}
+
+.badge-source-escalation {
+    background-color: #ef4444;
+    color: white;
+}
+
+.badge-source-manual {
+    background-color: #6b7280;
+    color: white;
+}
+
+/* Timeline styling */
+.timeline-item {
+    padding: 8px 0 8px 20px;
+    border-left: 2px solid #404040;
+    position: relative;
+    margin-left: 10px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 12px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #6366f1;
+}
+
+.timeline-item.correlated::before {
+    background-color: #0ea5e9;
+}
+
+[data-bs-theme="dark"] .timeline-item {
+    border-left-color: #505050;
+}
+
+[data-bs-theme="light"] .timeline-item {
+    border-left-color: #e0e0e0;
+}
+
+/* Workflow Diagram Styles */
+.workflow-diagram-container {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 200px;
+}
+
+[data-bs-theme="dark"] .workflow-diagram-container {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #2a2a4e;
+}
+
+[data-bs-theme="light"] .workflow-diagram-container {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 1px solid #cbd5e1;
+}
+
+#incident-workflow-svg {
+    display: block;
+}
+
+/* Workflow Node Styles */
+.workflow-node {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.workflow-node:hover {
+    filter: brightness(1.1);
+}
+
+.workflow-node.selected .node-body {
+    stroke-width: 3;
+}
+
+.node-body {
+    rx: 8;
+    ry: 8;
+    stroke-width: 2;
+    transition: all 0.2s ease;
+}
+
+/* Node type colors */
+.node-intake .node-body { fill: #10b981; stroke: #059669; }
+.node-triage .node-body { fill: #6366f1; stroke: #4f46e5; }
+.node-tool_call .node-body { fill: #f59e0b; stroke: #d97706; }
+.node-analysis .node-body { fill: #8b5cf6; stroke: #7c3aed; }
+.node-decision .node-body { fill: #3b82f6; stroke: #2563eb; }
+.node-handoff .node-body { fill: #ec4899; stroke: #db2777; }
+.node-investigation .node-body { fill: #06b6d4; stroke: #0891b2; }
+.node-escalation .node-body { fill: #ef4444; stroke: #dc2626; }
+.node-resolution .node-body { fill: #22c55e; stroke: #16a34a; }
+.node-error .node-body { fill: #ef4444; stroke: #dc2626; }
+
+.node-label {
+    fill: white;
+    font-size: 11px;
+    font-weight: 500;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-sublabel {
+    fill: rgba(255,255,255,0.7);
+    font-size: 9px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-icon {
+    fill: white;
+    font-size: 14px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-status-indicator {
+    stroke-width: 2;
+}
+
+.node-status-completed { fill: #22c55e; }
+.node-status-running { fill: #3b82f6; }
+.node-status-failed { fill: #ef4444; }
+.node-status-pending { fill: #6b7280; }
+
+/* Connection lines */
+.workflow-connection {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+[data-bs-theme="dark"] .workflow-connection { stroke: #4b5563; }
+[data-bs-theme="light"] .workflow-connection { stroke: #9ca3af; }
+
+.workflow-connection.connection-success { stroke: #10b981; }
+.workflow-connection.connection-error { stroke: #ef4444; }
+
+/* Node Details Panel */
+.node-details-panel {
+    margin-top: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+[data-bs-theme="dark"] .node-details-panel {
+    background: linear-gradient(135deg, #1e1e3f 0%, #252550 100%);
+    border: 1px solid #3a3a5e;
+}
+
+[data-bs-theme="light"] .node-details-panel {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
+    border: 1px solid #c4d4ff;
+}
+
+.node-detail-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: white;
+}
+
+.node-detail-stat {
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+[data-bs-theme="dark"] .node-detail-stat {
+    background-color: rgba(255,255,255,0.05);
+}
+
+[data-bs-theme="light"] .node-detail-stat {
+    background-color: rgba(0,0,0,0.03);
+}
+
+.node-data-pre {
+    margin: 4px 0 0 0;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    max-height: 120px;
+    overflow: auto;
+}
+
+[data-bs-theme="dark"] .node-data-pre {
+    background-color: rgba(0,0,0,0.3);
+    border: 1px solid #3a3a5e;
+}
+
+[data-bs-theme="light"] .node-data-pre {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+/* Workflow outcome badges */
+#incident-workflow-outcome-badge {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+}
+
+.outcome-noise { background-color: #6b7280 !important; }
+.outcome-resolved { background-color: #22c55e !important; }
+.outcome-escalated { background-color: #ef4444 !important; }
+.outcome-incident_created { background-color: #f97316 !important; }
+.outcome-monitoring { background-color: #3b82f6 !important; }
+.outcome-failed { background-color: #ef4444 !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-exclamation-triangle"></i> Incidents
+        </h1>
+        <p class="text-muted">Manage and track network incidents created by AI or manually</p>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="critical">
+            <div class="card bg-danger text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Open - Critical</h6>
+                            <h2 id="open-critical-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-fire fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="open">
+            <div class="card bg-warning text-dark h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Open - Other</h6>
+                            <h2 id="open-other-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-exclamation-circle fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="ai_created">
+            <div class="card text-white h-100" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">AI Created</h6>
+                            <h2 id="ai-created-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-robot fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="#" class="text-decoration-none stat-card-link" data-filter="resolved">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Resolved Today</h6>
+                            <h2 id="resolved-today-count">0</h2>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<!-- Create Incident Panel -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <h6 class="mb-0">
+            <i class="fas fa-plus-circle"></i> Create Incident
+        </h6>
+        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#create-incident-panel">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse" id="create-incident-panel">
+        <div class="card-body py-2">
+            <form id="create-incident-form">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label for="incident-title" class="form-label small mb-1">Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="incident-title" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="incident-severity" class="form-label small mb-1">Severity <span class="text-danger">*</span></label>
+                        <select class="form-control form-control-sm" id="incident-severity" required>
+                            <option value="critical">Critical</option>
+                            <option value="error">Error</option>
+                            <option value="warning" selected>Warning</option>
+                            <option value="info">Info</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="incident-source" class="form-label small mb-1">Source</label>
+                        <input type="text" class="form-control form-control-sm" id="incident-source" placeholder="e.g., monitoring" value="manual">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="incident-description" class="form-label small mb-1">Description</label>
+                        <input type="text" class="form-control form-control-sm" id="incident-description" placeholder="Brief description">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="submit" class="btn btn-sm btn-danger w-100">
+                            <i class="fas fa-plus"></i> Create
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row align-items-center">
+            <div class="col-md-2">
+                <select class="form-control form-control-sm" id="filter-status">
+                    <option value="">All Status</option>
+                    <option value="open">Open</option>
+                    <option value="investigating">Investigating</option>
+                    <option value="identified">Identified</option>
+                    <option value="escalated">Escalated</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select class="form-control form-control-sm" id="filter-severity">
+                    <option value="">All Severities</option>
+                    <option value="critical">Critical</option>
+                    <option value="error">Error</option>
+                    <option value="warning">Warning</option>
+                    <option value="info">Info</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select class="form-control form-control-sm" id="filter-source">
+                    <option value="">All Sources</option>
+                    <option value="agent">AI Agent</option>
+                    <option value="agent_escalation">AI Escalation</option>
+                    <option value="manual">Manual</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <input type="text" class="form-control form-control-sm" id="incident-search" placeholder="Search incidents...">
+            </div>
+            <div class="col-md-1">
+                <select class="form-control form-control-sm" id="filter-limit">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+            <div class="col-md-2 text-end">
+                <button class="btn btn-sm btn-outline-primary" id="refresh-btn">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Incidents List -->
+<div class="card">
+    <div class="card-header">
+        <h5><i class="fas fa-list"></i> Incidents <small id="incident-count-label" class="text-muted"></small></h5>
+    </div>
+    <div class="card-body">
+        <div id="incidents-loading" class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+        <div id="incidents-container" style="display: none;">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead class="sticky-top">
+                        <tr>
+                            <th style="width: 100px;">Severity</th>
+                            <th>Title</th>
+                            <th>Status</th>
+                            <th>Source</th>
+                            <th>Alerts</th>
+                            <th>Created</th>
+                            <th>Duration</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incidents-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="incidents-empty" class="text-center text-muted py-4" style="display: none;">
+            <i class="fas fa-check-circle fa-3x mb-3"></i>
+            <p>No incidents found. All clear!</p>
+        </div>
+    </div>
+</div>
+
+<!-- Incident Details Modal -->
+<div class="modal fade" id="incidentDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Incident Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-4">
+                    <div class="col-md-8">
+                        <h4 id="detail-title"></h4>
+                        <p id="detail-description"></p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <span id="detail-severity" class="badge"></span>
+                        <span id="detail-status" class="badge ms-1"></span>
+                        <span id="detail-source-badge" class="badge ms-1"></span>
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <strong>Created:</strong><br>
+                        <span id="detail-created">-</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Resolved:</strong><br>
+                        <span id="detail-resolved">-</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Duration:</strong><br>
+                        <span id="detail-duration">-</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Linked Alerts:</strong><br>
+                        <span id="detail-alert-count">-</span>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Section (for AI-created incidents) -->
+                <div class="mb-4" id="ai-analysis-section" style="display: none;">
+                    <h6><i class="fas fa-robot text-primary"></i> AI Analysis</h6>
+                    <div class="ai-analysis-card p-3 rounded">
+                        <div class="mb-2">
+                            <small class="text-muted">AI determined this incident required tracking because:</small>
+                        </div>
+                        <div id="ai-reasoning" class="mb-3"></div>
+                        <div id="ai-timeline-section" style="display: none;">
+                            <small class="text-muted">Timeline:</small>
+                            <div id="ai-timeline" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Workflow Diagram Section (Collapsible) -->
+                <div class="mb-4" id="incident-workflow-section" style="display: none;">
+                    <h6 class="d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#workflow-collapse">
+                        <span><i class="fas fa-project-diagram text-info"></i> AI Processing Workflow</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-secondary" id="incident-workflow-outcome-badge"></span>
+                            <small class="text-muted">
+                                <i class="fas fa-coins"></i> <span id="incident-total-tokens">0</span> tokens
+                            </small>
+                            <i class="fas fa-chevron-down small"></i>
+                        </div>
+                    </h6>
+                    <div class="collapse show" id="workflow-collapse">
+                        <!-- Workflow Diagram Canvas -->
+                        <div class="workflow-diagram-container mt-2" id="incident-workflow-diagram">
+                            <svg id="incident-workflow-svg" width="100%" height="300">
+                                <defs>
+                                    <marker id="inc-arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                        <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+                                    </marker>
+                                    <marker id="inc-arrowhead-success" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                        <polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/>
+                                    </marker>
+                                    <marker id="inc-arrowhead-error" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                        <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+                                    </marker>
+                                </defs>
+                                <g id="incident-workflow-connections"></g>
+                                <g id="incident-workflow-nodes"></g>
+                            </svg>
+                        </div>
+                        <!-- Node Details Panel -->
+                        <div class="node-details-panel" id="incident-node-details-panel" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="node-detail-icon" id="incident-node-detail-icon"></div>
+                                    <div>
+                                        <h6 class="mb-0" id="incident-node-detail-title">Step Details</h6>
+                                        <small class="text-muted" id="incident-node-detail-type"></small>
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="hideIncidentNodeDetails()">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="row mb-2 g-2">
+                                <div class="col-md-3">
+                                    <div class="node-detail-stat">
+                                        <small class="text-muted">Duration</small>
+                                        <div id="incident-node-detail-duration" class="fw-bold">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="node-detail-stat">
+                                        <small class="text-muted">Status</small>
+                                        <div id="incident-node-detail-status">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="node-detail-stat">
+                                        <small class="text-muted">Tokens</small>
+                                        <div id="incident-node-detail-tokens" class="fw-bold">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="node-detail-stat">
+                                        <small class="text-muted">Agent</small>
+                                        <div id="incident-node-detail-agent">-</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="incident-node-description-section" class="mb-2">
+                                <small class="text-muted">Description:</small>
+                                <div id="incident-node-detail-description" class="small"></div>
+                            </div>
+                            <div id="incident-node-tool-section" style="display: none;">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <i class="fas fa-wrench text-warning"></i>
+                                    <strong id="incident-node-tool-name"></strong>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <small class="text-muted">Input:</small>
+                                        <pre class="node-data-pre" id="incident-node-tool-input"></pre>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <small class="text-muted">Output:</small>
+                                        <pre class="node-data-pre" id="incident-node-tool-output"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="incident-node-error-section" style="display: none;">
+                                <small class="text-muted text-danger"><i class="fas fa-exclamation-circle"></i> Error:</small>
+                                <pre class="node-data-pre text-danger" id="incident-node-error"></pre>
+                            </div>
+                        </div>
+                        <!-- Workflow Stats -->
+                        <div class="d-flex justify-content-end gap-3 mt-2 small text-muted">
+                            <span><i class="fas fa-clock"></i> <span id="incident-total-duration">0</span>ms</span>
+                            <span><i class="fas fa-dollar-sign"></i> <span id="incident-estimated-cost">$0.00</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Linked Alerts -->
+                <div class="mb-4">
+                    <h6><i class="fas fa-bell"></i> Linked Alerts</h6>
+                    <div id="linked-alerts-container">
+                        <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Severity</th>
+                                        <th>Title</th>
+                                        <th>Device</th>
+                                        <th>Status</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="linked-alerts-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="no-linked-alerts" class="text-muted small" style="display: none;">
+                        No linked alerts
+                    </div>
+                </div>
+
+                <!-- Resolution -->
+                <div class="mb-4" id="resolution-section">
+                    <h6><i class="fas fa-clipboard-check"></i> Resolution</h6>
+                    <div id="resolution-display" style="display: none;">
+                        <pre id="detail-resolution" class="p-3 rounded"></pre>
+                    </div>
+                    <div id="resolution-edit">
+                        <textarea class="form-control" id="edit-resolution" rows="3" placeholder="Document the resolution steps..."></textarea>
+                    </div>
+                </div>
+
+                <!-- Incident Data (collapsible) -->
+                <div class="mb-3">
+                    <h6 class="d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#incident-data-collapse">
+                        <span><i class="fas fa-code"></i> Incident Data</span>
+                        <i class="fas fa-chevron-down small"></i>
+                    </h6>
+                    <div class="collapse" id="incident-data-collapse">
+                        <pre id="detail-data" class="p-2 rounded small" style="max-height: 150px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="me-auto">
+                    <button type="button" class="btn btn-outline-primary" id="chat-incident-btn">
+                        <i class="fas fa-comments"></i> Chat with AI
+                    </button>
+                </div>
+                <button type="button" class="btn btn-info" id="update-status-btn">
+                    <i class="fas fa-edit"></i> Update Status
+                </button>
+                <button type="button" class="btn btn-success" id="resolve-incident-btn">
+                    <i class="fas fa-check"></i> Resolve
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Update Status Modal -->
+<div class="modal fade" id="updateStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Update Incident</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="update-status-form">
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-control" id="update-status">
+                            <option value="open">Open</option>
+                            <option value="investigating">Investigating</option>
+                            <option value="identified">Identified</option>
+                            <option value="escalated">Escalated</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Severity</label>
+                        <select class="form-control" id="update-severity">
+                            <option value="critical">Critical</option>
+                            <option value="error">Error</option>
+                            <option value="warning">Warning</option>
+                            <option value="info">Info</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Resolution Notes</label>
+                        <textarea class="form-control" id="update-resolution" rows="4" placeholder="Add resolution notes..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-status-btn">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Dark theme specific styles for incidents page */
+[data-bs-theme="dark"] .ai-analysis-card {
+    background-color: #2a2a2a;
+    border: 1px solid #404040;
+}
+
+[data-bs-theme="light"] .ai-analysis-card {
+    background-color: #f0f4ff;
+    border: 1px solid #c4d4ff;
+}
+
+/* Source badges */
+.badge-source-agent {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+}
+
+.badge-source-escalation {
+    background-color: #ef4444;
+    color: white;
+}
+
+.badge-source-manual {
+    background-color: #6b7280;
+    color: white;
+}
+
+/* Timeline styling */
+.timeline-item {
+    padding: 8px 0 8px 20px;
+    border-left: 2px solid #404040;
+    position: relative;
+    margin-left: 10px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 12px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #6366f1;
+}
+
+.timeline-item.correlated::before {
+    background-color: #0ea5e9;
+}
+
+[data-bs-theme="dark"] .timeline-item {
+    border-left-color: #505050;
+}
+
+[data-bs-theme="light"] .timeline-item {
+    border-left-color: #e0e0e0;
+}
+
+/* Workflow Diagram Styles */
+.workflow-diagram-container {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 200px;
+}
+
+[data-bs-theme="dark"] .workflow-diagram-container {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #2a2a4e;
+}
+
+[data-bs-theme="light"] .workflow-diagram-container {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 1px solid #cbd5e1;
+}
+
+#incident-workflow-svg {
+    display: block;
+}
+
+/* Workflow Node Styles */
+.workflow-node {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.workflow-node:hover {
+    filter: brightness(1.1);
+}
+
+.workflow-node.selected .node-body {
+    stroke-width: 3;
+}
+
+.node-body {
+    rx: 8;
+    ry: 8;
+    stroke-width: 2;
+    transition: all 0.2s ease;
+}
+
+/* Node type colors */
+.node-intake .node-body { fill: #10b981; stroke: #059669; }
+.node-triage .node-body { fill: #6366f1; stroke: #4f46e5; }
+.node-tool_call .node-body { fill: #f59e0b; stroke: #d97706; }
+.node-analysis .node-body { fill: #8b5cf6; stroke: #7c3aed; }
+.node-decision .node-body { fill: #3b82f6; stroke: #2563eb; }
+.node-handoff .node-body { fill: #ec4899; stroke: #db2777; }
+.node-investigation .node-body { fill: #06b6d4; stroke: #0891b2; }
+.node-escalation .node-body { fill: #ef4444; stroke: #dc2626; }
+.node-resolution .node-body { fill: #22c55e; stroke: #16a34a; }
+.node-error .node-body { fill: #ef4444; stroke: #dc2626; }
+
+.node-label {
+    fill: white;
+    font-size: 11px;
+    font-weight: 500;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-sublabel {
+    fill: rgba(255,255,255,0.7);
+    font-size: 9px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-icon {
+    fill: white;
+    font-size: 14px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.node-status-indicator {
+    stroke-width: 2;
+}
+
+.node-status-completed { fill: #22c55e; }
+.node-status-running { fill: #3b82f6; }
+.node-status-failed { fill: #ef4444; }
+.node-status-pending { fill: #6b7280; }
+
+/* Connection lines */
+.workflow-connection {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+[data-bs-theme="dark"] .workflow-connection { stroke: #4b5563; }
+[data-bs-theme="light"] .workflow-connection { stroke: #9ca3af; }
+
+.workflow-connection.connection-success { stroke: #10b981; }
+.workflow-connection.connection-error { stroke: #ef4444; }
+
+/* Node Details Panel */
+.node-details-panel {
+    margin-top: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+[data-bs-theme="dark"] .node-details-panel {
+    background: linear-gradient(135deg, #1e1e3f 0%, #252550 100%);
+    border: 1px solid #3a3a5e;
+}
+
+[data-bs-theme="light"] .node-details-panel {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
+    border: 1px solid #c4d4ff;
+}
+
+.node-detail-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: white;
+}
+
+.node-detail-stat {
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+[data-bs-theme="dark"] .node-detail-stat {
+    background-color: rgba(255,255,255,0.05);
+}
+
+[data-bs-theme="light"] .node-detail-stat {
+    background-color: rgba(0,0,0,0.03);
+}
+
+.node-data-pre {
+    margin: 4px 0 0 0;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    max-height: 120px;
+    overflow: auto;
+}
+
+[data-bs-theme="dark"] .node-data-pre {
+    background-color: rgba(0,0,0,0.3);
+    border: 1px solid #3a3a5e;
+}
+
+[data-bs-theme="light"] .node-data-pre {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+/* Workflow outcome badges */
+#incident-workflow-outcome-badge {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+}
+
+.outcome-noise { background-color: #6b7280 !important; }
+.outcome-resolved { background-color: #22c55e !important; }
+.outcome-escalated { background-color: #ef4444 !important; }
+.outcome-incident_created { background-color: #f97316 !important; }
+.outcome-monitoring { background-color: #3b82f6 !important; }
+.outcome-failed { background-color: #ef4444 !important; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+$(document).ready(function() {
+    let incidents = [];
+    let currentIncidentId = null;
+
+    // Check for URL parameters (create from alert)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('create') === 'true') {
+        $('#create-incident-panel').collapse('show');
+        if (urlParams.get('title')) {
+            $('#incident-title').val(urlParams.get('title'));
+        }
+        if (urlParams.get('alert_id')) {
+            $('#incident-source').val('alert:' + urlParams.get('alert_id'));
+        }
+    }
+
+    // Load incidents
+    function loadIncidents() {
+        $('#incidents-loading').show();
+        $('#incidents-container').hide();
+        $('#incidents-empty').hide();
+
+        const params = new URLSearchParams();
+        if ($('#filter-status').val()) params.append('status', $('#filter-status').val());
+        params.append('limit', $('#filter-limit').val());
+
+        $.ajax({
+            url: '/api/incidents?' + params.toString(),
+            method: 'GET',
+            success: function(response) {
+                incidents = response.incidents || [];
+                renderIncidents();
+                updateStats();
+            },
+            error: function(xhr) {
+                console.error('Error loading incidents:', xhr);
+                showToast('Error loading incidents', 'danger');
+            }
+        });
+    }
+
+    function renderIncidents() {
+        const $tbody = $('#incidents-body');
+        $tbody.empty();
+
+        if (incidents.length === 0) {
+            $('#incidents-loading').hide();
+            $('#incidents-container').hide();
+            $('#incidents-empty').show();
+            return;
+        }
+
+        const searchTerm = $('#incident-search').val().toLowerCase();
+        const severityFilter = $('#filter-severity').val();
+        const sourceFilter = $('#filter-source').val();
+
+        const filteredIncidents = incidents.filter(i => {
+            const matchesSearch = i.title.toLowerCase().includes(searchTerm) ||
+                (i.description || '').toLowerCase().includes(searchTerm);
+            const matchesSeverity = !severityFilter || i.severity === severityFilter;
+            const matchesSource = !sourceFilter || i.source === sourceFilter;
+            return matchesSearch && matchesSeverity && matchesSource;
+        });
+
+        $('#incident-count-label').text(`(${filteredIncidents.length} incidents)`);
+
+        filteredIncidents.forEach(function(incident) {
+            const severityBadge = getSeverityBadge(incident.severity);
+            const statusBadge = getStatusBadge(incident.status);
+            const sourceBadge = getSourceBadge(incident.source);
+            const duration = calculateDuration(incident.created_at, incident.resolved_at);
+
+            $tbody.append(`
+                <tr${incident.severity === 'critical' && !['resolved', 'closed'].includes(incident.status) ? ' style="border-left: 3px solid #dc3545;"' : ''}>
+                    <td>${severityBadge}</td>
+                    <td>
+                        <strong>${escapeHtml(incident.title)}</strong>
+                        ${isAICreated(incident.source) ? '<i class="fas fa-robot text-primary ms-1" title="AI Created"></i>' : ''}
+                    </td>
+                    <td>${statusBadge}</td>
+                    <td>${sourceBadge}</td>
+                    <td><span class="badge bg-secondary">${incident.alert_count || 0}</span></td>
+                    <td>${formatDate(incident.created_at)}</td>
+                    <td>${duration}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-info view-btn" data-id="${incident.incident_id}" title="View">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-primary update-btn" data-id="${incident.incident_id}" title="Update">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-outline-success resolve-quick-btn" data-id="${incident.incident_id}" title="Quick Resolve" ${['resolved', 'closed'].includes(incident.status) ? 'disabled' : ''}>
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `);
+        });
+
+        $('#incidents-loading').hide();
+        $('#incidents-container').show();
+    }
+
+    function updateStats() {
+        const openCritical = incidents.filter(i => i.status === 'open' && i.severity === 'critical').length;
+        const openOther = incidents.filter(i => i.status === 'open' && i.severity !== 'critical').length;
+        const aiCreated = incidents.filter(i => isAICreated(i.source) && !['resolved', 'closed'].includes(i.status)).length;
+
+        const today = new Date().toDateString();
+        const resolvedToday = incidents.filter(i => {
+            if (!i.resolved_at) return false;
+            return new Date(i.resolved_at).toDateString() === today;
+        }).length;
+
+        $('#open-critical-count').text(openCritical);
+        $('#open-other-count').text(openOther);
+        $('#ai-created-count').text(aiCreated);
+        $('#resolved-today-count').text(resolvedToday);
+    }
+
+    function isAICreated(source) {
+        return source === 'agent' || source === 'agent_escalation' || source === 'ai_triage';
+    }
+
+    function getSeverityBadge(severity) {
+        const badges = {
+            'critical': '<span class="badge bg-danger"><i class="fas fa-fire"></i> Critical</span>',
+            'error': '<span class="badge bg-danger"><i class="fas fa-times-circle"></i> Error</span>',
+            'warning': '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> Warning</span>',
+            'info': '<span class="badge bg-info"><i class="fas fa-info-circle"></i> Info</span>'
+        };
+        return badges[severity] || `<span class="badge bg-secondary">${severity}</span>`;
+    }
+
+    function getStatusBadge(status) {
+        const badges = {
+            'open': '<span class="badge bg-danger">Open</span>',
+            'investigating': '<span class="badge bg-warning text-dark">Investigating</span>',
+            'identified': '<span class="badge bg-info">Identified</span>',
+            'escalated': '<span class="badge bg-danger">Escalated</span>',
+            'resolved': '<span class="badge bg-success">Resolved</span>',
+            'closed': '<span class="badge bg-secondary">Closed</span>'
+        };
+        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+
+    function getSourceBadge(source) {
+        if (source === 'agent') {
+            return '<span class="badge badge-source-agent"><i class="fas fa-robot"></i> AI Agent</span>';
+        } else if (source === 'agent_escalation') {
+            return '<span class="badge badge-source-escalation"><i class="fas fa-arrow-up"></i> AI Escalation</span>';
+        } else {
+            return '<span class="badge badge-source-manual"><i class="fas fa-user"></i> Manual</span>';
+        }
+    }
+
+    function calculateDuration(createdAt, resolvedAt) {
+        if (!createdAt) return '-';
+
+        const start = new Date(createdAt);
+        const end = resolvedAt ? new Date(resolvedAt) : new Date();
+        const duration = end - start;
+
+        const hours = Math.floor(duration / 3600000);
+        const minutes = Math.floor((duration % 3600000) / 60000);
+
+        if (hours > 24) {
+            const days = Math.floor(hours / 24);
+            return `${days}d ${hours % 24}h`;
+        }
+
+        return resolvedAt ? `${hours}h ${minutes}m` : `${hours}h ${minutes}m <span class="text-warning">(ongoing)</span>`;
+    }
+
+    // Create incident
+    $('#create-incident-form').on('submit', function(e) {
+        e.preventDefault();
+
+        const data = {
+            title: $('#incident-title').val(),
+            severity: $('#incident-severity').val(),
+            source: $('#incident-source').val() || 'manual',
+            description: $('#incident-description').val() || ''
+        };
+
+        $.ajax({
+            url: '/api/incidents',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                showToast('Incident created', 'success');
+                $('#create-incident-form')[0].reset();
+                $('#incident-source').val('manual');
+                loadIncidents();
+            },
+            error: function(xhr) {
+                showToast('Error creating incident: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // View incident details
+    $(document).on('click', '.view-btn', function() {
+        const incidentId = $(this).data('id');
+
+        $.ajax({
+            url: `/api/incidents/${incidentId}`,
+            method: 'GET',
+            success: function(response) {
+                // API returns {success: true, incident: {...}}
+                const incident = response.incident || response;
+                currentIncidentId = incidentId;
+
+                $('#detail-title').text(incident.title || 'Unknown');
+                $('#detail-description').text(incident.description || 'No description provided');
+                $('#detail-severity').html(getSeverityBadge(incident.severity));
+                $('#detail-status').html(getStatusBadge(incident.status));
+                $('#detail-source-badge').html(getSourceBadge(incident.source || 'manual'));
+                $('#detail-created').text(formatDate(incident.created_at));
+                $('#detail-resolved').text(incident.resolved_at ? formatDate(incident.resolved_at) : '-');
+
+                // Calculate duration
+                const duration = calculateDuration(incident.created_at, incident.resolved_at);
+                $('#detail-duration').html(duration);
+
+                // Alert count - use affected_devices as indicator
+                const alertCount = incident.alerts ? incident.alerts.length : (incident.affected_devices ? incident.affected_devices.length : 0);
+                $('#detail-alert-count').text(alertCount);
+
+                // AI Analysis section
+                if (isAICreated(incident.source)) {
+                    showAIAnalysis(incident);
+                } else {
+                    $('#ai-analysis-section').hide();
+                }
+
+                // Load AI Workflow diagram for this incident
+                loadIncidentWorkflow(incidentId);
+
+                // Resolution
+                if (incident.resolution) {
+                    $('#detail-resolution').text(incident.resolution);
+                    $('#resolution-display').show();
+                    $('#resolution-edit').hide();
+                } else {
+                    $('#resolution-display').hide();
+                    $('#resolution-edit').show();
+                    $('#edit-resolution').val('');
+                }
+
+                // Linked alerts / affected devices
+                const $alertsBody = $('#linked-alerts-body');
+                $alertsBody.empty();
+
+                if (incident.alerts && incident.alerts.length > 0) {
+                    $('#linked-alerts-container').show();
+                    $('#no-linked-alerts').hide();
+
+                    incident.alerts.forEach(function(alert) {
+                        $alertsBody.append(`
+                            <tr>
+                                <td>${getSeverityBadge(alert.severity)}</td>
+                                <td>${escapeHtml(alert.title)}</td>
+                                <td>${escapeHtml(alert.device || alert.device_name || '-')}</td>
+                                <td><span class="badge bg-secondary">${alert.status || 'linked'}</span></td>
+                                <td><small>${alert.created_at ? formatDate(alert.created_at) : '-'}</small></td>
+                            </tr>
+                        `);
+                    });
+                } else if (incident.affected_devices && incident.affected_devices.length > 0) {
+                    // Show affected devices if no alert objects
+                    $('#linked-alerts-container').show();
+                    $('#no-linked-alerts').hide();
+
+                    incident.affected_devices.forEach(function(device) {
+                        $alertsBody.append(`
+                            <tr>
+                                <td>${getSeverityBadge(incident.severity)}</td>
+                                <td>Affected Device</td>
+                                <td>${escapeHtml(device || '-')}</td>
+                                <td><span class="badge bg-secondary">affected</span></td>
+                                <td><small>-</small></td>
+                            </tr>
+                        `);
+                    });
+                } else {
+                    $('#linked-alerts-container').hide();
+                    $('#no-linked-alerts').show();
+                }
+
+                $('#detail-data').text(JSON.stringify(incident.incident_data || {}, null, 2));
+
+                // Update button states
+                const isResolved = ['resolved', 'closed'].includes(incident.status);
+                $('#resolve-incident-btn').prop('disabled', isResolved);
+
+                new bootstrap.Modal($('#incidentDetailsModal')).show();
+            },
+            error: function(xhr) {
+                showToast('Error loading incident details', 'danger');
+            }
+        });
+    });
+
+    function showAIAnalysis(incident) {
+        $('#ai-analysis-section').show();
+
+        // AI Reasoning from description
+        let reasoning = incident.description || 'No details provided by AI.';
+        $('#ai-reasoning').text(reasoning);
+
+        // Timeline from incident_data
+        const incidentData = incident.incident_data || {};
+        const timeline = incidentData.timeline || [];
+
+        if (timeline.length > 0) {
+            $('#ai-timeline-section').show();
+            let timelineHtml = '';
+
+            timeline.forEach(function(event) {
+                const eventClass = event.type === 'alert_correlated' ? 'correlated' : '';
+                const eventIcon = event.type === 'alert_correlated' ? 'fa-link' : 'fa-robot';
+                const eventTime = event.timestamp ? formatDate(event.timestamp) : '';
+
+                timelineHtml += `
+                    <div class="timeline-item ${eventClass}">
+                        <div class="d-flex justify-content-between">
+                            <strong><i class="fas ${eventIcon}"></i> ${formatEventType(event.type)}</strong>
+                            <small class="text-muted">${eventTime}</small>
+                        </div>
+                        <div class="small">
+                            ${event.alert_title ? 'Alert: ' + escapeHtml(event.alert_title) : ''}
+                            ${event.correlation_reason ? '<br>Reason: ' + escapeHtml(event.correlation_reason) : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            $('#ai-timeline').html(timelineHtml);
+        } else {
+            $('#ai-timeline-section').hide();
+        }
+    }
+
+    function formatEventType(type) {
+        const types = {
+            'alert_correlated': 'Alert Correlated',
+            'created': 'Incident Created',
+            'escalated': 'Escalated',
+            'resolved': 'Resolved'
+        };
+        return types[type] || type;
+    }
+
+    // Update status button in details modal
+    $('#update-status-btn').on('click', function() {
+        const incident = incidents.find(i => i.incident_id === currentIncidentId);
+        if (!incident) return;
+
+        $('#update-status').val(incident.status);
+        $('#update-severity').val(incident.severity);
+        $('#update-resolution').val(incident.resolution || '');
+
+        bootstrap.Modal.getInstance($('#incidentDetailsModal')).hide();
+        new bootstrap.Modal($('#updateStatusModal')).show();
+    });
+
+    // Save status update
+    $('#save-status-btn').on('click', function() {
+        const data = {
+            status: $('#update-status').val(),
+            severity: $('#update-severity').val(),
+            resolution: $('#update-resolution').val()
+        };
+
+        $.ajax({
+            url: `/api/incidents/${currentIncidentId}`,
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                showToast('Incident updated', 'success');
+                bootstrap.Modal.getInstance($('#updateStatusModal')).hide();
+                loadIncidents();
+            },
+            error: function(xhr) {
+                showToast('Error updating incident: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Quick update button in table
+    $(document).on('click', '.update-btn', function() {
+        const incidentId = $(this).data('id');
+        currentIncidentId = incidentId;
+
+        const incident = incidents.find(i => i.incident_id === incidentId);
+        if (!incident) return;
+
+        $('#update-status').val(incident.status);
+        $('#update-severity').val(incident.severity);
+        $('#update-resolution').val(incident.resolution || '');
+
+        new bootstrap.Modal($('#updateStatusModal')).show();
+    });
+
+    // Resolve incident
+    $('#resolve-incident-btn').on('click', function() {
+        const resolution = $('#edit-resolution').val();
+
+        $.ajax({
+            url: `/api/incidents/${currentIncidentId}`,
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                status: 'resolved',
+                resolution: resolution
+            }),
+            success: function(response) {
+                showToast('Incident resolved', 'success');
+                bootstrap.Modal.getInstance($('#incidentDetailsModal')).hide();
+                loadIncidents();
+            },
+            error: function(xhr) {
+                showToast('Error resolving incident: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Quick resolve
+    $(document).on('click', '.resolve-quick-btn', function() {
+        const incidentId = $(this).data('id');
+
+        if (!confirm('Mark this incident as resolved?')) return;
+
+        $.ajax({
+            url: `/api/incidents/${incidentId}`,
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify({ status: 'resolved' }),
+            success: function(response) {
+                showToast('Incident resolved', 'success');
+                loadIncidents();
+            },
+            error: function(xhr) {
+                showToast('Error resolving incident: ' + (xhr.responseJSON?.error || 'Unknown error'), 'danger');
+            }
+        });
+    });
+
+    // Chat with AI
+    $('#chat-incident-btn').on('click', function() {
+        if (!currentIncidentId) return;
+        window.location.href = `/agents/chat?context=incident&incident_id=${currentIncidentId}`;
+    });
+
+    // Filters
+    $('#filter-status, #filter-severity, #filter-source, #filter-limit').on('change', loadIncidents);
+    $('#incident-search').on('input', renderIncidents);
+    $('#refresh-btn').on('click', loadIncidents);
+
+    // Stat card click handlers
+    $(document).on('click', '.stat-card-link', function(e) {
+        e.preventDefault();
+        const filter = $(this).data('filter');
+
+        if (filter === 'critical') {
+            $('#filter-status').val('open');
+            $('#filter-severity').val('critical');
+            $('#filter-source').val('');
+        } else if (filter === 'open') {
+            $('#filter-status').val('open');
+            $('#filter-severity').val('');
+            $('#filter-source').val('');
+        } else if (filter === 'ai_created') {
+            $('#filter-status').val('');
+            $('#filter-severity').val('');
+            $('#filter-source').val('agent');
+        } else if (filter === 'resolved') {
+            $('#filter-status').val('resolved');
+            $('#filter-severity').val('');
+            $('#filter-source').val('');
+        }
+
+        loadIncidents();
+    });
+
+    // Utility functions
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    }
+
+    function showToast(message, type) {
+        const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+        const $alert = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed" style="top: 70px; right: 20px; z-index: 9999;">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`);
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
+    }
+
+    // ========================================
+    // AI Workflow Diagram Functions
+    // ========================================
+    let incidentWorkflowData = null;
+
+    // Workflow diagram constants
+    const INC_NODE_WIDTH = 140;
+    const INC_NODE_HEIGHT = 50;
+    const INC_NODE_SPACING_X = 180;
+    const INC_NODE_SPACING_Y = 80;
+    const INC_PADDING = 40;
+
+    const incStepIcons = {
+        'intake': '\uf01c',      // inbox
+        'triage': '\uf544',      // robot
+        'tool_call': '\uf0ad',   // wrench
+        'analysis': '\uf5dc',    // brain
+        'decision': '\uf0e3',    // gavel
+        'handoff': '\uf0a4',     // hand-point-right
+        'investigation': '\uf002', // search
+        'escalation': '\uf062',  // arrow-up
+        'resolution': '\uf058',  // check-circle
+        'error': '\uf057'        // times-circle
+    };
+
+    const incStepColors = {
+        'intake': '#10b981',
+        'triage': '#6366f1',
+        'tool_call': '#f59e0b',
+        'analysis': '#8b5cf6',
+        'decision': '#3b82f6',
+        'handoff': '#ec4899',
+        'investigation': '#06b6d4',
+        'escalation': '#ef4444',
+        'resolution': '#22c55e',
+        'error': '#ef4444'
+    };
+
+    function loadIncidentWorkflow(incidentId) {
+        $.ajax({
+            url: `/api/workflows/by-incident/${incidentId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.workflows && response.workflows.length > 0) {
+                    // Load the most recent workflow
+                    const latestWorkflow = response.workflows[0];
+                    loadIncidentWorkflowDetails(latestWorkflow.workflow_id);
+                } else {
+                    $('#incident-workflow-section').hide();
+                }
+            },
+            error: function() {
+                $('#incident-workflow-section').hide();
+            }
+        });
+    }
+
+    function loadIncidentWorkflowDetails(workflowId) {
+        $.ajax({
+            url: `/api/workflows/${workflowId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.workflow) {
+                    incidentWorkflowData = response.workflow;
+                    renderIncidentWorkflow(response.workflow);
+                    $('#incident-workflow-section').show();
+                } else {
+                    $('#incident-workflow-section').hide();
+                }
+            },
+            error: function() {
+                $('#incident-workflow-section').hide();
+            }
+        });
+    }
+
+    function renderIncidentWorkflow(workflow) {
+        hideIncidentNodeDetails();
+
+        // Update totals
+        $('#incident-total-tokens').text(workflow.total_tokens?.toLocaleString() || '0');
+        $('#incident-estimated-cost').text('$' + (workflow.estimated_cost_usd || 0).toFixed(4));
+        $('#incident-total-duration').text(workflow.duration_ms?.toLocaleString() || '0');
+
+        // Update outcome badge
+        if (workflow.outcome) {
+            $('#incident-workflow-outcome-badge')
+                .text(workflow.outcome.replace('_', ' '))
+                .removeClass()
+                .addClass('badge outcome-' + workflow.outcome);
+        }
+
+        if (!workflow.steps || workflow.steps.length === 0) {
+            $('#incident-workflow-diagram').html('<div class="text-muted text-center py-4">No workflow steps recorded</div>');
+            return;
+        }
+
+        // Build flow layout
+        const layout = buildIncidentFlowLayout(workflow.steps);
+        const svgHeight = Math.max(250, (layout.maxRow + 1) * INC_NODE_SPACING_Y + INC_PADDING * 2);
+
+        const svg = document.getElementById('incident-workflow-svg');
+        svg.setAttribute('height', svgHeight);
+
+        // Clear existing nodes and connections
+        document.getElementById('incident-workflow-connections').innerHTML = '';
+        document.getElementById('incident-workflow-nodes').innerHTML = '';
+
+        // Draw connections first
+        drawIncidentConnections(layout.nodes, workflow.workflow_id);
+
+        // Draw nodes
+        layout.nodes.forEach((node, index) => {
+            drawIncidentNode(node, workflow.workflow_id, index);
+        });
+    }
+
+    function buildIncidentFlowLayout(steps) {
+        const nodes = [];
+        let currentRow = 0;
+        let maxRow = 0;
+        let toolCallsInRow = 0;
+
+        steps.forEach((step, index) => {
+            const isToolCall = step.step_type === 'tool_call';
+            const isAnalysis = step.step_type === 'analysis';
+
+            let x, y;
+
+            if (isToolCall || isAnalysis) {
+                if (toolCallsInRow === 0) {
+                    currentRow++;
+                }
+                x = INC_PADDING + (toolCallsInRow * INC_NODE_SPACING_X);
+                y = INC_PADDING + (currentRow * INC_NODE_SPACING_Y);
+                toolCallsInRow++;
+
+                if (toolCallsInRow >= 4) {
+                    toolCallsInRow = 0;
+                    currentRow++;
+                }
+            } else {
+                if (toolCallsInRow > 0) {
+                    currentRow++;
+                    toolCallsInRow = 0;
+                }
+                x = INC_PADDING + (nodes.filter(n => !['tool_call', 'analysis'].includes(n.step.step_type)).length * INC_NODE_SPACING_X);
+                if (step.step_type === 'intake') {
+                    y = INC_PADDING;
+                    currentRow = 0;
+                } else {
+                    y = INC_PADDING + (currentRow * INC_NODE_SPACING_Y);
+                }
+            }
+
+            maxRow = Math.max(maxRow, currentRow);
+
+            nodes.push({
+                step: step,
+                x: x,
+                y: y,
+                index: index
+            });
+        });
+
+        return { nodes, maxRow };
+    }
+
+    function drawIncidentConnections(nodes, workflowId) {
+        const connectionsG = document.getElementById('incident-workflow-connections');
+
+        for (let i = 0; i < nodes.length - 1; i++) {
+            const from = nodes[i];
+            const to = nodes[i + 1];
+
+            const fromX = from.x + INC_NODE_WIDTH;
+            const fromY = from.y + INC_NODE_HEIGHT / 2;
+            const toX = to.x;
+            const toY = to.y + INC_NODE_HEIGHT / 2;
+
+            let connectionClass = 'workflow-connection';
+            let marker = 'url(#inc-arrowhead)';
+            if (to.step.status === 'completed') {
+                connectionClass += ' connection-success';
+                marker = 'url(#inc-arrowhead-success)';
+            } else if (to.step.status === 'failed') {
+                connectionClass += ' connection-error';
+                marker = 'url(#inc-arrowhead-error)';
+            }
+
+            let path;
+            if (from.y === to.y) {
+                path = `M ${fromX} ${fromY} L ${toX} ${toY}`;
+            } else {
+                const midX = fromX + (toX - fromX) / 2;
+                path = `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`;
+            }
+
+            const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathEl.setAttribute('d', path);
+            pathEl.setAttribute('class', connectionClass);
+            pathEl.setAttribute('marker-end', marker);
+            connectionsG.appendChild(pathEl);
+        }
+    }
+
+    function drawIncidentNode(node, workflowId, index) {
+        const nodesG = document.getElementById('incident-workflow-nodes');
+        const step = node.step;
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', `workflow-node node-${step.step_type}`);
+        g.setAttribute('data-step-id', step.step_id);
+        g.setAttribute('data-workflow-id', workflowId);
+        g.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+        g.style.cursor = 'pointer';
+
+        // Node body
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('class', 'node-body');
+        rect.setAttribute('width', INC_NODE_WIDTH);
+        rect.setAttribute('height', INC_NODE_HEIGHT);
+        rect.setAttribute('rx', 8);
+        rect.setAttribute('ry', 8);
+        g.appendChild(rect);
+
+        // Icon circle
+        const iconBg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        iconBg.setAttribute('cx', 20);
+        iconBg.setAttribute('cy', INC_NODE_HEIGHT / 2);
+        iconBg.setAttribute('r', 12);
+        iconBg.setAttribute('fill', 'rgba(255,255,255,0.2)');
+        g.appendChild(iconBg);
+
+        // Icon
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        icon.setAttribute('class', 'node-icon');
+        icon.setAttribute('x', 20);
+        icon.setAttribute('y', INC_NODE_HEIGHT / 2 + 1);
+        icon.setAttribute('font-family', 'Font Awesome 5 Free');
+        icon.setAttribute('font-weight', '900');
+        icon.setAttribute('font-size', '12');
+        icon.textContent = incStepIcons[step.step_type] || '\uf111';
+        g.appendChild(icon);
+
+        // Label
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('class', 'node-label');
+        label.setAttribute('x', INC_NODE_WIDTH / 2 + 10);
+        label.setAttribute('y', INC_NODE_HEIGHT / 2 - 6);
+        const shortName = step.step_name.replace('Tool: ', '').substring(0, 15);
+        label.textContent = shortName + (step.step_name.length > 15 ? '...' : '');
+        g.appendChild(label);
+
+        // Sublabel
+        const sublabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        sublabel.setAttribute('class', 'node-sublabel');
+        sublabel.setAttribute('x', INC_NODE_WIDTH / 2 + 10);
+        sublabel.setAttribute('y', INC_NODE_HEIGHT / 2 + 10);
+        if (step.duration_ms) {
+            sublabel.textContent = step.duration_ms + 'ms';
+        } else if (step.agent_type) {
+            sublabel.textContent = step.agent_type;
+        }
+        g.appendChild(sublabel);
+
+        // Status indicator
+        const statusCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        statusCircle.setAttribute('cx', INC_NODE_WIDTH - 10);
+        statusCircle.setAttribute('cy', 10);
+        statusCircle.setAttribute('r', 5);
+        statusCircle.setAttribute('class', `node-status-indicator node-status-${step.status}`);
+        statusCircle.setAttribute('stroke', 'white');
+        g.appendChild(statusCircle);
+
+        // Click handler
+        g.addEventListener('click', function() {
+            document.querySelectorAll('#incident-workflow-nodes .workflow-node').forEach(n => n.classList.remove('selected'));
+            g.classList.add('selected');
+            loadIncidentNodeDetails(workflowId, step.step_id);
+        });
+
+        nodesG.appendChild(g);
+    }
+
+    function loadIncidentNodeDetails(workflowId, stepId) {
+        $.ajax({
+            url: `/api/workflows/${workflowId}/steps/${stepId}`,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.step) {
+                    showIncidentNodeDetails(response.step);
+                }
+            },
+            error: function() {
+                console.error('Failed to load step details');
+            }
+        });
+    }
+
+    function showIncidentNodeDetails(step) {
+        const panel = document.getElementById('incident-node-details-panel');
+        panel.style.display = 'block';
+
+        // Update icon
+        const iconEl = document.getElementById('incident-node-detail-icon');
+        iconEl.style.backgroundColor = incStepColors[step.step_type] || '#6b7280';
+        iconEl.innerHTML = `<i class="fas ${getIncidentStepFaIcon(step.step_type)}"></i>`;
+
+        // Update header
+        document.getElementById('incident-node-detail-title').textContent = step.step_name;
+        document.getElementById('incident-node-detail-type').textContent = step.step_type.replace('_', ' ');
+
+        // Update stats
+        document.getElementById('incident-node-detail-duration').textContent = step.duration_ms ? step.duration_ms + 'ms' : '-';
+        document.getElementById('incident-node-detail-tokens').textContent = step.total_tokens || '-';
+        document.getElementById('incident-node-detail-agent').textContent = step.agent_type || '-';
+
+        // Status badge
+        const statusBadges = {
+            'completed': '<span class="badge bg-success">Completed</span>',
+            'running': '<span class="badge bg-primary">Running</span>',
+            'pending': '<span class="badge bg-secondary">Pending</span>',
+            'failed': '<span class="badge bg-danger">Failed</span>',
+            'skipped': '<span class="badge bg-warning">Skipped</span>'
+        };
+        document.getElementById('incident-node-detail-status').innerHTML = statusBadges[step.status] || step.status;
+
+        // Description
+        if (step.description) {
+            document.getElementById('incident-node-description-section').style.display = 'block';
+            document.getElementById('incident-node-detail-description').textContent = step.description;
+        } else {
+            document.getElementById('incident-node-description-section').style.display = 'none';
+        }
+
+        // Tool section
+        if (step.tool_name) {
+            document.getElementById('incident-node-tool-section').style.display = 'block';
+            document.getElementById('incident-node-tool-name').textContent = step.tool_name;
+            document.getElementById('incident-node-tool-input').textContent = JSON.stringify(step.tool_input || {}, null, 2);
+            document.getElementById('incident-node-tool-output').textContent = JSON.stringify(step.tool_output || {}, null, 2);
+        } else {
+            document.getElementById('incident-node-tool-section').style.display = 'none';
+        }
+
+        // Error section
+        if (step.error) {
+            document.getElementById('incident-node-error-section').style.display = 'block';
+            document.getElementById('incident-node-error').textContent = step.error;
+        } else {
+            document.getElementById('incident-node-error-section').style.display = 'none';
+        }
+    }
+
+    function getIncidentStepFaIcon(stepType) {
+        const icons = {
+            'intake': 'fa-inbox',
+            'triage': 'fa-robot',
+            'tool_call': 'fa-wrench',
+            'analysis': 'fa-brain',
+            'decision': 'fa-gavel',
+            'handoff': 'fa-hand-point-right',
+            'investigation': 'fa-search',
+            'escalation': 'fa-arrow-up',
+            'resolution': 'fa-check-circle',
+            'error': 'fa-times-circle'
+        };
+        return icons[stepType] || 'fa-circle';
+    }
+
+    // Initial load
+    loadIncidents();
+});
+
+// Global function to hide incident node details
+function hideIncidentNodeDetails() {
+    document.getElementById('incident-node-details-panel').style.display = 'none';
+    document.querySelectorAll('#incident-workflow-nodes .workflow-node').forEach(n => n.classList.remove('selected'));
+}
+</script>
+{% endblock %}

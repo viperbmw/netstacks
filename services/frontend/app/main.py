@@ -2,18 +2,17 @@
 """
 NetStacks Frontend Service - FastAPI Application
 
-Serves static HTML pages and assets. Handles authentication checks
-and redirects to login for protected pages.
+Serves static HTML pages and assets using Jinja2 templates.
 """
 
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from fastapi.responses import FileResponse
 
 from app.config import get_settings
 from app.routes import pages
@@ -26,7 +25,6 @@ settings = get_settings()
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
-PAGES_DIR = BASE_DIR / "pages"
 
 
 @asynccontextmanager

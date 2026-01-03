@@ -1,0 +1,18 @@
+{% extends "base_minimal.html" %}
+
+{% block title %}Logout - NetStacks{% endblock %}
+
+{% block body %}
+<p>Logging out...</p>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/api-client.js"></script>
+<script>
+    // Clear tokens and redirect
+    if (typeof NetStacksAPI !== "undefined") {
+        NetStacksAPI.clearTokens();
+    }
+    setTimeout(() => { window.location.href = "/login?logout=1"; }, 100);
+</script>
+{% endblock %}

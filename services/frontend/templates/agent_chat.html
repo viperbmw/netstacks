@@ -1,0 +1,591 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Chat - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row h-100">
+    <!-- Agent Selection Sidebar -->
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-robot"></i> Select Agent</h5>
+            </div>
+            <div class="card-body p-0">
+                <div id="agents-loading" class="text-center p-4">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+                <div class="list-group list-group-flush" id="agents-list">
+                    <!-- Agents will be populated here -->
+                </div>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">
+                    <i class="fas fa-circle text-success"></i> Active
+                    <i class="fas fa-circle text-secondary ms-2"></i> Inactive
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="col-md-9">
+        <div class="card h-100" style="min-height: 600px;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-comments"></i>
+                    <span id="chat-title">Select an agent to start</span>
+                </h5>
+                <div id="session-controls" style="display: none;">
+                    <span class="badge bg-success me-2" id="connection-status">
+                        <i class="fas fa-plug"></i> Connected
+                    </span>
+                    <button class="btn btn-sm btn-outline-danger" id="end-session-btn">
+                        <i class="fas fa-times"></i> End Session
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0 d-flex flex-column" style="height: calc(100% - 120px);">
+                <!-- Welcome State -->
+                <div id="chat-welcome" class="text-center text-muted py-5">
+                    <i class="fas fa-robot fa-5x mb-4"></i>
+                    <h4>Welcome to Agent Chat</h4>
+                    <p>Select an agent from the sidebar to start a conversation.</p>
+                    <p class="small">Make sure you have an LLM provider configured in <a href="/settings/ai">AI Settings</a>.</p>
+                </div>
+
+                <!-- Chat Messages -->
+                <div id="chat-messages" class="flex-grow-1 overflow-auto p-3" style="display: none;">
+                    <!-- Messages will be appended here -->
+                </div>
+
+                <!-- Typing Indicator -->
+                <div id="typing-indicator" class="px-3 pb-2" style="display: none;">
+                    <div class="d-flex align-items-center text-muted">
+                        <div class="spinner-grow spinner-grow-sm me-2" role="status"></div>
+                        <small>Agent is thinking...</small>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="chat-input"
+                           placeholder="Type your message..." disabled>
+                    <button class="btn btn-primary" type="button" id="send-btn" disabled>
+                        <i class="fas fa-paper-plane"></i> Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+$(document).ready(function() {
+    let agents = [];
+    let currentSessionId = null;
+    let currentAgentId = null;
+    let currentAgentName = null;
+    let isProcessing = false;
+
+    // Load available agents
+    function loadAgents() {
+        NetStacksAPI.ajax({
+            url: '/api/agents/',
+            method: 'GET',
+            success: function(response) {
+                agents = response.agents || [];
+                renderAgentsList();
+                $('#agents-loading').hide();
+            },
+            error: function(xhr) {
+                console.error('Error loading agents:', xhr);
+                $('#agents-loading').html('<p class="text-danger p-3">Error loading agents</p>');
+            }
+        });
+    }
+
+    function renderAgentsList() {
+        const $list = $('#agents-list');
+        $list.empty();
+
+        if (agents.length === 0) {
+            $list.html('<p class="text-center text-muted p-3">No agents configured. <a href="/agents">Create one</a></p>');
+            return;
+        }
+
+        agents.forEach(function(agent) {
+            const statusIcon = agent.is_active
+                ? '<i class="fas fa-circle text-success"></i>'
+                : '<i class="fas fa-circle text-secondary"></i>';
+
+            $list.append(`
+                <a href="#" class="list-group-item list-group-item-action agent-item ${!agent.is_active ? 'text-muted' : ''}"
+                   data-id="${agent.agent_id}" data-name="${escapeHtml(agent.agent_name)}" data-active="${agent.is_active}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(agent.agent_name)}</strong><br>
+                            <small class="text-muted">${escapeHtml(agent.agent_type)}</small>
+                        </div>
+                        ${statusIcon}
+                    </div>
+                </a>
+            `);
+        });
+    }
+
+    // Select agent and start session
+    $(document).on('click', '.agent-item', function(e) {
+        e.preventDefault();
+
+        const agentId = $(this).data('id');
+        const agentName = $(this).data('name');
+        const isActive = $(this).data('active');
+
+        if (!isActive) {
+            showToast('This agent is not active. Enable it first.', 'warning');
+            return;
+        }
+
+        // Highlight selected
+        $('.agent-item').removeClass('active');
+        $(this).addClass('active');
+
+        // If already in a session, end it first
+        if (currentSessionId) {
+            endSession(false);
+        }
+
+        // Start new session
+        startSession(agentId, agentName);
+    });
+
+    function startSession(agentId, agentName) {
+        currentAgentId = agentId;
+        currentAgentName = agentName;
+
+        // Update UI
+        $('#chat-title').html(`<i class="fas fa-robot"></i> ${escapeHtml(agentName)}`);
+        $('#chat-welcome').hide();
+        $('#chat-messages').show().empty();
+        $('#session-controls').show();
+        $('#connection-status')
+            .removeClass('bg-danger bg-warning')
+            .addClass('bg-warning')
+            .html('<i class="fas fa-spinner fa-spin"></i> Connecting...');
+
+        // Start session via API
+        NetStacksAPI.ajax({
+            url: '/api/chat/start',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ agent_id: agentId }),
+            success: function(response) {
+                if (response.success) {
+                    currentSessionId = response.session_id;
+
+                    $('#connection-status')
+                        .removeClass('bg-warning bg-danger')
+                        .addClass('bg-success')
+                        .html('<i class="fas fa-plug"></i> Connected');
+
+                    appendSystemMessage(`Session started with ${response.agent_name}`);
+
+                    // Enable input
+                    $('#chat-input').prop('disabled', false).focus();
+                    $('#send-btn').prop('disabled', false);
+                } else {
+                    showToast('Failed to start session: ' + (response.error || 'Unknown error'), 'danger');
+                    resetChat();
+                }
+            },
+            error: function(xhr) {
+                const errorMsg = xhr.responseJSON?.detail || 'Failed to connect';
+                showToast('Error: ' + errorMsg, 'danger');
+                resetChat();
+            }
+        });
+    }
+
+    // Send message using SSE streaming
+    function sendMessage() {
+        const message = $('#chat-input').val().trim();
+        if (!message || !currentSessionId || isProcessing) return;
+
+        isProcessing = true;
+        appendUserMessage(message);
+        $('#chat-input').val('').prop('disabled', true);
+        $('#send-btn').prop('disabled', true);
+        $('#typing-indicator').show();
+
+        // Get auth token
+        const token = NetStacksAPI.getToken();
+
+        // Use SSE for streaming response
+        const eventSource = new EventSource(
+            `/api/chat/${currentSessionId}/message?message=${encodeURIComponent(message)}`,
+            { withCredentials: true }
+        );
+
+        // Since EventSource doesn't support POST with body, we'll use fetch with SSE
+        fetchSSE(message, token);
+    }
+
+    async function fetchSSE(message, token) {
+        try {
+            const response = await fetch(`/api/chat/${currentSessionId}/message`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'text/event-stream',
+                },
+                body: JSON.stringify({ message: message }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let accumulatedText = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete events
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const event = JSON.parse(line.slice(6));
+                            handleAgentEvent(event, accumulatedText);
+
+                            // Accumulate text for final display
+                            if (event.type === 'text') {
+                                accumulatedText += event.content;
+                            } else if (event.type === 'final_response') {
+                                accumulatedText = event.content;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing SSE event:', e);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('SSE error:', error);
+            appendErrorMessage('Connection error: ' + error.message);
+        } finally {
+            isProcessing = false;
+            $('#typing-indicator').hide();
+            $('#chat-input').prop('disabled', false).focus();
+            $('#send-btn').prop('disabled', false);
+        }
+    }
+
+    function handleAgentEvent(event) {
+        $('#typing-indicator').hide();
+
+        switch(event.type) {
+            case 'text':
+                // Streaming text - could update a streaming div
+                // For simplicity, we wait for final_response
+                $('#typing-indicator').show();
+                break;
+
+            case 'thinking':
+                appendAgentThinking(event.content);
+                break;
+
+            case 'tool_call':
+                appendToolCall(event.tool_name, event.tool_input);
+                break;
+
+            case 'tool_result':
+                appendToolResult(event.tool_name, event.tool_result);
+                break;
+
+            case 'final_response':
+                appendAgentMessage(event.content);
+                break;
+
+            case 'error':
+                appendErrorMessage(event.content);
+                break;
+
+            case 'done':
+                if (event.data?.handoff) {
+                    appendHandoffMessage(event.data);
+                }
+                if (event.data?.escalation) {
+                    appendEscalationMessage(event.data);
+                }
+                break;
+        }
+    }
+
+    // Message rendering functions
+    function appendUserMessage(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex justify-content-end mb-3">
+                <div class="card bg-primary text-white" style="max-width: 70%;">
+                    <div class="card-body py-2 px-3">
+                        ${escapeHtml(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendAgentMessage(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-3">
+                <div class="card bg-body-tertiary" style="max-width: 70%;">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-robot text-primary me-1"></i>
+                        ${formatMessage(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendAgentThinking(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-2">
+                <div class="card border-secondary" style="max-width: 70%;">
+                    <div class="card-body py-1 px-3 text-muted small">
+                        <i class="fas fa-brain me-1"></i>
+                        <em>${escapeHtml(content)}</em>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendToolCall(toolName, toolArgs) {
+        const argsDisplay = toolArgs ? JSON.stringify(toolArgs, null, 2) : '';
+        $('#chat-messages').append(`
+            <div class="d-flex mb-2">
+                <div class="card bg-info text-white" style="max-width: 70%;">
+                    <div class="card-body py-1 px-3 small">
+                        <i class="fas fa-wrench me-1"></i>
+                        <strong>Using tool:</strong> ${escapeHtml(toolName)}
+                        ${argsDisplay ? `<pre class="mb-0 mt-1 text-white-50 small">${escapeHtml(argsDisplay)}</pre>` : ''}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendToolResult(toolName, result) {
+        const isError = result && (result.success === false || result.error);
+
+        if (isError) {
+            const errorMsg = result.error || 'Unknown error';
+            $('#chat-messages').append(`
+                <div class="d-flex mb-2">
+                    <div class="card bg-danger text-white" style="max-width: 70%;">
+                        <div class="card-body py-1 px-3 small">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            <strong>${escapeHtml(toolName)} failed:</strong> ${escapeHtml(errorMsg)}
+                        </div>
+                    </div>
+                </div>
+            `);
+        } else {
+            $('#chat-messages').append(`
+                <div class="d-flex mb-2">
+                    <div class="card bg-success text-white" style="max-width: 70%;">
+                        <div class="card-body py-1 px-3 small">
+                            <i class="fas fa-check me-1"></i>
+                            <strong>${escapeHtml(toolName)}</strong> completed
+                        </div>
+                    </div>
+                </div>
+            `);
+        }
+        scrollToBottom();
+    }
+
+    function appendSystemMessage(content) {
+        $('#chat-messages').append(`
+            <div class="text-center mb-3">
+                <span class="badge bg-dark">
+                    <i class="fas fa-info-circle me-1"></i>
+                    ${escapeHtml(content)}
+                </span>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendErrorMessage(content) {
+        $('#chat-messages').append(`
+            <div class="d-flex mb-3">
+                <div class="card bg-danger text-white" style="max-width: 70%;">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        ${escapeHtml(content)}
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendHandoffMessage(data) {
+        const handoff = data.handoff || {};
+        $('#chat-messages').append(`
+            <div class="text-center mb-3">
+                <div class="card bg-warning d-inline-block">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-exchange-alt me-1"></i>
+                        <strong>Handoff to ${escapeHtml(handoff.target_agent || 'specialist')}</strong><br>
+                        <small>${escapeHtml(handoff.summary || '')}</small>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function appendEscalationMessage(data) {
+        const escalation = data.escalation || {};
+        $('#chat-messages').append(`
+            <div class="text-center mb-3">
+                <div class="card bg-danger text-white d-inline-block">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-user-shield me-1"></i>
+                        <strong>Escalated to Human Operator</strong><br>
+                        <small>${escapeHtml(escalation.reason || '')}</small>
+                    </div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    // Send message handlers
+    $('#send-btn').on('click', sendMessage);
+    $('#chat-input').on('keypress', function(e) {
+        if (e.which === 13 && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    // End session
+    $('#end-session-btn').on('click', function() {
+        if (!confirm('End this chat session?')) return;
+        endSession(true);
+    });
+
+    function endSession(showMessage) {
+        if (currentSessionId) {
+            NetStacksAPI.ajax({
+                url: `/api/chat/${currentSessionId}/end`,
+                method: 'POST',
+                success: function(response) {
+                    if (showMessage) {
+                        showToast('Session ended', 'success');
+                    }
+                },
+                error: function(xhr) {
+                    console.error('Error ending session:', xhr);
+                }
+            });
+        }
+        resetChat();
+    }
+
+    function resetChat() {
+        currentSessionId = null;
+        currentAgentId = null;
+        currentAgentName = null;
+        isProcessing = false;
+
+        $('.agent-item').removeClass('active');
+        $('#chat-title').text('Select an agent to start');
+        $('#chat-messages').hide().empty();
+        $('#chat-welcome').show();
+        $('#session-controls').hide();
+        $('#chat-input').prop('disabled', true).val('');
+        $('#send-btn').prop('disabled', true);
+        $('#typing-indicator').hide();
+    }
+
+    // Utility functions
+    function scrollToBottom() {
+        const $messages = $('#chat-messages');
+        $messages.scrollTop($messages[0].scrollHeight);
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMessage(content) {
+        if (!content) return '';
+        // Basic markdown-like formatting
+        let html = escapeHtml(content);
+        // Code blocks
+        html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-dark text-light p-2 rounded">$1</pre>');
+        // Inline code
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // Bold
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // Line breaks
+        html = html.replace(/\n/g, '<br>');
+        return html;
+    }
+
+    function showToast(message, type) {
+        const alertClass = type === 'success' ? 'alert-success' :
+                          type === 'warning' ? 'alert-warning' : 'alert-danger';
+        const $alert = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed" style="top: 70px; right: 20px; z-index: 9999;">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`);
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
+    }
+
+    // Check for agent query param and auto-select
+    function checkQueryParamAgent() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const agentId = urlParams.get('agent');
+
+        if (agentId) {
+            // Wait a bit for agents list to render, then auto-select
+            setTimeout(function() {
+                const $agentItem = $(`.agent-item[data-id="${agentId}"]`);
+                if ($agentItem.length > 0 && $agentItem.data('active')) {
+                    $agentItem.trigger('click');
+                }
+            }, 500);
+        }
+    }
+
+    // Initial load
+    loadAgents();
+    checkQueryParamAgent();
+});
+</script>
+{% endblock %}

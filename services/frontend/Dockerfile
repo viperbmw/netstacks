@@ -6,9 +6,10 @@ WORKDIR /app
 COPY services/frontend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy static files and pages
+# Copy static files, pages, and templates
 COPY static/ /app/static/
 COPY services/frontend/pages/ /app/pages/
+COPY services/frontend/templates/ /app/templates/
 
 # Copy application code
 COPY services/frontend/app/ /app/app/

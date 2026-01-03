@@ -1,0 +1,183 @@
+{% extends "base_minimal.html" %}
+
+{% block html_attrs %}{% endblock %}
+
+{% block title %}Login - NetStacks{% endblock %}
+
+{% block head_extra %}
+<style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-container {
+            max-width: 400px;
+            width: 100%;
+            padding: 20px;
+        }
+        .login-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        .login-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px 10px 0 0;
+            text-align: center;
+        }
+        .login-header i {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+        .login-body {
+            padding: 30px;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        .btn-login {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 12px;
+            font-weight: 600;
+            width: 100%;
+        }
+        .btn-login:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #6a4193 100%);
+            color: white;
+        }
+        .alert {
+            border-radius: 5px;
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+<div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <i class="fas fa-network-wired"></i>
+                <h2 class="mb-0">NetStacks</h2>
+                <p class="mb-0 mt-2">Network Automation Platform</p>
+            </div>
+            <div class="login-body">
+                <div id="error-alert" class="alert alert-danger" role="alert" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i> <span id="error-message"></span>
+                </div>
+
+                <div id="info-alert" class="alert alert-info" role="alert" style="display: none;">
+                    <i class="fas fa-info-circle"></i> <span id="info-message"></span>
+                </div>
+
+                <form id="login-form">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">
+                            <i class="fas fa-user"></i> Username
+                        </label>
+                        <input type="text" class="form-control" id="username" name="username"
+                               placeholder="Enter username" required autofocus>
+                    </div>
+                    <div class="mb-4">
+                        <label for="password" class="form-label">
+                            <i class="fas fa-lock"></i> Password
+                        </label>
+                        <input type="password" class="form-control" id="password" name="password"
+                               placeholder="Enter password" required>
+                    </div>
+                    <button type="submit" class="btn btn-login" id="login-btn">
+                        <i class="fas fa-sign-in-alt"></i> Sign In
+                    </button>
+                </form>
+
+                <div id="oidc-section" style="display: none;">
+                    <div class="text-center my-3">
+                        <small class="text-muted">or</small>
+                    </div>
+
+                    <a href="/api/auth/oidc/login" class="btn btn-outline-primary w-100">
+                        <i class="fas fa-shield-alt"></i> Sign in with SSO
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="text-center mt-4">
+            <small class="text-white">
+                &copy; 2025 NetStacks - Network Automation Platform
+            </small>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="/static/js/api-client.js"></script>
+<script>
+// Check if already logged in
+        if (NetStacksAPI.isAuthenticated()) {
+            window.location.href = '/';
+        }
+
+        // Check URL params for messages
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('expired') === '1') {
+            document.getElementById('info-message').textContent = 'Your session has expired. Please log in again.';
+            document.getElementById('info-alert').style.display = 'block';
+        }
+        if (urlParams.get('logout') === '1') {
+            document.getElementById('info-message').textContent = 'You have been logged out.';
+            document.getElementById('info-alert').style.display = 'block';
+        }
+
+        // Check if OIDC is enabled
+        fetch('/api/auth/oidc/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.oidc_enabled) {
+                    document.getElementById('oidc-section').style.display = 'block';
+                }
+            })
+            .catch(err => console.log('OIDC status check failed:', err));
+
+        // Handle login form
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('login-btn');
+            const errorAlert = document.getElementById('error-alert');
+
+            // Disable button
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
+            errorAlert.style.display = 'none';
+
+            try {
+                const result = await NetStacksAPI.login(username, password);
+
+                if (result.success) {
+                    // Redirect to dashboard
+                    const redirect = urlParams.get('next') || '/';
+                    window.location.href = redirect;
+                } else {
+                    document.getElementById('error-message').textContent = result.error || 'Login failed';
+                    errorAlert.style.display = 'block';
+                    loginBtn.disabled = false;
+                    loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+                }
+            } catch (error) {
+                document.getElementById('error-message').textContent = error.message || 'Connection error';
+                errorAlert.style.display = 'block';
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+            }
+        });
+</script>
+{% endblock %}

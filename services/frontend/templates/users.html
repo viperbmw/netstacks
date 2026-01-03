@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - NetStacks{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h2>
+            <i class="fas fa-users"></i> User Management
+        </h2>
+        <p class="text-muted">Manage users and passwords</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- Change Password Card -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-key"></i> Change My Password
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="change-password-form">
+                    <div class="mb-3">
+                        <label for="current-password" class="form-label">Current Password</label>
+                        <input type="password" class="form-control" id="current-password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="new-password" class="form-label">New Password</label>
+                        <input type="password" class="form-control" id="new-password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirm-password" class="form-label">Confirm New Password</label>
+                        <input type="password" class="form-control" id="confirm-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Change Password
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create User Card -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-plus"></i> Create New User
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="create-user-form">
+                    <div class="mb-3">
+                        <label for="new-username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="new-username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="new-user-password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="new-user-password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirm-user-password" class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" id="confirm-user-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-plus"></i> Create User
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User List -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> User List
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Created At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table-body">
+                            <tr>
+                                <td colspan="3" class="text-center">
+                                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                                    Loading users...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Status Messages -->
+<div id="status-container" style="position: fixed; top: 80px; right: 20px; z-index: 1050; min-width: 300px;">
+{% endblock %}
+
+{% block scripts %}
+    <script src="/static/js/users.js"></script>
+{% endblock %}

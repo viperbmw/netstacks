@@ -1,0 +1,569 @@
+{% extends "base.html" %}
+
+{% block title %}Ingestion Settings - NetStacks{% endblock %}
+
+{% block head_extra %}
+    <style>
+.text-purple-light { color: #a855f7 !important; }
+        .bg-purple-light { background-color: #a855f7 !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+            <div class="col-md-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1>
+                        <i class="fas fa-satellite-dish text-purple-light"></i> Ingestion Settings
+                    </h1>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="openAddModal()">
+                        <i class="fas fa-plus"></i> Add Databus Source
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Info Cards -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card bg-dark border-secondary">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="fas fa-info-circle text-info"></i> About Ingestion</h5>
+                        <p class="card-text small text-muted">
+                            The ingestion service consumes alerts from external systems via SNMP traps and databus sources (Kafka, Redis Streams).
+                            Configure your databus sources here to receive alerts from external monitoring systems.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-dark border-secondary">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="fab fa-kafka text-warning"></i> Kafka</h5>
+                        <p class="card-text small text-muted">
+                            Connect to Apache Kafka topics to consume alerts. Supports SASL authentication and consumer groups.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-dark border-secondary">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="fas fa-database text-danger"></i> Redis Streams</h5>
+                        <p class="card-text small text-muted">
+                            Connect to Redis Streams for real-time alert consumption. Uses consumer groups for reliable delivery.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Databus Sources Table -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-stream"></i> Databus Sources</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadSources()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Topic/Stream</th>
+                                <th>Messages</th>
+                                <th>Errors</th>
+                                <th>Last Message</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sources-table-body">
+                            <tr>
+                                <td colspan="8" class="text-center">
+                                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                                    Loading...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="no-sources-message" class="text-center py-5" style="display: none;">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No databus sources configured.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="openAddModal()">
+                        <i class="fas fa-plus"></i> Add Your First Source
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Source Modal -->
+    <div class="modal fade" id="sourceModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="sourceModalTitle">Add Databus Source</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="source-form">
+                        <input type="hidden" id="source-id">
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="source-name" class="form-label">Name *</label>
+                                    <input type="text" class="form-control" id="source-name" placeholder="e.g., Production Kafka" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="source-type" class="form-label">Source Type *</label>
+                                    <select class="form-select" id="source-type" required>
+                                        <option value="">Select type...</option>
+                                        <option value="kafka">Kafka</option>
+                                        <option value="redis_stream">Redis Streams</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Kafka Settings -->
+                        <div id="kafka-settings" style="display: none;">
+                            <h6 class="border-bottom pb-2 mb-3"><i class="fab fa-kafka"></i> Kafka Configuration</h6>
+
+                            <div class="mb-3">
+                                <label for="kafka-bootstrap-servers" class="form-label">Bootstrap Servers *</label>
+                                <input type="text" class="form-control" id="kafka-bootstrap-servers" placeholder="kafka1:9092,kafka2:9092">
+                                <small class="text-muted">Comma-separated list of Kafka broker addresses</small>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="kafka-topic" class="form-label">Topic *</label>
+                                        <input type="text" class="form-control" id="kafka-topic" placeholder="alerts">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="kafka-consumer-group" class="form-label">Consumer Group</label>
+                                        <input type="text" class="form-control" id="kafka-consumer-group" placeholder="netstacks-ingestion">
+                                        <small class="text-muted">Leave empty for auto-generated</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="kafka-security" class="form-label">Security Protocol</label>
+                                <select class="form-select" id="kafka-security">
+                                    <option value="">None (PLAINTEXT)</option>
+                                    <option value="SASL_PLAINTEXT">SASL_PLAINTEXT</option>
+                                    <option value="SASL_SSL">SASL_SSL</option>
+                                    <option value="SSL">SSL</option>
+                                </select>
+                            </div>
+
+                            <div id="kafka-sasl-settings" style="display: none;">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="kafka-sasl-mechanism" class="form-label">SASL Mechanism</label>
+                                            <select class="form-select" id="kafka-sasl-mechanism">
+                                                <option value="PLAIN">PLAIN</option>
+                                                <option value="SCRAM-SHA-256">SCRAM-SHA-256</option>
+                                                <option value="SCRAM-SHA-512">SCRAM-SHA-512</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="kafka-sasl-username" class="form-label">Username</label>
+                                            <input type="text" class="form-control" id="kafka-sasl-username">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="kafka-sasl-password" class="form-label">Password</label>
+                                            <input type="password" class="form-control" id="kafka-sasl-password">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Redis Settings -->
+                        <div id="redis-settings" style="display: none;">
+                            <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-database"></i> Redis Configuration</h6>
+
+                            <div class="mb-3">
+                                <label for="redis-url" class="form-label">Redis URL *</label>
+                                <input type="text" class="form-control" id="redis-url" placeholder="redis://localhost:6379/0">
+                                <small class="text-muted">Full Redis connection URL</small>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="redis-stream" class="form-label">Stream Name *</label>
+                                        <input type="text" class="form-control" id="redis-stream" placeholder="alerts">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="redis-consumer-group" class="form-label">Consumer Group</label>
+                                        <input type="text" class="form-control" id="redis-consumer-group" placeholder="netstacks-ingestion">
+                                        <small class="text-muted">Leave empty for auto-generated</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="redis-password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="redis-password" placeholder="Optional">
+                            </div>
+                        </div>
+
+                        <!-- Transform Settings -->
+                        <h6 class="border-bottom pb-2 mb-3 mt-4"><i class="fas fa-exchange-alt"></i> Message Transformation</h6>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="transform-type" class="form-label">Message Format</label>
+                                    <select class="form-select" id="transform-type">
+                                        <option value="json">JSON</option>
+                                        <option value="syslog">Syslog</option>
+                                        <option value="cef">CEF (Common Event Format)</option>
+                                        <option value="raw">Raw Text</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3 form-check mt-4">
+                                    <input type="checkbox" class="form-check-input" id="source-enabled" checked>
+                                    <label class="form-check-label" for="source-enabled">Enabled</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="field-mappings" class="form-label">Field Mappings (JSON)</label>
+                            <textarea class="form-control" id="field-mappings" rows="3" placeholder='{"title": "alert_name", "severity": "priority", "device_name": "host"}'></textarea>
+                            <small class="text-muted">Map source fields to NetStacks alert fields: title, severity, description, device_name, alert_type</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-info" id="test-source-btn" onclick="testSource()">
+                        <i class="fas fa-plug"></i> Test Connection
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="saveSource()">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/static/js/auth-guard.js"></script>
+    <script>
+        let sourceModal;
+        let sources = [];
+
+        function handleLogout(event) {
+            event.preventDefault();
+            if (typeof NetStacksAPI !== 'undefined') {
+                NetStacksAPI.clearTokens();
+            }
+            window.location.href = '/logout';
+        }
+
+        $(document).ready(function() {
+            sourceModal = new bootstrap.Modal(document.getElementById('sourceModal'));
+
+            // Source type change handler
+            $('#source-type').on('change', function() {
+                const type = $(this).val();
+                $('#kafka-settings').hide();
+                $('#redis-settings').hide();
+
+                if (type === 'kafka') {
+                    $('#kafka-settings').show();
+                } else if (type === 'redis_stream') {
+                    $('#redis-settings').show();
+                }
+            });
+
+            // Kafka security change handler
+            $('#kafka-security').on('change', function() {
+                const security = $(this).val();
+                if (security && security.includes('SASL')) {
+                    $('#kafka-sasl-settings').show();
+                } else {
+                    $('#kafka-sasl-settings').hide();
+                }
+            });
+
+            loadSources();
+        });
+
+        async function loadSources() {
+            try {
+                const response = await NetStacksAPI.get('/api/databus-sources/');
+                sources = response.sources || [];
+                renderSourcesTable();
+            } catch (error) {
+                console.error('Error loading sources:', error);
+                showToast('Error loading sources', 'danger');
+            }
+        }
+
+        function renderSourcesTable() {
+            const tbody = $('#sources-table-body');
+            tbody.empty();
+
+            if (sources.length === 0) {
+                $('table').hide();
+                $('#no-sources-message').show();
+                return;
+            }
+
+            $('table').show();
+            $('#no-sources-message').hide();
+
+            sources.forEach(source => {
+                const statusBadge = source.is_enabled
+                    ? '<span class="badge bg-success"><i class="fas fa-check"></i> Active</span>'
+                    : '<span class="badge bg-secondary"><i class="fas fa-pause"></i> Disabled</span>';
+
+                const typeBadge = source.source_type === 'kafka'
+                    ? '<span class="badge bg-warning text-dark"><i class="fab fa-kafka"></i> Kafka</span>'
+                    : '<span class="badge bg-danger"><i class="fas fa-database"></i> Redis</span>';
+
+                const lastMessage = source.last_message_at
+                    ? new Date(source.last_message_at).toLocaleString()
+                    : '<span class="text-muted">Never</span>';
+
+                const row = `
+                    <tr>
+                        <td>${statusBadge}</td>
+                        <td><strong>${escapeHtml(source.name)}</strong></td>
+                        <td>${typeBadge}</td>
+                        <td><code>${escapeHtml(source.topic_or_stream)}</code></td>
+                        <td><span class="badge bg-info">${source.message_count || 0}</span></td>
+                        <td><span class="badge ${source.error_count > 0 ? 'bg-danger' : 'bg-secondary'}">${source.error_count || 0}</span></td>
+                        <td>${lastMessage}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="editSource('${source.source_id}')" title="Edit">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-${source.is_enabled ? 'warning' : 'success'}" onclick="toggleSource('${source.source_id}')" title="${source.is_enabled ? 'Disable' : 'Enable'}">
+                                    <i class="fas fa-${source.is_enabled ? 'pause' : 'play'}"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteSource('${source.source_id}')" title="Delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                tbody.append(row);
+            });
+        }
+
+        function openAddModal() {
+            $('#sourceModalTitle').text('Add Databus Source');
+            $('#source-form')[0].reset();
+            $('#source-id').val('');
+            $('#source-type').trigger('change');
+            $('#source-enabled').prop('checked', true);
+        }
+
+        function editSource(sourceId) {
+            const source = sources.find(s => s.source_id === sourceId);
+            if (!source) return;
+
+            $('#sourceModalTitle').text('Edit Databus Source');
+            $('#source-id').val(source.source_id);
+            $('#source-name').val(source.name);
+            $('#source-type').val(source.source_type).trigger('change');
+            $('#source-enabled').prop('checked', source.is_enabled);
+            $('#transform-type').val(source.transform_type || 'json');
+            $('#field-mappings').val(source.field_mappings ? JSON.stringify(source.field_mappings, null, 2) : '');
+
+            const config = source.connection_config || {};
+
+            if (source.source_type === 'kafka') {
+                $('#kafka-bootstrap-servers').val(config.bootstrap_servers || '');
+                $('#kafka-topic').val(source.topic_or_stream);
+                $('#kafka-consumer-group').val(source.consumer_group || '');
+                $('#kafka-security').val(config.security_protocol || '').trigger('change');
+                $('#kafka-sasl-mechanism').val(config.sasl_mechanism || 'PLAIN');
+                $('#kafka-sasl-username').val(config.sasl_username || '');
+                $('#kafka-sasl-password').val(config.sasl_password || '');
+            } else if (source.source_type === 'redis_stream') {
+                $('#redis-url').val(config.url || '');
+                $('#redis-stream').val(source.topic_or_stream);
+                $('#redis-consumer-group').val(source.consumer_group || '');
+                $('#redis-password').val(config.password || '');
+            }
+
+            sourceModal.show();
+        }
+
+        function buildSourcePayload() {
+            const sourceType = $('#source-type').val();
+            const payload = {
+                name: $('#source-name').val().trim(),
+                source_type: sourceType,
+                is_enabled: $('#source-enabled').is(':checked'),
+                transform_type: $('#transform-type').val(),
+            };
+
+            // Parse field mappings
+            const mappingsText = $('#field-mappings').val().trim();
+            if (mappingsText) {
+                try {
+                    payload.field_mappings = JSON.parse(mappingsText);
+                } catch (e) {
+                    showToast('Invalid JSON in field mappings', 'danger');
+                    return null;
+                }
+            }
+
+            if (sourceType === 'kafka') {
+                payload.topic_or_stream = $('#kafka-topic').val().trim();
+                payload.consumer_group = $('#kafka-consumer-group').val().trim() || null;
+                payload.connection_config = {
+                    bootstrap_servers: $('#kafka-bootstrap-servers').val().trim()
+                };
+
+                const security = $('#kafka-security').val();
+                if (security) {
+                    payload.connection_config.security_protocol = security;
+                    if (security.includes('SASL')) {
+                        payload.connection_config.sasl_mechanism = $('#kafka-sasl-mechanism').val();
+                        payload.connection_config.sasl_username = $('#kafka-sasl-username').val().trim();
+                        payload.connection_config.sasl_password = $('#kafka-sasl-password').val();
+                    }
+                }
+            } else if (sourceType === 'redis_stream') {
+                payload.topic_or_stream = $('#redis-stream').val().trim();
+                payload.consumer_group = $('#redis-consumer-group').val().trim() || null;
+                payload.connection_config = {
+                    url: $('#redis-url').val().trim()
+                };
+                const password = $('#redis-password').val();
+                if (password) {
+                    payload.connection_config.password = password;
+                }
+            }
+
+            return payload;
+        }
+
+        async function saveSource() {
+            const payload = buildSourcePayload();
+            if (!payload) return;
+
+            const sourceId = $('#source-id').val();
+
+            try {
+                if (sourceId) {
+                    await NetStacksAPI.put(`/api/databus-sources/${sourceId}`, payload);
+                    showToast('Source updated successfully', 'success');
+                } else {
+                    await NetStacksAPI.post('/api/databus-sources/', payload);
+                    showToast('Source created successfully', 'success');
+                }
+                sourceModal.hide();
+                loadSources();
+            } catch (error) {
+                console.error('Error saving source:', error);
+                showToast(error.detail || 'Error saving source', 'danger');
+            }
+        }
+
+        async function testSource() {
+            const sourceId = $('#source-id').val();
+            if (!sourceId) {
+                showToast('Please save the source first before testing', 'warning');
+                return;
+            }
+
+            const btn = $('#test-source-btn');
+            btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Testing...');
+
+            try {
+                const response = await NetStacksAPI.post(`/api/databus-sources/${sourceId}/test`);
+                if (response.success) {
+                    showToast(response.message, 'success');
+                } else {
+                    showToast(response.error || 'Connection failed', 'danger');
+                }
+            } catch (error) {
+                console.error('Error testing source:', error);
+                showToast(error.detail || 'Error testing connection', 'danger');
+            } finally {
+                btn.prop('disabled', false).html('<i class="fas fa-plug"></i> Test Connection');
+            }
+        }
+
+        async function toggleSource(sourceId) {
+            try {
+                await NetStacksAPI.post(`/api/databus-sources/${sourceId}/toggle`);
+                loadSources();
+            } catch (error) {
+                console.error('Error toggling source:', error);
+                showToast('Error toggling source', 'danger');
+            }
+        }
+
+        async function deleteSource(sourceId) {
+            const source = sources.find(s => s.source_id === sourceId);
+            if (!confirm(`Delete source "${source?.name}"? This cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                await NetStacksAPI.delete(`/api/databus-sources/${sourceId}`);
+                showToast('Source deleted', 'success');
+                loadSources();
+            } catch (error) {
+                console.error('Error deleting source:', error);
+                showToast('Error deleting source', 'danger');
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            // Simple toast implementation
+            const toast = $(`
+                <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
+                    <div class="toast show bg-${type} text-white" role="alert">
+                        <div class="toast-body">
+                            ${message}
+                        </div>
+                    </div>
+                </div>
+            `);
+            $('body').append(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+{% endblock %}
