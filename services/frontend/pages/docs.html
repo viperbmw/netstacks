@@ -12,13 +12,18 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-1">
         <div class="container-fluid py-0">
-            <a class="navbar-brand brand-logo" href="/">
+            <a class="navbar-brand brand-logo" href="/" title="NetStacks Dashboard">
                 <span class="brand-icon">
                     <i class="fas fa-layer-group"></i>
                 </span>
                 <span class="brand-text">NetStacks</span>
             </a>
             <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/platform" id="platform-health-indicator" title="Platform Health" data-bs-toggle="tooltip" data-bs-placement="bottom">
+                        <i class="fas fa-circle text-secondary" id="health-status-icon"></i>
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link" href="/">
                         <i class="fas fa-home"></i> Dashboard

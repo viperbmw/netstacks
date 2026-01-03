@@ -173,7 +173,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ai.rule=PathPrefix(`/api/agents`) || PathPrefix(`/api/alerts`) || PathPrefix(`/api/incidents`) || PathPrefix(`/api/knowledge`) || PathPrefix(`/api/approvals`) || PathPrefix(`/api/sessions`) || PathPrefix(`/api/llm`) || PathPrefix(`/api/chat`) || PathPrefix(`/api/workflows`)"
+      - "traefik.http.routers.ai.rule=PathPrefix(`/api/agents`) || PathPrefix(`/api/alerts`) || PathPrefix(`/api/incidents`) || PathPrefix(`/api/knowledge`) || PathPrefix(`/api/approvals`) || PathPrefix(`/api/sessions`) || PathPrefix(`/api/llm`) || PathPrefix(`/api/chat`) || PathPrefix(`/api/workflows`) || PathPrefix(`/api/databus-sources`)"
       - "traefik.http.routers.ai.entrypoints=web"
       - "traefik.http.routers.ai.priority=10"
       - "traefik.http.services.ai.loadbalancer.server.port=8003"
