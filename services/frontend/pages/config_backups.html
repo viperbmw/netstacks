@@ -1139,52 +1139,6 @@
     </div>
 </div>
 
-<!-- View Backup Modal (for device table) -->
-<div class="modal fade" id="viewBackupModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-file-code"></i> <span id="view-backup-device-name">Device</span> - Configuration Backup</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <small class="text-muted">Created:</small>
-                            <span id="view-backup-created" class="ms-2">-</span>
-                        </div>
-                        <div class="col-md-4">
-                            <small class="text-muted">Format:</small>
-                            <span id="view-backup-format" class="ms-2">-</span>
-                        </div>
-                        <div class="col-md-4">
-                            <small class="text-muted">Size:</small>
-                            <span id="view-backup-size" class="ms-2">-</span>
-                        </div>
-                    </div>
-                </div>
-                <div id="view-backup-loading" class="text-center py-4">
-                    <div class="spinner-border" role="status"></div>
-                    <p class="mt-2 text-muted">Loading backup...</p>
-                </div>
-                <div id="view-backup-content-container" style="display: none;">
-                    <textarea id="view-backup-config" class="form-control font-monospace" rows="20" readonly style="font-size: 12px;"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" id="copy-backup-btn">
-                    <i class="fas fa-copy"></i> Copy
-                </button>
-                <button type="button" class="btn btn-outline-primary" id="download-backup-btn">
-                    <i class="fas fa-download"></i> Download
-                </button>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- All Backups Modal -->
 <div class="modal fade" id="allBackupsModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
@@ -1464,10 +1418,6 @@ $(document).ready(function() {
     // Device edit handlers
     $('#save-device-override-btn').click(saveDeviceOverride);
     $('#delete-device-override-btn').click(deleteDeviceOverride);
-
-    // Backup modal handlers
-    $('#copy-backup-btn').click(copyBackupConfig);
-    $('#download-backup-btn').click(downloadBackupConfig);
 
     // View All Backups handlers
     $('#view-all-backups-btn').click(function() {
@@ -2749,10 +2699,9 @@ function renderAllBackupsTable(backups) {
     // Bind handlers
     $('.view-all-backup-btn').click(function() {
         const backupId = $(this).data('id');
-        const deviceName = $(this).data('device');
-        // Close allBackupsModal, open viewBackupModal
+        // Close allBackupsModal, open viewConfigModal
         bootstrap.Modal.getInstance(document.getElementById('allBackupsModal')).hide();
-        viewBackupConfig(backupId, deviceName);
+        viewConfig(backupId);
     });
 
     $('.delete-all-backup-btn').click(function() {
@@ -3206,63 +3155,15 @@ function testDeviceConnectivity(deviceName) {
         });
 }
 
-// View device backup
+// View device backup - uses the viewConfigModal with compare feature
 function viewDeviceBackup(deviceName) {
     const backup = deviceBackups[deviceName];
     if (!backup) {
         alert('No backup found for this device');
         return;
     }
-
-    $('#view-backup-device-name').text(deviceName);
-    $('#view-backup-created').text(formatDate(backup.created_at));
-    $('#view-backup-format').text(backup.config_format || 'native');
-    $('#view-backup-size').text(formatSize(backup.file_size));
-
-    $('#view-backup-loading').show();
-    $('#view-backup-content-container').hide();
-    $('#viewBackupModal').modal('show');
-
-    // Fetch full backup content
-    $.get(`/api/config-backups/${backup.backup_id}`)
-        .done(function(response) {
-            // Handle both response formats: response.data.backup or response.backup
-            const data = response.data || response;
-            if (response.success && data.backup) {
-                $('#view-backup-config').val(data.backup.config_content || '');
-                $('#view-backup-loading').hide();
-                $('#view-backup-content-container').show();
-            } else {
-                $('#view-backup-loading').html('<p class="text-danger">Failed to load backup</p>');
-            }
-        })
-        .fail(function() {
-            $('#view-backup-loading').html('<p class="text-danger">Failed to load backup</p>');
-        });
-}
-
-// Copy backup config
-function copyBackupConfig() {
-    const config = $('#view-backup-config').val();
-    navigator.clipboard.writeText(config).then(() => {
-        const $btn = $('#copy-backup-btn');
-        const original = $btn.html();
-        $btn.html('<i class="fas fa-check"></i> Copied!');
-        setTimeout(() => $btn.html(original), 2000);
-    });
-}
-
-// Download backup config
-function downloadBackupConfig() {
-    const config = $('#view-backup-config').val();
-    const deviceName = $('#view-backup-device-name').text();
-    const blob = new Blob([config], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${deviceName}_backup.txt`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    // Use the viewConfig function which has the compare tab
+    viewConfig(backup.backup_id);
 }
 
 // Delete manual device
