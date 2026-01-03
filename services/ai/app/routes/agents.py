@@ -3,10 +3,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
+import uuid
+import logging
 
 from netstacks_core.db import get_session, Agent as AgentModel
 from netstacks_core.auth import get_current_user
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -43,7 +46,32 @@ class AgentResponse(AgentBase):
         from_attributes = True
 
 
-# Static routes MUST be defined before dynamic /{agent_id} routes
+class CustomToolCreate(BaseModel):
+    name: str
+    category: str = "general"
+    execution_type: str = "python"
+    description: str
+    parameters: dict = {}
+    implementation: Optional[str] = None
+
+
+class MCPServerCreate(BaseModel):
+    name: str
+    transport: str = "stdio"
+    endpoint: str
+    description: Optional[str] = None
+    env: dict = {}
+
+
+# In-memory storage (will be moved to DB later)
+_custom_tools = []
+_mcp_servers = []
+
+
+# ============================================================================
+# Static routes MUST be defined BEFORE dynamic /{agent_id} routes
+# ============================================================================
+
 @router.get("/types/available")
 async def get_agent_types(user=Depends(get_current_user)):
     """Get available agent types."""
@@ -104,7 +132,144 @@ async def get_agent_stats(user=Depends(get_current_user)):
         session.close()
 
 
-# Main CRUD routes
+# ============================================================================
+# Custom Tools Endpoints (static routes - must be before /{agent_id})
+# ============================================================================
+
+@router.get("/custom-tools", response_model=dict)
+async def list_custom_tools(user=Depends(get_current_user)):
+    """List all custom tools."""
+    return {
+        "success": True,
+        "tools": _custom_tools
+    }
+
+
+@router.post("/custom-tools", response_model=dict)
+async def create_custom_tool(tool: CustomToolCreate, user=Depends(get_current_user)):
+    """Create a custom tool."""
+    # Check for duplicate name
+    if any(t["name"] == tool.name for t in _custom_tools):
+        raise HTTPException(status_code=400, detail="Tool name already exists")
+
+    new_tool = {
+        "id": str(uuid.uuid4()),
+        "name": tool.name,
+        "category": tool.category,
+        "execution_type": tool.execution_type,
+        "description": tool.description,
+        "parameters": tool.parameters,
+        "implementation": tool.implementation,
+        "is_active": True,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    _custom_tools.append(new_tool)
+    log.info(f"Created custom tool: {tool.name}")
+
+    return {"success": True, "id": new_tool["id"]}
+
+
+@router.get("/custom-tools/{tool_id}", response_model=dict)
+async def get_custom_tool(tool_id: str, user=Depends(get_current_user)):
+    """Get a custom tool by ID."""
+    tool = next((t for t in _custom_tools if t["id"] == tool_id), None)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    return {"success": True, "tool": tool}
+
+
+@router.delete("/custom-tools/{tool_id}", response_model=dict)
+async def delete_custom_tool(tool_id: str, user=Depends(get_current_user)):
+    """Delete a custom tool."""
+    global _custom_tools
+    tool = next((t for t in _custom_tools if t["id"] == tool_id), None)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    _custom_tools = [t for t in _custom_tools if t["id"] != tool_id]
+    log.info(f"Deleted custom tool: {tool['name']}")
+
+    return {"success": True, "message": "Tool deleted"}
+
+
+# ============================================================================
+# MCP Server Endpoints (static routes - must be before /{agent_id})
+# ============================================================================
+
+@router.get("/mcp-servers", response_model=dict)
+async def list_mcp_servers(user=Depends(get_current_user)):
+    """List all MCP servers."""
+    return {
+        "success": True,
+        "servers": _mcp_servers
+    }
+
+
+@router.post("/mcp-servers", response_model=dict)
+async def create_mcp_server(server: MCPServerCreate, user=Depends(get_current_user)):
+    """Add an MCP server."""
+    # Check for duplicate name
+    if any(s["name"] == server.name for s in _mcp_servers):
+        raise HTTPException(status_code=400, detail="Server name already exists")
+
+    new_server = {
+        "id": str(uuid.uuid4()),
+        "name": server.name,
+        "transport": server.transport,
+        "endpoint": server.endpoint,
+        "description": server.description,
+        "env": server.env,
+        "is_connected": False,
+        "tool_count": 0,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    _mcp_servers.append(new_server)
+    log.info(f"Added MCP server: {server.name}")
+
+    return {"success": True, "id": new_server["id"]}
+
+
+@router.get("/mcp-servers/{server_id}", response_model=dict)
+async def get_mcp_server(server_id: str, user=Depends(get_current_user)):
+    """Get an MCP server by ID."""
+    server = next((s for s in _mcp_servers if s["id"] == server_id), None)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"success": True, "server": server}
+
+
+@router.post("/mcp-servers/{server_id}/connect", response_model=dict)
+async def connect_mcp_server(server_id: str, user=Depends(get_current_user)):
+    """Connect to an MCP server."""
+    server = next((s for s in _mcp_servers if s["id"] == server_id), None)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # TODO: Implement actual MCP connection
+    server["is_connected"] = True
+    log.info(f"Connected to MCP server: {server['name']}")
+
+    return {"success": True, "message": "Connected"}
+
+
+@router.delete("/mcp-servers/{server_id}", response_model=dict)
+async def delete_mcp_server(server_id: str, user=Depends(get_current_user)):
+    """Delete an MCP server."""
+    global _mcp_servers
+    server = next((s for s in _mcp_servers if s["id"] == server_id), None)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    _mcp_servers = [s for s in _mcp_servers if s["id"] != server_id]
+    log.info(f"Deleted MCP server: {server['name']}")
+
+    return {"success": True, "message": "Server deleted"}
+
+
+# ============================================================================
+# Main Agent CRUD routes
+# ============================================================================
+
 @router.get("/", response_model=dict)
 async def list_agents(user=Depends(get_current_user)):
     """List all agents."""
@@ -139,7 +304,6 @@ async def create_agent(agent: AgentCreate, user=Depends(get_current_user)):
     """Create a new agent."""
     session = get_session()
     try:
-        import uuid
         agent_name = agent.resolved_name
         if not agent_name:
             raise HTTPException(status_code=400, detail="Agent name is required")
@@ -164,7 +328,10 @@ async def create_agent(agent: AgentCreate, user=Depends(get_current_user)):
         session.close()
 
 
-# Dynamic routes with {agent_id} parameter
+# ============================================================================
+# Dynamic routes with {agent_id} parameter - MUST be LAST
+# ============================================================================
+
 @router.get("/{agent_id}", response_model=dict)
 async def get_agent(agent_id: str, user=Depends(get_current_user)):
     """Get agent by ID."""

@@ -523,7 +523,7 @@ $(document).ready(function() {
     // Load data
     function loadCollections() {
         $.ajax({
-            url: '/knowledge/api/collections',
+            url: '/api/knowledge/collections',
             method: 'GET',
             success: function(response) {
                 collections = response.collections || [];
@@ -538,7 +538,7 @@ $(document).ready(function() {
         $('#docs-container').hide();
         $('#docs-empty').hide();
 
-        let url = '/knowledge/api/documents';
+        let url = '/api/knowledge/documents';
         if (currentCollectionId) {
             url += `?collection_id=${currentCollectionId}`;
         }
@@ -685,7 +685,7 @@ $(document).ready(function() {
         };
 
         $.ajax({
-            url: '/knowledge/api/collections',
+            url: '/api/knowledge/collections',
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify(data),
@@ -720,7 +720,7 @@ $(document).ready(function() {
             formData.append('collection_id', $('#doc-collection').val());
 
             $.ajax({
-                url: '/knowledge/api/documents',
+                url: '/api/knowledge/documents',
                 method: 'POST',
                 data: formData,
                 processData: false,
@@ -745,7 +745,7 @@ $(document).ready(function() {
             };
 
             $.ajax({
-                url: '/knowledge/api/documents',
+                url: '/api/knowledge/documents',
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify(data),
@@ -766,7 +766,7 @@ $(document).ready(function() {
         const docId = $(this).data('id');
 
         $.ajax({
-            url: `/knowledge/api/documents/${docId}`,
+            url: `/api/knowledge/documents/${docId}`,
             method: 'GET',
             success: function(doc) {
                 currentDocId = docId;
@@ -803,7 +803,7 @@ $(document).ready(function() {
 
     function reindexDocument(docId) {
         $.ajax({
-            url: `/knowledge/api/documents/${docId}/reindex`,
+            url: `/api/knowledge/documents/${docId}/reindex`,
             method: 'POST',
             success: function(response) {
                 showToast('Document queued for re-indexing', 'success');
@@ -832,7 +832,7 @@ $(document).ready(function() {
 
     function deleteDocument(docId) {
         $.ajax({
-            url: `/knowledge/api/documents/${docId}`,
+            url: `/api/knowledge/documents/${docId}`,
             method: 'DELETE',
             success: function(response) {
                 showToast('Document deleted', 'success');
@@ -857,7 +857,7 @@ $(document).ready(function() {
         $('#search-results').empty();
 
         $.ajax({
-            url: '/knowledge/api/search',
+            url: '/api/knowledge/search',
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify({

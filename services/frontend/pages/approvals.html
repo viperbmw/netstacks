@@ -454,7 +454,7 @@ $(document).ready(function() {
         }
 
         $.ajax({
-            url: '/approvals/api/approvals?' + params.toString(),
+            url: '/api/approvals?' + params.toString(),
             method: 'GET',
             success: function(response) {
                 approvals = response.approvals || [];
@@ -539,7 +539,7 @@ $(document).ready(function() {
     function updateStats() {
         // Get stats from API
         $.ajax({
-            url: '/approvals/api/approvals/stats',
+            url: '/api/approvals/stats',
             method: 'GET',
             success: function(response) {
                 const byStatus = response.by_status || {};
@@ -577,7 +577,7 @@ $(document).ready(function() {
         const approvalId = $(this).data('id');
 
         $.ajax({
-            url: `/approvals/api/approvals/${approvalId}`,
+            url: `/api/approvals/${approvalId}`,
             method: 'GET',
             success: function(approval) {
                 currentApprovalId = approvalId;
@@ -680,7 +680,7 @@ $(document).ready(function() {
         const notes = $('#action-notes').val();
 
         $.ajax({
-            url: `/approvals/api/approvals/${currentApprovalId}/approve`,
+            url: `/api/approvals/${currentApprovalId}/approve`,
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify({ notes: notes }),
@@ -702,7 +702,7 @@ $(document).ready(function() {
         const reason = $('#action-notes').val() || 'Rejected by user';
 
         $.ajax({
-            url: `/approvals/api/approvals/${currentApprovalId}/reject`,
+            url: `/api/approvals/${currentApprovalId}/reject`,
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify({ reason: reason }),
@@ -723,7 +723,7 @@ $(document).ready(function() {
         const approvalId = $(this).data('id');
 
         $.ajax({
-            url: `/approvals/api/approvals/${approvalId}/approve`,
+            url: `/api/approvals/${approvalId}/approve`,
             method: 'POST',
             success: function(response) {
                 showToast('Action approved', 'success');
@@ -740,7 +740,7 @@ $(document).ready(function() {
         const approvalId = $(this).data('id');
 
         $.ajax({
-            url: `/approvals/api/approvals/${approvalId}/reject`,
+            url: `/api/approvals/${approvalId}/reject`,
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify({ reason: 'Quick rejected by user' }),
@@ -780,7 +780,7 @@ $(document).ready(function() {
         let completed = 0;
         selected.forEach(function(id) {
             $.ajax({
-                url: `/approvals/api/approvals/${id}/approve`,
+                url: `/api/approvals/${id}/approve`,
                 method: 'POST',
                 success: function() {
                     completed++;
@@ -806,7 +806,7 @@ $(document).ready(function() {
         let completed = 0;
         selected.forEach(function(id) {
             $.ajax({
-                url: `/approvals/api/approvals/${id}/reject`,
+                url: `/api/approvals/${id}/reject`,
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify({ reason: reason }),

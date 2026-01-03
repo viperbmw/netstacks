@@ -149,6 +149,7 @@
                     <i class="fas fa-robot fa-5x mb-4"></i>
                     <h4>Welcome to Agent Chat</h4>
                     <p>Select an agent from the sidebar to start a conversation.</p>
+                    <p class="small">Make sure you have an LLM provider configured in <a href="/settings/ai">AI Settings</a>.</p>
                 </div>
 
                 <!-- Chat Messages -->
@@ -268,17 +269,17 @@
             setInterval(updateSystemTime, 1000);
         });
     </script>
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
 $(document).ready(function() {
     let agents = [];
-    let socket = null;
     let currentSessionId = null;
     let currentAgentId = null;
+    let currentAgentName = null;
+    let isProcessing = false;
 
     // Load available agents
     function loadAgents() {
-        $.ajax({
+        NetStacksAPI.ajax({
             url: '/api/agents/',
             method: 'GET',
             success: function(response) {
@@ -288,7 +289,7 @@ $(document).ready(function() {
             },
             error: function(xhr) {
                 console.error('Error loading agents:', xhr);
-                $('#agents-loading').html('<p class="text-danger">Error loading agents</p>');
+                $('#agents-loading').html('<p class="text-danger p-3">Error loading agents</p>');
             }
         });
     }
@@ -298,7 +299,7 @@ $(document).ready(function() {
         $list.empty();
 
         if (agents.length === 0) {
-            $list.html('<p class="text-center text-muted p-3">No agents configured</p>');
+            $list.html('<p class="text-center text-muted p-3">No agents configured. <a href="/agents">Create one</a></p>');
             return;
         }
 
@@ -309,7 +310,7 @@ $(document).ready(function() {
 
             $list.append(`
                 <a href="#" class="list-group-item list-group-item-action agent-item ${!agent.is_active ? 'text-muted' : ''}"
-                   data-id="${agent.agent_id}" data-name="${escapeHtml(agent.agent_name)}">
+                   data-id="${agent.agent_id}" data-name="${escapeHtml(agent.agent_name)}" data-active="${agent.is_active}">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
                             <strong>${escapeHtml(agent.agent_name)}</strong><br>
@@ -328,110 +329,195 @@ $(document).ready(function() {
 
         const agentId = $(this).data('id');
         const agentName = $(this).data('name');
+        const isActive = $(this).data('active');
+
+        if (!isActive) {
+            showToast('This agent is not active. Enable it first.', 'warning');
+            return;
+        }
 
         // Highlight selected
         $('.agent-item').removeClass('active');
         $(this).addClass('active');
 
         // If already in a session, end it first
-        if (socket && currentSessionId) {
-            socket.emit('end_session', { session_id: currentSessionId });
-            socket.disconnect();
+        if (currentSessionId) {
+            endSession(false);
         }
+
+        // Start new session
+        startSession(agentId, agentName);
+    });
+
+    function startSession(agentId, agentName) {
+        currentAgentId = agentId;
+        currentAgentName = agentName;
 
         // Update UI
         $('#chat-title').html(`<i class="fas fa-robot"></i> ${escapeHtml(agentName)}`);
         $('#chat-welcome').hide();
         $('#chat-messages').show().empty();
         $('#session-controls').show();
+        $('#connection-status')
+            .removeClass('bg-danger bg-warning')
+            .addClass('bg-warning')
+            .html('<i class="fas fa-spinner fa-spin"></i> Connecting...');
 
-        // Start new session
-        startSession(agentId);
-    });
+        // Start session via API
+        NetStacksAPI.ajax({
+            url: '/api/chat/start',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ agent_id: agentId }),
+            success: function(response) {
+                if (response.success) {
+                    currentSessionId = response.session_id;
 
-    function startSession(agentId) {
-        currentAgentId = agentId;
+                    $('#connection-status')
+                        .removeClass('bg-warning bg-danger')
+                        .addClass('bg-success')
+                        .html('<i class="fas fa-plug"></i> Connected');
 
-        // Connect to WebSocket
-        socket = io('/agents', {
-            transports: ['websocket']
+                    appendSystemMessage(`Session started with ${response.agent_name}`);
+
+                    // Enable input
+                    $('#chat-input').prop('disabled', false).focus();
+                    $('#send-btn').prop('disabled', false);
+                } else {
+                    showToast('Failed to start session: ' + (response.error || 'Unknown error'), 'danger');
+                    resetChat();
+                }
+            },
+            error: function(xhr) {
+                const errorMsg = xhr.responseJSON?.detail || 'Failed to connect';
+                showToast('Error: ' + errorMsg, 'danger');
+                resetChat();
+            }
         });
+    }
 
-        socket.on('connect', function() {
-            $('#connection-status')
-                .removeClass('bg-danger bg-warning')
-                .addClass('bg-success')
-                .html('<i class="fas fa-plug"></i> Connected');
+    // Send message using SSE streaming
+    function sendMessage() {
+        const message = $('#chat-input').val().trim();
+        if (!message || !currentSessionId || isProcessing) return;
 
-            // Start agent session
-            socket.emit('start_session', {
-                agent_id: agentId
+        isProcessing = true;
+        appendUserMessage(message);
+        $('#chat-input').val('').prop('disabled', true);
+        $('#send-btn').prop('disabled', true);
+        $('#typing-indicator').show();
+
+        // Get auth token
+        const token = NetStacksAPI.getToken();
+
+        // Use SSE for streaming response
+        const eventSource = new EventSource(
+            `/api/chat/${currentSessionId}/message?message=${encodeURIComponent(message)}`,
+            { withCredentials: true }
+        );
+
+        // Since EventSource doesn't support POST with body, we'll use fetch with SSE
+        fetchSSE(message, token);
+    }
+
+    async function fetchSSE(message, token) {
+        try {
+            const response = await fetch(`/api/chat/${currentSessionId}/message`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'text/event-stream',
+                },
+                body: JSON.stringify({ message: message }),
             });
-        });
 
-        socket.on('session_started', function(data) {
-            currentSessionId = data.session_id;
-            appendSystemMessage(`Session started with ${data.agent_name}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
 
-            // Enable input
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let accumulatedText = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete events
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const event = JSON.parse(line.slice(6));
+                            handleAgentEvent(event, accumulatedText);
+
+                            // Accumulate text for final display
+                            if (event.type === 'text') {
+                                accumulatedText += event.content;
+                            } else if (event.type === 'final_response') {
+                                accumulatedText = event.content;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing SSE event:', e);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('SSE error:', error);
+            appendErrorMessage('Connection error: ' + error.message);
+        } finally {
+            isProcessing = false;
+            $('#typing-indicator').hide();
             $('#chat-input').prop('disabled', false).focus();
             $('#send-btn').prop('disabled', false);
-        });
-
-        socket.on('agent_event', function(event) {
-            handleAgentEvent(event);
-        });
-
-        socket.on('approval_required', function(data) {
-            appendApprovalRequest(data);
-        });
-
-        socket.on('error', function(data) {
-            appendErrorMessage(data.message);
-        });
-
-        socket.on('disconnect', function() {
-            $('#connection-status')
-                .removeClass('bg-success bg-warning')
-                .addClass('bg-danger')
-                .html('<i class="fas fa-plug"></i> Disconnected');
-
-            $('#chat-input').prop('disabled', true);
-            $('#send-btn').prop('disabled', true);
-        });
-
-        socket.on('connect_error', function() {
-            $('#connection-status')
-                .removeClass('bg-success bg-danger')
-                .addClass('bg-warning')
-                .html('<i class="fas fa-exclamation-triangle"></i> Reconnecting...');
-        });
+        }
     }
 
     function handleAgentEvent(event) {
         $('#typing-indicator').hide();
 
         switch(event.type) {
-            case 'processing':
+            case 'text':
+                // Streaming text - could update a streaming div
+                // For simplicity, we wait for final_response
                 $('#typing-indicator').show();
                 break;
+
             case 'thinking':
                 appendAgentThinking(event.content);
                 break;
+
             case 'tool_call':
-                appendToolCall(event.tool_name, event.tool_args);
+                appendToolCall(event.tool_name, event.tool_input);
                 break;
+
             case 'tool_result':
                 appendToolResult(event.tool_name, event.tool_result);
                 break;
+
             case 'final_response':
                 appendAgentMessage(event.content);
                 break;
-            case 'handoff':
-                appendHandoffMessage(event.data);
+
+            case 'error':
+                appendErrorMessage(event.content);
                 break;
-            case 'approval_required':
-                appendApprovalRequest(event);
+
+            case 'done':
+                if (event.data?.handoff) {
+                    appendHandoffMessage(event.data);
+                }
+                if (event.data?.escalation) {
+                    appendEscalationMessage(event.data);
+                }
                 break;
         }
     }
@@ -479,12 +565,14 @@ $(document).ready(function() {
     }
 
     function appendToolCall(toolName, toolArgs) {
+        const argsDisplay = toolArgs ? JSON.stringify(toolArgs, null, 2) : '';
         $('#chat-messages').append(`
             <div class="d-flex mb-2">
                 <div class="card bg-info text-white" style="max-width: 70%;">
                     <div class="card-body py-1 px-3 small">
                         <i class="fas fa-wrench me-1"></i>
                         <strong>Using tool:</strong> ${escapeHtml(toolName)}
+                        ${argsDisplay ? `<pre class="mb-0 mt-1 text-white-50 small">${escapeHtml(argsDisplay)}</pre>` : ''}
                     </div>
                 </div>
             </div>
@@ -493,7 +581,6 @@ $(document).ready(function() {
     }
 
     function appendToolResult(toolName, result) {
-        // Only show tool result details if there was an error
         const isError = result && (result.success === false || result.error);
 
         if (isError) {
@@ -509,7 +596,6 @@ $(document).ready(function() {
                 </div>
             `);
         } else {
-            // Success - just show a brief confirmation
             $('#chat-messages').append(`
                 <div class="d-flex mb-2">
                     <div class="card bg-success text-white" style="max-width: 70%;">
@@ -551,13 +637,14 @@ $(document).ready(function() {
     }
 
     function appendHandoffMessage(data) {
+        const handoff = data.handoff || {};
         $('#chat-messages').append(`
             <div class="text-center mb-3">
                 <div class="card bg-warning d-inline-block">
                     <div class="card-body py-2 px-3">
                         <i class="fas fa-exchange-alt me-1"></i>
-                        <strong>Handoff to ${escapeHtml(data.handoff?.target_agent || 'specialist')}</strong><br>
-                        <small>${escapeHtml(data.handoff?.summary || '')}</small>
+                        <strong>Handoff to ${escapeHtml(handoff.target_agent || 'specialist')}</strong><br>
+                        <small>${escapeHtml(handoff.summary || '')}</small>
                     </div>
                 </div>
             </div>
@@ -565,31 +652,15 @@ $(document).ready(function() {
         scrollToBottom();
     }
 
-    function appendApprovalRequest(event) {
-        const approvalId = event.data?.approval_id || event.approval_id;
-        const toolName = event.data?.tool_name || event.tool_name || 'Unknown action';
-        const riskLevel = event.data?.risk_level || event.risk_level || 'high';
-        const message = event.content || event.message || 'This action requires approval';
-
+    function appendEscalationMessage(data) {
+        const escalation = data.escalation || {};
         $('#chat-messages').append(`
-            <div class="d-flex mb-3">
-                <div class="card border-warning" style="max-width: 80%;">
-                    <div class="card-header bg-warning text-dark py-1">
-                        <i class="fas fa-shield-alt me-1"></i>
-                        <strong>Approval Required</strong>
-                        <span class="badge bg-${riskLevel === 'critical' ? 'danger' : 'warning'} float-end">${riskLevel}</span>
-                    </div>
-                    <div class="card-body py-2">
-                        <p class="mb-2">${escapeHtml(message)}</p>
-                        <small class="text-muted">Tool: ${escapeHtml(toolName)}</small>
-                        <div class="mt-3">
-                            <button class="btn btn-success btn-sm approve-btn" data-id="${approvalId}">
-                                <i class="fas fa-check"></i> Approve
-                            </button>
-                            <button class="btn btn-danger btn-sm ms-2 reject-btn" data-id="${approvalId}">
-                                <i class="fas fa-times"></i> Reject
-                            </button>
-                        </div>
+            <div class="text-center mb-3">
+                <div class="card bg-danger text-white d-inline-block">
+                    <div class="card-body py-2 px-3">
+                        <i class="fas fa-user-shield me-1"></i>
+                        <strong>Escalated to Human Operator</strong><br>
+                        <small>${escapeHtml(escalation.reason || '')}</small>
                     </div>
                 </div>
             </div>
@@ -597,75 +668,44 @@ $(document).ready(function() {
         scrollToBottom();
     }
 
-    // Handle approval buttons
-    $(document).on('click', '.approve-btn', function() {
-        const approvalId = $(this).data('id');
-        const $card = $(this).closest('.card');
-
-        socket.emit('approve_action', {
-            session_id: currentSessionId,
-            approval_id: approvalId,
-            approved: true
-        });
-
-        $card.removeClass('border-warning').addClass('border-success');
-        $card.find('.card-header').removeClass('bg-warning').addClass('bg-success text-white');
-        $card.find('.card-body .mt-3').html('<span class="text-success"><i class="fas fa-check"></i> Approved</span>');
-    });
-
-    $(document).on('click', '.reject-btn', function() {
-        const approvalId = $(this).data('id');
-        const reason = prompt('Rejection reason (optional):') || 'Rejected by user';
-        const $card = $(this).closest('.card');
-
-        socket.emit('approve_action', {
-            session_id: currentSessionId,
-            approval_id: approvalId,
-            approved: false,
-            reason: reason
-        });
-
-        $card.removeClass('border-warning').addClass('border-danger');
-        $card.find('.card-header').removeClass('bg-warning').addClass('bg-danger text-white');
-        $card.find('.card-body .mt-3').html('<span class="text-danger"><i class="fas fa-times"></i> Rejected</span>');
-    });
-
-    // Send message
-    function sendMessage() {
-        const message = $('#chat-input').val().trim();
-        if (!message || !currentSessionId) return;
-
-        appendUserMessage(message);
-        $('#chat-input').val('');
-        $('#typing-indicator').show();
-
-        socket.emit('send_message', {
-            session_id: currentSessionId,
-            message: message
-        });
-    }
-
+    // Send message handlers
     $('#send-btn').on('click', sendMessage);
     $('#chat-input').on('keypress', function(e) {
-        if (e.which === 13) sendMessage();
+        if (e.which === 13 && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
     });
 
     // End session
     $('#end-session-btn').on('click', function() {
         if (!confirm('End this chat session?')) return;
-
-        if (socket && currentSessionId) {
-            socket.emit('end_session', { session_id: currentSessionId });
-            socket.disconnect();
-        }
-
-        resetChat();
+        endSession(true);
     });
 
+    function endSession(showMessage) {
+        if (currentSessionId) {
+            NetStacksAPI.ajax({
+                url: `/api/chat/${currentSessionId}/end`,
+                method: 'POST',
+                success: function(response) {
+                    if (showMessage) {
+                        showToast('Session ended', 'success');
+                    }
+                },
+                error: function(xhr) {
+                    console.error('Error ending session:', xhr);
+                }
+            });
+        }
+        resetChat();
+    }
+
     function resetChat() {
-        socket = null;
         currentSessionId = null;
         currentAgentId = null;
+        currentAgentName = null;
+        isProcessing = false;
 
         $('.agent-item').removeClass('active');
         $('#chat-title').text('Select an agent to start');
@@ -691,6 +731,7 @@ $(document).ready(function() {
     }
 
     function formatMessage(content) {
+        if (!content) return '';
         // Basic markdown-like formatting
         let html = escapeHtml(content);
         // Code blocks
@@ -702,6 +743,17 @@ $(document).ready(function() {
         // Line breaks
         html = html.replace(/\n/g, '<br>');
         return html;
+    }
+
+    function showToast(message, type) {
+        const alertClass = type === 'success' ? 'alert-success' :
+                          type === 'warning' ? 'alert-warning' : 'alert-danger';
+        const $alert = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed" style="top: 70px; right: 20px; z-index: 9999;">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`);
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
     }
 
     // Initial load

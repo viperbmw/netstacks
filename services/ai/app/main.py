@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from netstacks_core.db import init_db
 
 from app.config import get_settings
-from app.routes import agents, alerts, incidents, knowledge, approvals, sessions, llm, webhooks
+from app.routes import agents, alerts, incidents, knowledge, approvals, sessions, llm, webhooks, chat
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ app.include_router(approvals.router, prefix="/api/approvals", tags=["Approvals"]
 app.include_router(sessions.router, prefix="/api/sessions", tags=["Sessions"])
 app.include_router(llm.router, prefix="/api/llm", tags=["LLM Providers"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(chat.router, prefix="/api/chat", tags=["Agent Chat"])
 
 
 @app.get("/health")
@@ -78,5 +79,6 @@ async def root():
             "/api/sessions",
             "/api/llm",
             "/api/webhooks",
+            "/api/chat",
         ]
     }
