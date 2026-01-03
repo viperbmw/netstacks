@@ -8,7 +8,11 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost',
+    // Default for local development.
+    // When running Playwright inside Docker, set PLAYWRIGHT_BASE_URL to the
+    // internal service name (e.g. http://traefik) so the container can reach
+    // the application.
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

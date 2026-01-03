@@ -1,14 +1,38 @@
 import { test, expect } from '@playwright/test';
 
-// Helper to set auth tokens in localStorage before page load
+// Helper to set auth tokens in localStorage before page load.
+// NOTE: We log in against the running Auth service to obtain a *real* JWT.
+// This avoids flakiness when NETSTACKS_DEV_MODE=false (default in docker-compose).
 async function setupAuth(page) {
-  // Create a dummy JWT token for dev mode testing
-  await page.addInitScript(() => {
-    // Set dummy tokens - dev mode bypasses auth but frontend still checks
-    localStorage.setItem('netstacks_jwt_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImV4cCI6OTk5OTk5OTk5OX0.test');
-    localStorage.setItem('netstacks_jwt_expiry', String(Date.now() + 86400000));
-    localStorage.setItem('netstacks_jwt_refresh', 'refresh-token');
+  const loginResponse = await page.request.post('/api/auth/login', {
+    data: { username: 'admin', password: 'admin' },
   });
+
+  expect(loginResponse.ok()).toBeTruthy();
+  const login = await loginResponse.json();
+
+  const accessToken = login.access_token;
+  const refreshToken = login.refresh_token;
+  const expiresIn = login.expires_in || 1800;
+
+  expect(accessToken).toBeTruthy();
+
+  await page.addInitScript(
+    ({ accessToken, refreshToken, expiresIn }) => {
+      const TOKEN_KEY = 'netstacks_jwt_token';
+      const REFRESH_TOKEN_KEY = 'netstacks_jwt_refresh';
+      const TOKEN_EXPIRY_KEY = 'netstacks_jwt_expiry';
+
+      localStorage.setItem(TOKEN_KEY, accessToken);
+      if (refreshToken) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      }
+      // Match api-client.js behaviour: store expiry as ms epoch with a 60s buffer.
+      const expiryTime = Date.now() + ((expiresIn - 60) * 1000);
+      localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTime));
+    },
+    { accessToken, refreshToken, expiresIn }
+  );
 }
 
 test.describe('NetStacks Frontend Tests', () => {
@@ -152,7 +176,8 @@ test.describe('NetStacks Frontend Tests', () => {
 
     test('should load devices page', async ({ page }) => {
       await page.goto('/devices');
-      await expect(page.locator('h1').first()).toContainText(/Device/i);
+      // Devices page is the config_backups.html view and its primary heading is "Devices".
+      await expect(page.locator('h1')).toContainText(/Devices/i);
     });
   });
 
@@ -163,7 +188,8 @@ test.describe('NetStacks Frontend Tests', () => {
 
     test('should load templates page', async ({ page }) => {
       await page.goto('/templates');
-      await expect(page.locator('h1, h3')).toContainText(/Template/i);
+      // Be explicit to avoid strict-mode violations (dashboard has multiple h3 counters).
+      await expect(page.locator('h1')).toContainText(/Template/i);
     });
   });
 
