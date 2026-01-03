@@ -141,4 +141,7 @@ async def get_override_connection_args(
     if override.banner_timeout:
         connection_args["banner_timeout"] = override.banner_timeout
 
-    return success_response(data={"connection_args": connection_args})
+    return success_response(data={
+        "connection_args": connection_args,
+        "disabled": override.disabled or False
+    })

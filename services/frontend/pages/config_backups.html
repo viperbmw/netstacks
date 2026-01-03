@@ -200,26 +200,32 @@
                 </div>
 
                 <!-- Stats -->
-                <div class="row text-center">
-                    <div class="col-3">
+                <div class="d-flex text-center gap-2">
+                    <div class="flex-fill">
                         <div class="border rounded p-2">
                             <h4 class="mb-0 text-primary" id="stat-total">0</h4>
                             <small class="text-muted">Total</small>
                         </div>
                     </div>
-                    <div class="col-3">
+                    <div class="flex-fill">
                         <div class="border rounded p-2">
                             <h4 class="mb-0 text-success" id="stat-success">0</h4>
                             <small class="text-muted">Success</small>
                         </div>
                     </div>
-                    <div class="col-3">
+                    <div class="flex-fill">
                         <div class="border rounded p-2">
                             <h4 class="mb-0 text-danger" id="stat-failed">0</h4>
                             <small class="text-muted">Failed</small>
                         </div>
                     </div>
-                    <div class="col-3">
+                    <div class="flex-fill">
+                        <div class="border rounded p-2">
+                            <h4 class="mb-0 text-secondary" id="stat-skipped">0</h4>
+                            <small class="text-muted">Skipped</small>
+                        </div>
+                    </div>
+                    <div class="flex-fill">
                         <div class="border rounded p-2">
                             <h4 class="mb-0 text-warning" id="stat-pending">0</h4>
                             <small class="text-muted">Pending</small>
@@ -367,26 +373,32 @@
             </div>
             <div class="modal-body">
                 <!-- Snapshot Stats -->
-                <div class="row mb-4">
-                    <div class="col-md-3 text-center">
+                <div class="d-flex mb-4 gap-2">
+                    <div class="flex-fill text-center">
                         <div class="border rounded p-3 h-100">
                             <h3 class="mb-0 text-primary" id="modal-total">0</h3>
-                            <small class="text-muted">Total Devices</small>
+                            <small class="text-muted">Total</small>
                         </div>
                     </div>
-                    <div class="col-md-3 text-center">
+                    <div class="flex-fill text-center">
                         <div class="border rounded p-3 h-100">
                             <h3 class="mb-0 text-success" id="modal-success">0</h3>
-                            <small class="text-muted">Successful</small>
+                            <small class="text-muted">Success</small>
                         </div>
                     </div>
-                    <div class="col-md-3 text-center">
+                    <div class="flex-fill text-center">
                         <div class="border rounded p-3 h-100">
                             <h3 class="mb-0 text-danger" id="modal-failed">0</h3>
                             <small class="text-muted">Failed</small>
                         </div>
                     </div>
-                    <div class="col-md-3 text-center">
+                    <div class="flex-fill text-center">
+                        <div class="border rounded p-3 h-100">
+                            <h3 class="mb-0 text-secondary" id="modal-skipped">0</h3>
+                            <small class="text-muted">Skipped</small>
+                        </div>
+                    </div>
+                    <div class="flex-fill text-center">
                         <div class="border rounded p-3 h-100">
                             <span class="badge fs-5" id="modal-status-badge">Unknown</span>
                             <small class="text-muted d-block mt-1">Status</small>
@@ -1568,7 +1580,8 @@ function renderSnapshots(snapshots) {
         const total = s.total_devices || 0;
         const success = s.success_count || 0;
         const failed = s.failed_count || 0;
-        const completed = success + failed;
+        const skipped = s.skipped_count || 0;
+        const completed = success + failed + skipped;
         const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
         // Status badge
@@ -1593,15 +1606,17 @@ function renderSnapshots(snapshots) {
         // Progress bar
         const successPct = total > 0 ? (success / total * 100) : 0;
         const failedPct = total > 0 ? (failed / total * 100) : 0;
-        const pendingPct = 100 - successPct - failedPct;
+        const skippedPct = total > 0 ? (skipped / total * 100) : 0;
+        const pendingPct = 100 - successPct - failedPct - skippedPct;
 
         const progressBar = `
             <div class="progress" style="height: 20px;">
                 <div class="progress-bar bg-success" style="width: ${successPct}%" title="${success} success">${success > 0 ? success : ''}</div>
                 <div class="progress-bar bg-danger" style="width: ${failedPct}%" title="${failed} failed">${failed > 0 ? failed : ''}</div>
-                ${s.status === 'in_progress' ? `<div class="progress-bar bg-secondary progress-bar-striped progress-bar-animated" style="width: ${pendingPct}%"></div>` : ''}
+                <div class="progress-bar bg-secondary" style="width: ${skippedPct}%" title="${skipped} skipped">${skipped > 0 ? skipped : ''}</div>
+                ${s.status === 'in_progress' ? `<div class="progress-bar bg-warning progress-bar-striped progress-bar-animated" style="width: ${pendingPct}%"></div>` : ''}
             </div>
-            <small class="text-muted">${completed} / ${total}</small>
+            <small class="text-muted">${completed} / ${total}${skipped > 0 ? ` (${skipped} skipped)` : ''}</small>
         `;
 
         $tbody.append(`
@@ -1734,9 +1749,9 @@ function createSnapshot() {
             activeSnapshotId = response.snapshot_id;
             snapshotStartTime = new Date();
 
-            // Calculate totals - submitted and failed are counts
+            // Calculate totals - submitted and skipped are counts
             const totalDevices = (response.submitted || 0) + (response.errors ? response.errors.length : 0);
-            const failedCount = response.errors ? response.errors.length : 0;
+            const skippedCount = response.errors ? response.errors.length : 0;
 
             console.log('Starting snapshot polling, total devices:', totalDevices);
 
@@ -1744,7 +1759,8 @@ function createSnapshot() {
                 name: `Snapshot ${new Date().toLocaleString()}`,
                 total_devices: totalDevices,
                 success_count: 0,
-                failed_count: failedCount,
+                failed_count: 0,
+                skipped_count: skippedCount,
                 status: 'in_progress'
             });
 
@@ -1781,7 +1797,8 @@ function updateProgress(snapshot) {
     const total = snapshot.total_devices || 0;
     const success = snapshot.success_count || 0;
     const failed = snapshot.failed_count || 0;
-    const completed = success + failed;
+    const skipped = snapshot.skipped_count || 0;
+    const completed = success + failed + skipped;
     const pending = total - completed;
     const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
@@ -1789,12 +1806,14 @@ function updateProgress(snapshot) {
     $('#stat-total').text(total);
     $('#stat-success').text(success);
     $('#stat-failed').text(failed);
+    $('#stat-skipped').text(skipped);
     $('#stat-pending').text(pending);
     $('#active-snapshot-pct').text(pct + '%');
 
     // Update progress bar
     const successPct = total > 0 ? (success / total * 100) : 0;
     const failedPct = total > 0 ? (failed / total * 100) : 0;
+    const skippedPct = total > 0 ? (skipped / total * 100) : 0;
     const pendingPct = total > 0 ? (pending / total * 100) : 0;
 
     $('#progress-success-bar').css('width', successPct + '%');
@@ -1885,6 +1904,7 @@ function viewSnapshot(snapshotId) {
                 $('#modal-total').text(s.total_devices || 0);
                 $('#modal-success').text(s.success_count || 0);
                 $('#modal-failed').text(s.failed_count || 0);
+                $('#modal-skipped').text(s.skipped_count || 0);
 
                 // Status badge
                 let badgeClass = 'bg-secondary';

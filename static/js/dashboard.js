@@ -1073,6 +1073,43 @@ function formatTaskResultHtml(result) {
         </div>`;
     }
 
+    // Show parsed output if present (for TextFSM/TTP parsed data)
+    if (result.parsed_output) {
+        let parsedHtml = '';
+        if (Array.isArray(result.parsed_output)) {
+            if (result.parsed_output.length > 0 && typeof result.parsed_output[0] === 'object') {
+                const headers = Object.keys(result.parsed_output[0]);
+                parsedHtml = `<table class="table table-sm table-bordered table-striped mb-0">
+                    <thead class="table-dark"><tr>${headers.map(h => `<th>${escapeHtmlDashboard(h)}</th>`).join('')}</tr></thead>
+                    <tbody>${result.parsed_output.map(row =>
+                        `<tr>${headers.map(h => `<td>${escapeHtmlDashboard(String(row[h] || ''))}</td>`).join('')}</tr>`
+                    ).join('')}</tbody>
+                </table>`;
+            } else {
+                parsedHtml = `<pre class="mb-0">${escapeHtmlDashboard(JSON.stringify(result.parsed_output, null, 2))}</pre>`;
+            }
+        } else {
+            parsedHtml = `<pre class="mb-0">${escapeHtmlDashboard(JSON.stringify(result.parsed_output, null, 2))}</pre>`;
+        }
+
+        html += `<div class="mb-3">
+            <strong>Parsed Output${result.parser ? ' (' + result.parser + ')' : ''}:</strong>
+            <div class="bg-secondary bg-opacity-10 p-2 rounded mt-1" style="max-height: 300px; overflow: auto;">${parsedHtml}</div>
+        </div>`;
+    }
+
+    // Show validations if present
+    if (result.validations && Array.isArray(result.validations)) {
+        html += `<div class="mb-3">
+            <strong>Validations:</strong>
+            <div class="mt-1">`;
+        result.validations.forEach(v => {
+            const icon = v.found ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>';
+            html += `<div class="small">${icon} <code>${escapeHtmlDashboard(v.pattern)}</code></div>`;
+        });
+        html += `</div></div>`;
+    }
+
     // Fallback to JSON if no structured data
     if (html === '') {
         html = `<pre class="mb-0">${escapeHtmlDashboard(JSON.stringify(result, null, 2))}</pre>`;

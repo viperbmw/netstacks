@@ -368,6 +368,7 @@ class ConfigSnapshot(Base):
     total_devices = Column(Integer, default=0)
     success_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
+    skipped_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     created_by = Column(String(255), nullable=True)

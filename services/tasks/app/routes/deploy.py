@@ -86,7 +86,7 @@ async def get_device_connection_info(
         auth_header: Authorization header to forward
 
     Returns:
-        Dict with connection_args or None if not found
+        Dict with connection_args, or dict with 'error' key if device is disabled/not found, or None on error
     """
     devices_url = settings.DEVICES_SERVICE_URL
     auth_url = settings.AUTH_SERVICE_URL
@@ -116,6 +116,7 @@ async def get_device_connection_info(
 
             # Get device overrides with unmasked credentials
             overrides = {}
+            device_disabled = False
             override_response = await client.get(
                 f"{devices_url}/api/device-overrides/{device_name}/connection-args",
                 headers=headers
@@ -124,8 +125,15 @@ async def get_device_connection_info(
                 override_data = override_response.json()
                 if override_data.get("success"):
                     overrides = override_data.get("data", {}).get("connection_args", {}) or {}
+                    device_disabled = override_data.get("data", {}).get("disabled", False)
                 else:
                     overrides = override_data.get("connection_args", {}) or {}
+                    device_disabled = override_data.get("disabled", False)
+
+            # If device is disabled, return error dict to block all operations
+            if device_disabled:
+                log.info(f"Device {device_name} is disabled, blocking operation")
+                return {"error": "disabled", "message": f"Device {device_name} is disabled"}
 
             # Get default credentials from auth service (unmasked)
             default_settings = {}
@@ -249,6 +257,10 @@ async def celery_getconfig(
     if not device_info:
         raise HTTPException(status_code=404, detail=f"Device {request.device} not found")
 
+    # Check if device is disabled
+    if device_info.get("error") == "disabled":
+        raise HTTPException(status_code=403, detail=device_info.get("message", f"Device {request.device} is disabled"))
+
     connection_args = device_info["connection_args"]
 
     # Clean None values
@@ -314,6 +326,10 @@ async def celery_setconfig(
 
     if not device_info:
         raise HTTPException(status_code=404, detail=f"Device {request.device} not found")
+
+    # Check if device is disabled
+    if device_info.get("error") == "disabled":
+        raise HTTPException(status_code=403, detail=device_info.get("message", f"Device {request.device} is disabled"))
 
     connection_args = device_info["connection_args"]
     clean_args = {k: v for k, v in connection_args.items() if v is not None}
@@ -397,6 +413,10 @@ async def celery_validate(
 
     if not device_info:
         raise HTTPException(status_code=404, detail=f"Device {request.device} not found")
+
+    # Check if device is disabled
+    if device_info.get("error") == "disabled":
+        raise HTTPException(status_code=403, detail=device_info.get("message", f"Device {request.device} is disabled"))
 
     connection_args = device_info["connection_args"]
     clean_args = {k: v for k, v in connection_args.items() if v is not None}

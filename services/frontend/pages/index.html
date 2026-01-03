@@ -466,6 +466,7 @@
                         <table class="table table-sm table-hover">
                             <thead>
                                 <tr>
+                                    <th>Type</th>
                                     <th>Device</th>
                                     <th>Status</th>
                                     <th>Created</th>
@@ -548,18 +549,21 @@
                 <div id="task-results-content" style="display: none;">
                     <!-- Task Info -->
                     <div class="row mb-3">
-                        <div class="col-md-6">
-                            <strong>Task ID:</strong> <span id="task-result-id"></span>
+                        <div class="col-md-4">
+                            <strong>Task ID:</strong> <span id="task-result-id" class="font-monospace"></span>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <strong>Type:</strong> <span id="task-result-type"></span>
+                        </div>
+                        <div class="col-md-4">
                             <strong>Device:</strong> <span id="task-result-device"></span>
                         </div>
                     </div>
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <strong>Status:</strong> <span id="task-result-status"></span>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <strong>Created:</strong> <span id="task-result-created"></span>
                         </div>
                     </div>
@@ -567,7 +571,7 @@
                     <!-- Task Result -->
                     <div class="mt-3">
                         <strong>Result:</strong>
-                        <pre id="task-result-output" class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"></pre>
+                        <div id="task-result-output" class="mt-2"></div>
                     </div>
                 </div>
                 <div id="task-results-error" style="display: none;" class="alert alert-danger">
@@ -758,7 +762,7 @@
             setInterval(updateSystemTime, 1000);
         });
     </script>
-    <script src="/static/js/dashboard.js?v=7"></script>
+    <script src="/static/js/dashboard.js?v=9"></script>
     <!-- NetStacks AI Assistant -->
     <script src="/static/js/assistant.js?v=4"></script>
 </body>

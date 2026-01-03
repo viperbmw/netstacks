@@ -215,6 +215,10 @@ function displayDevices(devices) {
         // Get management IP from device data
         const managementIp = device.primary_ip || device.host || device.ip_address || '-';
 
+        // Check if device is disabled
+        const override = deviceOverrides[device.name];
+        const isDisabled = override && override.disabled;
+
         // Get backup info for this device
         const backup = deviceBackups[device.name];
         let backupInfo = '<span class="text-muted">Never</span>';
@@ -241,32 +245,40 @@ function displayDevices(devices) {
         }
 
         const deleteBtn = source === 'manual' ?
-            `<button class="btn btn-sm btn-outline-danger delete-manual-device-btn" data-device="${device.name}" title="Delete device">
+            `<button class="btn btn-sm btn-outline-danger delete-manual-device-btn" data-device="${device.name}" title="Delete device"${isDisabled ? ' disabled' : ''}>
                 <i class="fas fa-trash"></i>
              </button>` : '';
 
-        const backupBtn = `<button class="btn btn-sm btn-outline-primary backup-device-btn me-1" data-device="${device.name}" title="Backup now">
+        // Disable action buttons if device is disabled
+        const disabledAttr = isDisabled ? ' disabled title="Device is disabled"' : '';
+        const backupBtn = `<button class="btn btn-sm btn-outline-primary backup-device-btn me-1" data-device="${device.name}" title="${isDisabled ? 'Device is disabled' : 'Backup now'}"${disabledAttr}>
             <i class="fas fa-download"></i>
         </button>`;
 
-        // Check if device has overrides
-        const hasOverride = deviceOverrides[device.name];
+        // Check if device has overrides (show indicator but not for just disabled)
+        const hasOverride = override && (override.device_type || override.host || override.username || override.password);
         const overrideIndicator = hasOverride ? '<i class="fas fa-cog text-warning ms-1" title="Has custom settings"></i>' : '';
+
+        // Disabled badge
+        const disabledBadge = isDisabled ? ' <span class="badge bg-secondary">Disabled</span>' : '';
 
         const editBtn = `<button class="btn btn-sm btn-outline-secondary edit-device-btn me-1" data-device="${device.name}" title="Edit device settings">
             <i class="fas fa-edit"></i>
         </button>`;
 
-        const testBtn = `<button class="btn btn-sm btn-outline-info test-connectivity-btn me-1" data-device="${device.name}" title="Test connectivity">
+        const testBtn = `<button class="btn btn-sm btn-outline-info test-connectivity-btn me-1" data-device="${device.name}" title="${isDisabled ? 'Device is disabled' : 'Test connectivity'}"${disabledAttr}>
             <i class="fas fa-plug"></i>
         </button>`;
 
+        // Row styling for disabled devices
+        const rowClass = isDisabled ? ' class="table-secondary"' : '';
+
         const row = `
-            <tr>
+            <tr${rowClass}>
                 <td>
-                    <input type="checkbox" class="form-check-input device-checkbox" data-device="${device.name}">
+                    <input type="checkbox" class="form-check-input device-checkbox" data-device="${device.name}"${isDisabled ? ' disabled title="Device is disabled"' : ''}>
                 </td>
-                <td><strong>${device.name}</strong>${overrideIndicator}</td>
+                <td><strong>${device.name}</strong>${disabledBadge}${overrideIndicator}</td>
                 <td><code class="text-muted">${escapeHtml(managementIp)}</code></td>
                 <td>${deviceType}</td>
                 <td>${sourceBadge}</td>

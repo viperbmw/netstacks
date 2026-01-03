@@ -79,7 +79,11 @@ async def get_device_connection_info(
     device_name: str,
     auth_header: Optional[str] = None
 ) -> Optional[dict]:
-    """Get device connection info including credentials."""
+    """Get device connection info including credentials.
+
+    Returns:
+        Dict with device_info and connection_args, or dict with 'error' key if device is disabled, or None if not found.
+    """
     devices_url = settings.DEVICES_SERVICE_URL
     auth_url = settings.AUTH_SERVICE_URL
     headers = {"Content-Type": "application/json"}
@@ -106,9 +110,16 @@ async def get_device_connection_info(
                 headers=headers
             )
             override = {}
+            device_disabled = False
             if override_resp.status_code == 200:
                 resp_data = override_resp.json().get("data", {})
                 override = resp_data.get("connection_args") or {}
+                device_disabled = resp_data.get("disabled", False)
+
+            # If device is disabled, return error dict to block all operations
+            if device_disabled:
+                log.info(f"Device {device_name} is disabled, skipping operation")
+                return {"error": "disabled", "message": f"Device {device_name} is disabled"}
 
             # Get default credentials (unmasked)
             settings_resp = await client.get(
@@ -198,6 +209,7 @@ async def create_config_snapshot(
             total_devices=total_devices,
             success_count=0,
             failed_count=0,
+            skipped_count=0,
             created_by=created_by
         )
         session.add(snapshot)
@@ -246,6 +258,40 @@ def get_username_from_token(auth_header: Optional[str]) -> Optional[str]:
         return payload.get("sub")
     except Exception:
         return None
+
+
+async def update_snapshot_for_skipped_devices(snapshot_id: str, skipped: int):
+    """
+    Update snapshot to account for devices that were skipped (disabled, no credentials, etc).
+    Uses the skipped_count column and checks if the snapshot is now complete.
+    """
+    try:
+        from netstacks_core.db import get_session, ConfigSnapshot as ConfigSnapshotModel
+
+        session = get_session()
+        snapshot = session.query(ConfigSnapshotModel).filter(
+            ConfigSnapshotModel.snapshot_id == snapshot_id
+        ).first()
+
+        if snapshot:
+            # Update skipped count
+            snapshot.skipped_count = (snapshot.skipped_count or 0) + skipped
+
+            # Check if snapshot is now complete (success + failed + skipped = total)
+            total_processed = (snapshot.success_count or 0) + (snapshot.failed_count or 0) + (snapshot.skipped_count or 0)
+            if total_processed >= snapshot.total_devices:
+                # Status is 'complete' only if all succeeded, 'partial' if any failed or skipped
+                if snapshot.failed_count == 0 and snapshot.skipped_count == 0:
+                    snapshot.status = 'complete'
+                else:
+                    snapshot.status = 'partial'
+                snapshot.completed_at = datetime.utcnow()
+                log.info(f"Snapshot {snapshot_id} marked as {snapshot.status} (skipped {skipped} devices)")
+
+            session.commit()
+        session.close()
+    except Exception as e:
+        log.error(f"Error updating snapshot for skipped devices: {e}")
 
 
 @router.post("/run-all")
@@ -316,48 +362,58 @@ async def run_all_device_backups(
             try:
                 device_info = await get_device_connection_info(device_name, authorization)
 
-                if device_info:
-                    connection_args = device_info["connection_args"]
-
-                    # Skip if no credentials
-                    if not connection_args.get("username") or not connection_args.get("password"):
-                        failed.append({"device": device_name, "error": "No credentials configured"})
-                        continue
-
-                    # Clean None values
-                    clean_args = {k: v for k, v in connection_args.items() if v is not None}
-
-                    # Submit Celery task
-                    task = celery_app.send_task(
-                        "tasks.backup_tasks.backup_device_config",
-                        kwargs={
-                            "connection_args": clean_args,
-                            "device_name": device_name,
-                            "device_platform": device_info["device_info"].get("platform"),
-                            "juniper_set_format": juniper_set_format,
-                            "snapshot_id": snapshot_id,
-                            "created_by": created_by
-                        }
-                    )
-                    task_id = task.id
-
-                    # Save task history
-                    await save_task_history(
-                        task_id=task_id,
-                        device_name=f"snapshot:{snapshot_id}:backup:{device_name}",
-                        auth_header=authorization
-                    )
-
-                    submitted.append({
-                        "device": device_name,
-                        "task_id": task_id,
-                        "snapshot_id": snapshot_id
-                    })
-                else:
+                if not device_info:
                     failed.append({"device": device_name, "error": "Could not get connection info"})
+                    continue
+
+                # Check if device is disabled
+                if device_info.get("error") == "disabled":
+                    failed.append({"device": device_name, "error": "Device is disabled"})
+                    continue
+
+                connection_args = device_info["connection_args"]
+
+                # Skip if no credentials
+                if not connection_args.get("username") or not connection_args.get("password"):
+                    failed.append({"device": device_name, "error": "No credentials configured"})
+                    continue
+
+                # Clean None values
+                clean_args = {k: v for k, v in connection_args.items() if v is not None}
+
+                # Submit Celery task
+                task = celery_app.send_task(
+                    "tasks.backup_tasks.backup_device_config",
+                    kwargs={
+                        "connection_args": clean_args,
+                        "device_name": device_name,
+                        "device_platform": device_info["device_info"].get("platform"),
+                        "juniper_set_format": juniper_set_format,
+                        "snapshot_id": snapshot_id,
+                        "created_by": created_by
+                    }
+                )
+                task_id = task.id
+
+                # Save task history
+                await save_task_history(
+                    task_id=task_id,
+                    device_name=f"snapshot:{snapshot_id}:backup:{device_name}",
+                    auth_header=authorization
+                )
+
+                submitted.append({
+                    "device": device_name,
+                    "task_id": task_id,
+                    "snapshot_id": snapshot_id
+                })
 
             except Exception as e:
                 failed.append({"device": device_name, "error": str(e)})
+
+        # Update snapshot with actual counts (adjusting for skipped devices)
+        if failed:
+            await update_snapshot_for_skipped_devices(snapshot_id, len(failed))
 
         return {
             "success": True,
@@ -417,44 +473,54 @@ async def run_selected_device_backups(
             try:
                 device_info = await get_device_connection_info(device_name, authorization)
 
-                if device_info:
-                    connection_args = device_info["connection_args"]
-
-                    if not connection_args.get("username") or not connection_args.get("password"):
-                        failed.append({"device": device_name, "error": "No credentials configured"})
-                        continue
-
-                    clean_args = {k: v for k, v in connection_args.items() if v is not None}
-
-                    task = celery_app.send_task(
-                        "tasks.backup_tasks.backup_device_config",
-                        kwargs={
-                            "connection_args": clean_args,
-                            "device_name": device_name,
-                            "device_platform": device_info["device_info"].get("platform"),
-                            "juniper_set_format": juniper_set_format,
-                            "snapshot_id": snapshot_id,
-                            "created_by": created_by
-                        }
-                    )
-                    task_id = task.id
-
-                    await save_task_history(
-                        task_id=task_id,
-                        device_name=f"snapshot:{snapshot_id}:backup:{device_name}",
-                        auth_header=authorization
-                    )
-
-                    submitted.append({
-                        "device": device_name,
-                        "task_id": task_id,
-                        "snapshot_id": snapshot_id
-                    })
-                else:
+                if not device_info:
                     failed.append({"device": device_name, "error": "Could not get connection info"})
+                    continue
+
+                # Check if device is disabled
+                if device_info.get("error") == "disabled":
+                    failed.append({"device": device_name, "error": "Device is disabled"})
+                    continue
+
+                connection_args = device_info["connection_args"]
+
+                if not connection_args.get("username") or not connection_args.get("password"):
+                    failed.append({"device": device_name, "error": "No credentials configured"})
+                    continue
+
+                clean_args = {k: v for k, v in connection_args.items() if v is not None}
+
+                task = celery_app.send_task(
+                    "tasks.backup_tasks.backup_device_config",
+                    kwargs={
+                        "connection_args": clean_args,
+                        "device_name": device_name,
+                        "device_platform": device_info["device_info"].get("platform"),
+                        "juniper_set_format": juniper_set_format,
+                        "snapshot_id": snapshot_id,
+                        "created_by": created_by
+                    }
+                )
+                task_id = task.id
+
+                await save_task_history(
+                    task_id=task_id,
+                    device_name=f"snapshot:{snapshot_id}:backup:{device_name}",
+                    auth_header=authorization
+                )
+
+                submitted.append({
+                    "device": device_name,
+                    "task_id": task_id,
+                    "snapshot_id": snapshot_id
+                })
 
             except Exception as e:
                 failed.append({"device": device_name, "error": str(e)})
+
+        # Update snapshot with actual counts (adjusting for skipped devices)
+        if failed:
+            await update_snapshot_for_skipped_devices(snapshot_id, len(failed))
 
         return {
             "success": True,
@@ -495,6 +561,13 @@ async def run_single_device_backup(
             raise HTTPException(
                 status_code=404,
                 detail=f"Device not found: {device_name}"
+            )
+
+        # Check if device is disabled
+        if device_info.get("error") == "disabled":
+            raise HTTPException(
+                status_code=403,
+                detail=device_info.get("message", f"Device {device_name} is disabled")
             )
 
         connection_args = device_info["connection_args"]

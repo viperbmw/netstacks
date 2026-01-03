@@ -30,6 +30,7 @@ def snapshot_to_dict(snapshot: ConfigSnapshot) -> dict:
         'total_devices': snapshot.total_devices,
         'success_count': snapshot.success_count,
         'failed_count': snapshot.failed_count,
+        'skipped_count': snapshot.skipped_count or 0,
         'created_at': snapshot.created_at.isoformat() if snapshot.created_at else None,
         'completed_at': snapshot.completed_at.isoformat() if snapshot.completed_at else None,
         'created_by': snapshot.created_by,
