@@ -83,6 +83,8 @@ function loadTasks() {
                 const status = task.status || 'pending';
                 const created = task.created_at || null;
                 const createdDate = created ? formatDate(created) : 'N/A';
+                const taskName = task.task_name || '';
+                const actionType = task.action_type || null;
 
                 // Skip completed tasks if filter is off
                 if (!showCompleted && (status === 'success' || status === 'completed')) {
@@ -97,8 +99,16 @@ function loadTasks() {
                 else if (statusLower === 'success') statusBadge = 'badge-completed';
                 else if (statusLower === 'failure') statusBadge = 'badge-failed';
 
+                // Format task ID like snapshots do (show first 8 chars of UUID)
+                const shortId = taskId.length > 8 ? taskId.substring(0, 8) : taskId;
+
+                // Format task type from action_type (preferred) or task_name (fallback)
+                const taskType = formatTaskType(taskName, actionType);
+
                 tbody.append(`
                     <tr data-task-id="${taskId}">
+                        <td><small class="font-monospace text-muted" title="${taskId}">${shortId}</small></td>
+                        <td>${taskType}</td>
                         <td><small>${deviceName}</small></td>
                         <td><span class="badge ${statusBadge}">${status}</span></td>
                         <td><small>${createdDate}</small></td>
@@ -223,16 +233,16 @@ function viewTaskDetails(taskId) {
                 $('#detail-errors-section').show();
             }
 
-            // Format result
+            // Format result - make it more readable
             let formattedResult = 'No result data';
             if (result !== null && result !== undefined) {
                 if (typeof result === 'object') {
-                    formattedResult = JSON.stringify(result, null, 2);
+                    formattedResult = formatTaskResult(result);
                 } else {
                     formattedResult = String(result);
                 }
             }
-            $('#detail-result').text(formattedResult);
+            $('#detail-result').html(formattedResult);
 
             // Copy button handler
             $('#copy-task-details').off('click').on('click', function() {
@@ -451,3 +461,196 @@ $('#copy-mop-details').on('click', function() {
         alert('Failed to copy log: ' + err);
     });
 });
+
+/**
+ * Format task result for better readability
+ * Handles device config output, parsed data, etc.
+ */
+function formatTaskResult(result) {
+    let html = '';
+    
+    // Show status prominently if present
+    if (result.status) {
+        const statusClass = result.status === 'success' ? 'text-success' : 
+                           result.status === 'failed' ? 'text-danger' : 'text-warning';
+        html += `<div class="mb-2"><strong>Status:</strong> <span class="${statusClass} fw-bold">${result.status.toUpperCase()}</span></div>`;
+    }
+    
+    // Show host/device if present
+    if (result.host) {
+        html += `<div class="mb-2"><strong>Host:</strong> ${escapeHtml(result.host)}</div>`;
+    }
+    
+    // Show command if present
+    if (result.command) {
+        html += `<div class="mb-2"><strong>Command:</strong> <code>${escapeHtml(result.command)}</code></div>`;
+    }
+    
+    // Show error if present
+    if (result.error) {
+        html += `<div class="mb-3 p-2 bg-danger bg-opacity-10 border border-danger rounded">
+            <strong class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error:</strong>
+            <pre class="mb-0 mt-1 text-danger" style="white-space: pre-wrap;">${escapeHtml(result.error)}</pre>
+        </div>`;
+    }
+    
+    // Show config lines if present (for set_config tasks)
+    if (result.config_lines && Array.isArray(result.config_lines)) {
+        html += `<div class="mb-3">
+            <strong>Config Lines (${result.config_lines.length}):</strong>
+            <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small" style="max-height: 200px; overflow-y: auto;">${escapeHtml(result.config_lines.join('\n'))}</pre>
+        </div>`;
+    }
+    
+    // Show rendered config if present
+    if (result.rendered_config) {
+        html += `<div class="mb-3">
+            <strong>Rendered Config:</strong>
+            <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small" style="max-height: 200px; overflow-y: auto;">${escapeHtml(result.rendered_config)}</pre>
+        </div>`;
+    }
+    
+    // Show CLI output (most important for readability)
+    if (result.output) {
+        html += `<div class="mb-3">
+            <strong>Device Output:</strong>
+            <pre class="bg-dark text-light p-3 rounded mt-1" style="max-height: 400px; overflow-y: auto; font-size: 12px; line-height: 1.4;">${escapeHtml(result.output)}</pre>
+        </div>`;
+    }
+    
+    // Show save output if present
+    if (result.save_output) {
+        html += `<div class="mb-3">
+            <strong>Save Config Output:</strong>
+            <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small" style="max-height: 150px; overflow-y: auto;">${escapeHtml(result.save_output)}</pre>
+        </div>`;
+    }
+    
+    // Show parsed output if present (for TextFSM/TTP parsed data)
+    if (result.parsed_output) {
+        let parsedHtml = '';
+        if (Array.isArray(result.parsed_output)) {
+            // Format as table if array of objects
+            if (result.parsed_output.length > 0 && typeof result.parsed_output[0] === 'object') {
+                const headers = Object.keys(result.parsed_output[0]);
+                parsedHtml = `<table class="table table-sm table-bordered table-striped mb-0">
+                    <thead class="table-dark"><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+                    <tbody>${result.parsed_output.map(row => 
+                        `<tr>${headers.map(h => `<td>${escapeHtml(String(row[h] || ''))}</td>`).join('')}</tr>`
+                    ).join('')}</tbody>
+                </table>`;
+            } else {
+                parsedHtml = `<pre class="mb-0">${escapeHtml(JSON.stringify(result.parsed_output, null, 2))}</pre>`;
+            }
+        } else {
+            parsedHtml = `<pre class="mb-0">${escapeHtml(JSON.stringify(result.parsed_output, null, 2))}</pre>`;
+        }
+        
+        html += `<div class="mb-3">
+            <strong>Parsed Output${result.parser ? ' (' + result.parser + ')' : ''}:</strong>
+            <div class="bg-secondary bg-opacity-10 p-2 rounded mt-1" style="max-height: 300px; overflow: auto;">${parsedHtml}</div>
+        </div>`;
+    }
+    
+    // Show validations if present
+    if (result.validations && Array.isArray(result.validations)) {
+        html += `<div class="mb-3">
+            <strong>Validations:</strong>
+            <div class="mt-1">`;
+        result.validations.forEach(v => {
+            const icon = v.found ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>';
+            html += `<div class="small">${icon} <code>${escapeHtml(v.pattern)}</code></div>`;
+        });
+        html += `</div></div>`;
+    }
+    
+    // If none of the above matched, show raw JSON
+    if (html === '' || (!result.output && !result.error && !result.config_lines && !result.parsed_output)) {
+        // Remove known processed fields and show any remaining data
+        const remaining = {...result};
+        delete remaining.status;
+        delete remaining.host;
+        delete remaining.command;
+        delete remaining.error;
+        delete remaining.output;
+        delete remaining.save_output;
+        delete remaining.config_lines;
+        delete remaining.rendered_config;
+        delete remaining.parsed_output;
+        delete remaining.parser;
+        delete remaining.validations;
+        
+        if (Object.keys(remaining).length > 0) {
+            html += `<div class="mb-3">
+                <strong>Additional Data:</strong>
+                <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small">${escapeHtml(JSON.stringify(remaining, null, 2))}</pre>
+            </div>`;
+        }
+    }
+    
+    // Fallback if still empty
+    if (html === '') {
+        html = `<pre class="mb-0">${escapeHtml(JSON.stringify(result, null, 2))}</pre>`;
+    }
+    
+    return html;
+}
+
+/**
+ * Format task type into a human-readable badge
+ * @param {string} taskName - Full task name (e.g., "tasks.device_tasks.set_config")
+ * @param {string|null} actionType - Explicit action type (deploy, delete, validate, etc.)
+ * @returns {string} HTML badge for the task type
+ */
+function formatTaskType(taskName, actionType) {
+    // Map action types to display labels and colors
+    const actionTypeMap = {
+        'deploy': { label: 'Deploy', icon: 'fa-rocket', color: 'primary' },
+        'delete': { label: 'Delete', icon: 'fa-trash', color: 'danger' },
+        'validate': { label: 'Validate', icon: 'fa-check-circle', color: 'success' },
+        'healthcheck': { label: 'Health Check', icon: 'fa-heartbeat', color: 'success' },
+        'backup': { label: 'Backup', icon: 'fa-save', color: 'info' },
+        'command': { label: 'Command', icon: 'fa-terminal', color: 'secondary' },
+        'restore': { label: 'Restore', icon: 'fa-undo', color: 'warning' },
+        'test': { label: 'Test', icon: 'fa-plug', color: 'warning' }
+    };
+
+    // Prefer action_type if available (more accurate)
+    if (actionType && actionTypeMap[actionType]) {
+        const typeInfo = actionTypeMap[actionType];
+        return `<span class="badge bg-${typeInfo.color}"><i class="fas ${typeInfo.icon}"></i> ${typeInfo.label}</span>`;
+    }
+
+    // Fallback: parse task_name for backwards compatibility
+    if (!taskName) return '<span class="badge bg-secondary">Unknown</span>';
+
+    // Extract the last part of the task name
+    const parts = taskName.split('.');
+    const action = parts[parts.length - 1] || '';
+
+    // Map task names to display labels and colors
+    const taskNameMap = {
+        'set_config': { label: 'Config', icon: 'fa-cog', color: 'primary' },
+        'get_config': { label: 'Get Config', icon: 'fa-download', color: 'info' },
+        'validate_config': { label: 'Validate', icon: 'fa-check-circle', color: 'success' },
+        'backup_device_config': { label: 'Backup', icon: 'fa-save', color: 'info' },
+        'test_connectivity': { label: 'Test', icon: 'fa-plug', color: 'warning' }
+    };
+
+    const typeInfo = taskNameMap[action] || { label: action, icon: 'fa-cog', color: 'secondary' };
+
+    return `<span class="badge bg-${typeInfo.color}"><i class="fas ${typeInfo.icon}"></i> ${typeInfo.label}</span>`;
+}
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}

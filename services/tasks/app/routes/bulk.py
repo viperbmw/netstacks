@@ -153,18 +153,19 @@ def submit_celery_task(task_name: str, **kwargs) -> str:
     return task.id
 
 
-def record_task(session: Session, task_id: str, device_name: str, task_name: str = None):
+def record_task(session: Session, task_id: str, device_name: str, task_name: str = None, action_type: str = None):
     """Record a task to the database for history tracking."""
     try:
         entry = TaskHistory(
             task_id=task_id,
             device_name=device_name,
             task_name=task_name,
+            action_type=action_type,
             status='pending'
         )
         session.add(entry)
         session.commit()
-        log.debug(f"Recorded task {task_id} for device {device_name}")
+        log.debug(f"Recorded task {task_id} for device {device_name} (action: {action_type})")
     except Exception as e:
         log.error(f"Failed to record task history: {e}")
         session.rollback()
@@ -393,7 +394,7 @@ async def bulk_backup_devices(
         )
 
         # Record task to database for monitoring
-        record_task(session, task_id, f"backup:{device_name}", task_name)
+        record_task(session, task_id, f"backup:{device_name}", task_name, action_type="backup")
 
         task_ids.append(task_id)
         log.info(f"Dispatched backup task {task_id} for {device_name}")

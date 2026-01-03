@@ -288,6 +288,7 @@ function renderServiceStacks(stacks) {
         const deviceCount = allDevicesInStack.size;
         const deviceList = Array.from(allDevicesInStack);
         const serviceCount = stack.services ? stack.services.length : 0;
+        const deployedCount = stack.deployed_services ? stack.deployed_services.length : 0;
 
         html += `
             <div class="col-md-6 col-lg-4 mb-3">
@@ -304,7 +305,8 @@ function renderServiceStacks(stacks) {
 
                         <div class="mb-2">
                             <small>
-                                <i class="fas fa-cogs text-primary"></i> <strong>${serviceCount}</strong> service${serviceCount !== 1 ? 's' : ''}
+                                <i class="fas fa-cogs text-primary"></i> <strong>${serviceCount}</strong> service type${serviceCount !== 1 ? 's' : ''}
+                                ${deployedCount > 0 ? `<span class="text-success ms-2"><i class="fas fa-check-circle"></i> ${deployedCount} deployed</span>` : ''}
                             </small>
                         </div>
 
@@ -1469,9 +1471,9 @@ function loadDeployedServices(serviceIds) {
 
         responses.forEach(function(response) {
             // Skip null responses (deleted or errored services)
-            // API returns service in 'instance' field, not 'service' field
-            if (response && response.success && response.instance) {
-                const service = response.instance;
+            // API returns service in 'data.instance' field
+            if (response && response.success && response.data && response.data.instance) {
+                const service = response.data.instance;
                 serviceCount++;
                 const stateColors = {
                     'pending': 'secondary',
@@ -1598,8 +1600,8 @@ function viewServiceDetails(serviceId) {
     // Fetch service instance details
     $.get('/api/services/instances/' + encodeURIComponent(serviceId))
         .done(function(data) {
-            if (data.success && data.instance) {
-                renderServiceInstanceDetails(data.instance);
+            if (data.success && data.data && data.data.instance) {
+                renderServiceInstanceDetails(data.data.instance);
 
                 // Setup action buttons
                 $('#validate-service-instance-btn').off('click').on('click', function() {

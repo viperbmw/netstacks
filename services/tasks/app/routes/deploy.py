@@ -21,18 +21,19 @@ log = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def record_task(session: Session, task_id: str, device_name: str, task_name: str = None):
+def record_task(session: Session, task_id: str, device_name: str, task_name: str = None, action_type: str = None):
     """Record a task to the database for history tracking."""
     try:
         entry = TaskHistory(
             task_id=task_id,
             device_name=device_name,
             task_name=task_name,
+            action_type=action_type,
             status='pending'
         )
         session.add(entry)
         session.commit()
-        log.debug(f"Recorded task {task_id} for device {device_name}")
+        log.debug(f"Recorded task {task_id} for device {device_name} (action: {action_type})")
     except Exception as e:
         log.error(f"Failed to record task history: {e}")
         session.rollback()
@@ -88,6 +89,7 @@ async def get_device_connection_info(
         Dict with connection_args or None if not found
     """
     devices_url = settings.DEVICES_SERVICE_URL
+    auth_url = settings.AUTH_SERVICE_URL
 
     headers = {"Content-Type": "application/json"}
     if auth_header:
@@ -125,52 +127,70 @@ async def get_device_connection_info(
                 else:
                     overrides = override_data.get("connection_args", {}) or {}
 
-            # Build connection args starting with device defaults
+            # Get default credentials from auth service (unmasked)
+            default_settings = {}
+            try:
+                settings_resp = await client.get(
+                    f"{auth_url}/api/settings/credentials/default",
+                    headers=headers
+                )
+                if settings_resp.status_code == 200:
+                    default_settings = settings_resp.json().get("data", {})
+            except Exception as e:
+                log.warning(f"Could not fetch default credentials: {e}")
+
+            # Determine device_type for netmiko - override takes precedence
+            # Device's device_type should already be netmiko-compatible from the device service
+            device_type = overrides.get("device_type") or device.get("device_type")
+            if not device_type or not device_type.strip():
+                # Final fallback to cisco_ios
+                device_type = "cisco_ios"
+                log.warning(f"Device {device_name}: No device_type found, defaulting to cisco_ios")
+            
+            log.debug(f"Device {device_name}: Using device_type={device_type}")
+
+            # Build connection args
             connection_args = {
-                "device_type": device.get("device_type") or device.get("platform", "cisco_ios"),
-                "host": device.get("host") or device.get("primary_ip") or device.get("hostname") or device_name,
-                "port": device.get("port", 22),
+                "device_type": device_type,
+                "host": overrides.get("host") or device.get("host") or device.get("primary_ip") or device.get("hostname") or device_name,
+                "port": overrides.get("port") or device.get("port", 22),
                 # Disable SSH keys/agent to force password/keyboard-interactive auth
                 "use_keys": False,
                 "allow_agent": False,
             }
 
-            # Apply overrides (from device-overrides endpoint)
-            if overrides.get("device_type"):
-                connection_args["device_type"] = overrides["device_type"]
-            if overrides.get("host"):
-                connection_args["host"] = overrides["host"]
-            if overrides.get("port"):
-                connection_args["port"] = overrides["port"]
+            # Apply timeout settings - device override takes precedence, then global defaults
+            connection_args["timeout"] = (
+                overrides.get("timeout") or
+                default_settings.get("default_timeout", 30)
+            )
+            connection_args["conn_timeout"] = (
+                overrides.get("conn_timeout") or
+                default_settings.get("default_conn_timeout", 10)
+            )
+            connection_args["auth_timeout"] = (
+                overrides.get("auth_timeout") or
+                default_settings.get("default_auth_timeout", 10)
+            )
+            connection_args["banner_timeout"] = (
+                overrides.get("banner_timeout") or
+                default_settings.get("default_banner_timeout", 15)
+            )
 
-            # Apply timeout settings from overrides
-            if overrides.get("timeout"):
-                connection_args["timeout"] = overrides["timeout"]
-            if overrides.get("conn_timeout"):
-                connection_args["conn_timeout"] = overrides["conn_timeout"]
-            if overrides.get("auth_timeout"):
-                connection_args["auth_timeout"] = overrides["auth_timeout"]
-            if overrides.get("banner_timeout"):
-                connection_args["banner_timeout"] = overrides["banner_timeout"]
-
-            # Apply credentials (inline override takes highest precedence, then device overrides)
+            # Apply credentials (inline override takes highest precedence, then device overrides, then defaults)
             if credential_override:
                 connection_args["username"] = credential_override.get("username")
                 connection_args["password"] = credential_override.get("password")
             elif overrides.get("username"):
                 connection_args["username"] = overrides.get("username")
-                # Password is masked in response, need to get from auth service or device
-                # For now, use the masked value as a flag that credentials exist
                 if overrides.get("password"):
                     connection_args["password"] = overrides.get("password")
                 if overrides.get("secret"):
                     connection_args["secret"] = overrides.get("secret")
             else:
-                # Fallback to device's stored credentials
-                connection_args["username"] = device.get("username")
-                connection_args["password"] = device.get("password")
-                if device.get("enable_password"):
-                    connection_args["secret"] = device["enable_password"]
+                # Fallback to global default credentials from auth service
+                connection_args["username"] = default_settings.get("default_username", "")
+                connection_args["password"] = default_settings.get("default_password", "")
 
             return {
                 "device": device,
@@ -244,8 +264,8 @@ async def celery_getconfig(
         use_ttp=request.use_ttp
     )
 
-    # Record task in database for history
-    record_task(session, task_id, request.device, task_name)
+    # Record task in database for history - use format like snapshots: operation:device
+    record_task(session, task_id, f"getconfig:{request.device}", task_name, action_type="command")
 
     log.info(f"Dispatched get_config task {task_id} to {clean_args.get('host')}")
 
@@ -309,8 +329,8 @@ async def celery_setconfig(
         save_config=request.save_config
     )
 
-    # Record task in database for history
-    record_task(session, task_id, request.device, task_name)
+    # Record task in database for history - use format like snapshots: operation:device
+    record_task(session, task_id, f"setconfig:{request.device}", task_name, action_type="deploy")
 
     log.info(f"Dispatched set_config task {task_id} to {clean_args.get('host')}")
 
@@ -390,8 +410,8 @@ async def celery_validate(
         validation_command=request.command
     )
 
-    # Record task in database for history
-    record_task(session, task_id, request.device, task_name)
+    # Record task in database for history - use format like snapshots: operation:device
+    record_task(session, task_id, f"validate:{request.device}", task_name, action_type="validate")
 
     log.info(f"Dispatched validate_config task {task_id} to {clean_args.get('host')}")
 

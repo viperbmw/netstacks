@@ -39,6 +39,7 @@ async def get_task_metadata(
             metadata[entry.task_id] = {
                 "device_name": entry.device_name,
                 "task_name": entry.task_name,
+                "action_type": entry.action_type,
                 "status": entry.status,
                 "created_at": entry.created_at.isoformat() if entry.created_at else None,
                 "started_at": entry.started_at.isoformat() if entry.started_at else None,
@@ -78,6 +79,7 @@ async def list_tasks(
                     {
                         "task_id": t.task_id,
                         "task_name": t.task_name,
+                        "action_type": t.action_type,
                         "device_name": t.device_name,
                         "status": t.status,
                         "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -119,6 +121,7 @@ async def get_task(
     return {
         "task_id": task.task_id,
         "task_name": task.task_name,
+        "action_type": task.action_type,
         "device_name": task.device_name,
         "status": task.status,
         "result": task.result,

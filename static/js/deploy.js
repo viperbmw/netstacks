@@ -641,19 +641,20 @@ function deployTemplate() {
 
     // Render template first
     $.ajax({
-        url: '/api/templates/render',
+        url: '/api/templates/' + encodeURIComponent(templateName) + '/render',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
-            template_name: templateName,
             variables: templateVars
         }),
         timeout: 10000
     })
     .done(function(data) {
-        if (data.success && data.rendered_config) {
+        // API returns data in data.data.rendered
+        const renderedConfig = data.data?.rendered || data.rendered_config;
+        if (data.success && renderedConfig) {
             // Split rendered config into commands
-            const commands = data.rendered_config.split('\n').filter(cmd => cmd.trim() !== '');
+            const commands = renderedConfig.split('\n').filter(cmd => cmd.trim() !== '');
             deployToDevices(devices, library, commands, username, password, dryRun, checkOptions);
         } else {
             showStatus('error', { message: 'Failed to render template' });

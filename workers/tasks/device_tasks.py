@@ -172,8 +172,18 @@ def set_config(self, connection_args: Dict, config_lines: List[str] = None,
 
         log.info(f"Connecting to {connection_args.get('host')} for set_config")
 
+        # For Arista EOS devices, disable fast_cli to avoid timeout issues
+        device_type = connection_args.get('device_type', '')
+        if 'arista' in device_type.lower():
+            connection_args['fast_cli'] = False
+            log.debug(f"Disabled fast_cli for Arista device {connection_args.get('host')}")
+
         with ConnectHandler(**connection_args) as conn:
-            output = conn.send_config_set(config_lines)
+            # Enter enable mode if not already there (some devices need this)
+            if not conn.check_enable_mode():
+                conn.enable()
+            
+            output = conn.send_config_set(config_lines, read_timeout=60)
             result['output'] = output
 
             if save_config:

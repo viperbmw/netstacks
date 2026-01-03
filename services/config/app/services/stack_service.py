@@ -150,7 +150,7 @@ class StackService:
         return True
 
     def update_deployed_services(self, stack_id: str, service_ids: List[str]) -> bool:
-        """Update the list of deployed service task IDs."""
+        """Update the list of deployed service instance IDs."""
         stack = self.session.query(ServiceStack).filter(
             ServiceStack.stack_id == stack_id
         ).first()
@@ -166,6 +166,22 @@ class StackService:
 
         self.session.commit()
         log.info(f"Stack deployed services updated: {stack_id} with {len(service_ids)} services")
+        return True
+
+    def update_deployment_errors(self, stack_id: str, errors: List[Dict]) -> bool:
+        """Update the list of deployment errors."""
+        stack = self.session.query(ServiceStack).filter(
+            ServiceStack.stack_id == stack_id
+        ).first()
+
+        if not stack:
+            return False
+
+        stack.deployment_errors = errors
+        stack.updated_at = datetime.utcnow()
+
+        self.session.commit()
+        log.info(f"Stack deployment errors updated: {stack_id} with {len(errors)} errors")
         return True
 
     def _to_dict(self, stack: ServiceStack) -> Dict:

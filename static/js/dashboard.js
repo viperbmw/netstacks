@@ -112,98 +112,73 @@ function loadDevicesList() {
 }
 
 function loadTasks() {
-    // Fetch task metadata first
+    // Use task metadata API - contains all info we need in one call
     $.get('/api/tasks/metadata')
         .done(function(metadataResponse) {
             const metadata = metadataResponse.metadata || {};
+            const taskIds = Object.keys(metadata);
 
-            $.get('/api/tasks')
-                .done(function(data) {
-                    // API returns: {status: 'success', data: {task_id: ['id1', 'id2']}}
-                    let taskIds = [];
-                    if (data.data && data.data.task_id && Array.isArray(data.data.task_id)) {
-                        taskIds = data.data.task_id;
-                    }
+            if (taskIds.length === 0) {
+                $('#queued-count').text(0);
+                $('#running-count').text(0);
+                $('#recent-tasks-body').html('<tr><td colspan="3" class="text-center text-muted">No recent tasks</td></tr>');
+                $('#recent-tasks-loading').hide();
+                $('#recent-tasks-container').show();
+                return;
+            }
 
-                    if (taskIds.length === 0) {
-                        $('#queued-count').text(0);
-                        $('#running-count').text(0);
-                        $('#recent-tasks-body').html('<tr><td colspan="3" class="text-center text-muted">No recent tasks</td></tr>');
-                        $('#recent-tasks-loading').hide();
-                        $('#recent-tasks-container').show();
-                        return;
-                    }
+            let queuedCount = 0;
+            let runningCount = 0;
+            const recentTasks = [];
 
-                    let queuedCount = 0;
-                    let runningCount = 0;
-                    const recentTasks = [];
-                    let fetchedCount = 0;
+            // Process tasks from metadata
+            taskIds.forEach(function(taskId) {
+                const task = metadata[taskId];
+                const status = task.status || 'unknown';
+                const statusLower = status.toLowerCase();
 
-                    // Fetch details for first 50 tasks (for search)
-                    taskIds.slice(0, 50).forEach(function(taskId) {
-                        $.get('/api/tasks/' + taskId)
-                            .done(function(taskResponse) {
-                                const task = taskResponse.data || taskResponse;
-                                const status = task.task_status || task.status || 'unknown';
+                // Count by status
+                if (statusLower === 'queued' || statusLower === 'pending') queuedCount++;
+                else if (statusLower === 'started' || statusLower === 'running') runningCount++;
 
-                                fetchedCount++;
+                // Clean up device name (remove prefixes like "snapshot:uuid:backup:" or "setconfig:")
+                let deviceName = task.device_name || 'Unknown Device';
+                if (deviceName.includes(':backup:')) {
+                    deviceName = deviceName.split(':backup:').pop();
+                } else if (deviceName.startsWith('setconfig:')) {
+                    deviceName = deviceName.replace('setconfig:', '');
+                } else if (deviceName.startsWith('snapshot:')) {
+                    // Handle other snapshot formats
+                    const parts = deviceName.split(':');
+                    deviceName = parts[parts.length - 1] || deviceName;
+                }
 
-                                // Count by status (handle both Celery and custom status names)
-                                const statusLower = status.toLowerCase();
-                                if (statusLower === 'queued' || statusLower === 'pending') queuedCount++;
-                                else if (statusLower === 'started' || statusLower === 'running') runningCount++;
-
-                                // Get device name from metadata
-                                const deviceName = metadata[taskId]?.device_name || 'Unknown Device';
-
-                                recentTasks.push({
-                                    taskId: taskId,
-                                    deviceName: deviceName,
-                                    status: status,
-                                    created: task.created_on
-                                });
-
-                                if (fetchedCount === Math.min(taskIds.length, 50)) {
-                                    // Store all tasks globally for search
-                                    allTasks = recentTasks;
-                                    displayRecentTasks(recentTasks.slice(0, 10), queuedCount, runningCount);
-                                }
-                            })
-                            .fail(function() {
-                                fetchedCount++;
-                                if (fetchedCount === Math.min(taskIds.length, 50)) {
-                                    allTasks = recentTasks;
-                                    displayRecentTasks(recentTasks.slice(0, 10), queuedCount, runningCount);
-                                }
-                            });
-                    });
-
-                    // Also count all tasks for accurate queue/running counts
-                    taskIds.forEach(function(taskId) {
-                        $.get('/api/tasks/' + taskId)
-                            .done(function(taskResponse) {
-                                if (!taskResponse) return;
-                                const task = taskResponse.data || taskResponse;
-                                if (!task) return;
-                                const status = task.task_status || task.status || 'unknown';
-
-                                const statusLower2 = status.toLowerCase();
-                                if (statusLower2 === 'queued' || statusLower2 === 'pending') {
-                                    queuedCount++;
-                                    $('#queued-count').text(queuedCount);
-                                } else if (statusLower2 === 'started' || statusLower2 === 'running') {
-                                    runningCount++;
-                                    $('#running-count').text(runningCount);
-                                }
-                            });
-                    });
-                })
-                .fail(function() {
-                    $('#queued-count').text('?');
-                    $('#running-count').text('?');
-                    $('#recent-tasks-loading').hide();
-                    $('#recent-tasks-container').show();
+                recentTasks.push({
+                    taskId: taskId,
+                    deviceName: deviceName,
+                    status: status,
+                    created: task.created_at,
+                    actionType: task.action_type,
+                    taskName: task.task_name
                 });
+            });
+
+            // Sort by created_at descending (most recent first)
+            recentTasks.sort((a, b) => {
+                if (!a.created) return 1;
+                if (!b.created) return -1;
+                return new Date(b.created) - new Date(a.created);
+            });
+
+            // Store all tasks globally for search
+            allTasks = recentTasks;
+
+            // Update counts
+            $('#queued-count').text(queuedCount);
+            $('#running-count').text(runningCount);
+
+            // Display first 10 tasks
+            displayRecentTasks(recentTasks.slice(0, 10), queuedCount, runningCount);
         })
         .fail(function() {
             $('#queued-count').text('?');
@@ -221,7 +196,7 @@ function displayRecentTasks(tasks, queuedCount, runningCount) {
     tbody.empty();
 
     if (tasks.length === 0) {
-        tbody.append('<tr><td colspan="3" class="text-center text-muted">No recent tasks</td></tr>');
+        tbody.append('<tr><td colspan="4" class="text-center text-muted">No recent tasks</td></tr>');
     } else {
         tasks.forEach(function(task) {
             const status = task.status;
@@ -234,9 +209,11 @@ function displayRecentTasks(tasks, queuedCount, runningCount) {
 
             const deviceName = task.deviceName || 'Unknown Device';
             const createdDate = task.created ? formatDate(task.created) : 'N/A';
+            const taskType = formatTaskType(task.taskName, task.actionType);
 
             tbody.append(`
                 <tr class="task-row" data-task-id="${task.taskId}" style="cursor: pointer;">
+                    <td>${taskType}</td>
                     <td><small>${deviceName}</small></td>
                     <td><span class="badge ${statusBadge}">${status}</span></td>
                     <td><small>${createdDate}</small></td>
@@ -247,6 +224,44 @@ function displayRecentTasks(tasks, queuedCount, runningCount) {
 
     $('#recent-tasks-loading').hide();
     $('#recent-tasks-container').show();
+}
+
+/**
+ * Format task type into a human-readable badge
+ */
+function formatTaskType(taskName, actionType) {
+    const actionTypeMap = {
+        'deploy': { label: 'Deploy', icon: 'fa-rocket', color: 'primary' },
+        'delete': { label: 'Delete', icon: 'fa-trash', color: 'danger' },
+        'validate': { label: 'Validate', icon: 'fa-check-circle', color: 'success' },
+        'healthcheck': { label: 'Health Check', icon: 'fa-heartbeat', color: 'success' },
+        'backup': { label: 'Backup', icon: 'fa-save', color: 'info' },
+        'command': { label: 'Command', icon: 'fa-terminal', color: 'secondary' },
+        'restore': { label: 'Restore', icon: 'fa-undo', color: 'warning' },
+        'test': { label: 'Test', icon: 'fa-plug', color: 'warning' }
+    };
+
+    if (actionType && actionTypeMap[actionType]) {
+        const typeInfo = actionTypeMap[actionType];
+        return `<span class="badge bg-${typeInfo.color}"><i class="fas ${typeInfo.icon}"></i> ${typeInfo.label}</span>`;
+    }
+
+    // Fallback: parse task_name
+    if (!taskName) return '<span class="badge bg-secondary">Unknown</span>';
+
+    const parts = taskName.split('.');
+    const action = parts[parts.length - 1] || '';
+
+    const taskNameMap = {
+        'set_config': { label: 'Config', icon: 'fa-cog', color: 'primary' },
+        'get_config': { label: 'Get Config', icon: 'fa-download', color: 'info' },
+        'validate_config': { label: 'Validate', icon: 'fa-check-circle', color: 'success' },
+        'backup_device_config': { label: 'Backup', icon: 'fa-save', color: 'info' },
+        'test_connectivity': { label: 'Test', icon: 'fa-plug', color: 'warning' }
+    };
+
+    const typeInfo = taskNameMap[action] || { label: action, icon: 'fa-cog', color: 'secondary' };
+    return `<span class="badge bg-${typeInfo.color}"><i class="fas ${typeInfo.icon}"></i> ${typeInfo.label}</span>`;
 }
 
 function loadDeviceCount() {
@@ -906,109 +921,185 @@ function showTaskResults(taskId) {
     $('#task-results-content').hide();
     $('#task-results-error').hide();
 
-    // Fetch task metadata first
-    $.get('/api/tasks/metadata')
-        .done(function(metadataResponse) {
-            const metadata = metadataResponse.metadata || {};
-            const deviceName = metadata[taskId]?.device_name || 'Unknown Device';
+    // Fetch task details directly
+    $.get('/api/tasks/' + taskId)
+        .done(function(task) {
+            // Clean up device name
+            let deviceName = task.device_name || 'Unknown Device';
+            if (deviceName.includes(':backup:')) {
+                deviceName = deviceName.split(':backup:').pop();
+            } else if (deviceName.startsWith('setconfig:')) {
+                deviceName = deviceName.replace('setconfig:', '');
+            } else if (deviceName.startsWith('snapshot:')) {
+                const parts = deviceName.split(':');
+                deviceName = parts[parts.length - 1] || deviceName;
+            }
 
-            // Fetch task details
-            $.get('/api/tasks/' + taskId)
-                .done(function(taskResponse) {
-                    const task = taskResponse.data || taskResponse;
+            // Populate task info
+            $('#task-result-id').text(taskId.substring(0, 8) + '...');
+            $('#task-result-device').text(deviceName);
 
-                    // Populate task info
-                    $('#task-result-id').text(taskId);
-                    $('#task-result-device').text(deviceName);
+            const status = task.status || 'unknown';
+            let statusBadge = 'secondary';
+            let statusText = status;
 
-                    const status = task.task_status || task.status || 'unknown';
-                    let statusBadge = 'secondary';
-                    let statusText = status;
+            if (status === 'pending') {
+                statusBadge = 'warning';
+                statusText = 'Pending';
+            } else if (status === 'started') {
+                statusBadge = 'info';
+                statusText = 'Running';
+            } else if (status === 'success') {
+                statusBadge = 'success';
+                statusText = 'Success';
+            } else if (status === 'failure') {
+                statusBadge = 'danger';
+                statusText = 'Failed';
+            }
 
-                    if (status === 'queued') {
-                        statusBadge = 'warning';
-                        statusText = 'Queued';
-                    } else if (status === 'started' || status === 'running') {
-                        statusBadge = 'info';
-                        statusText = 'Running';
-                    } else if (status === 'finished' || status === 'completed') {
-                        statusBadge = 'success';
-                        statusText = 'Completed';
-                    } else if (status === 'failed') {
-                        statusBadge = 'danger';
-                        statusText = 'Failed';
-                    }
+            $('#task-result-status').html(`<span class="badge bg-${statusBadge}">${statusText}</span>`);
 
-                    $('#task-result-status').html(`<span class="badge bg-${statusBadge}">${statusText}</span>`);
+            // Show action type
+            const actionType = formatTaskType(task.task_name, task.action_type);
+            $('#task-result-type').html(actionType);
 
-                    const createdDate = task.created_on ? formatDateInUserTimezone(task.created_on) : 'N/A';
-                    $('#task-result-created').text(createdDate);
+            const createdDate = task.created_at ? formatDateInUserTimezone(task.created_at) : 'N/A';
+            $('#task-result-created').text(createdDate);
 
-                    // Get task result
-                    let resultOutput = 'No output available';
+            // Format task result like monitor.js does
+            let resultHtml = '';
+            const result = task.result;
 
-                    if (task.task_result) {
-                        if (typeof task.task_result === 'string') {
-                            resultOutput = task.task_result;
-                        } else {
-                            resultOutput = JSON.stringify(task.task_result, null, 2);
-                        }
-                    } else if (task.task_errors) {
-                        resultOutput = `Error: ${JSON.stringify(task.task_errors, null, 2)}`;
-                    }
+            if (result !== null && result !== undefined && typeof result === 'object') {
+                resultHtml = formatTaskResultHtml(result);
+            } else if (result) {
+                resultHtml = `<pre class="mb-0">${escapeHtmlDashboard(String(result))}</pre>`;
+            }
 
-                    $('#task-result-output').text(resultOutput);
+            // Show error/traceback if present
+            if (task.error) {
+                resultHtml += `<div class="mt-3 p-2 bg-danger bg-opacity-10 border border-danger rounded">
+                    <strong class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error:</strong>
+                    <pre class="mb-0 mt-1 text-danger" style="white-space: pre-wrap;">${escapeHtmlDashboard(task.error)}</pre>
+                </div>`;
+            }
 
-                    // Hide loading, show content
-                    $('#task-results-loading').hide();
-                    $('#task-results-content').show();
-                })
-                .fail(function(xhr) {
-                    $('#task-results-loading').hide();
-                    $('#task-error-message').text('Failed to load task details: ' + (xhr.responseJSON?.error || 'Unknown error'));
-                    $('#task-results-error').show();
-                });
+            if (task.traceback) {
+                resultHtml += `<div class="mt-2">
+                    <details>
+                        <summary class="text-muted small">Traceback</summary>
+                        <pre class="small mt-1" style="max-height: 200px; overflow-y: auto;">${escapeHtmlDashboard(task.traceback)}</pre>
+                    </details>
+                </div>`;
+            }
+
+            if (!resultHtml) {
+                resultHtml = '<span class="text-muted">No output available</span>';
+            }
+
+            $('#task-result-output').html(resultHtml);
+
+            // Hide loading, show content
+            $('#task-results-loading').hide();
+            $('#task-results-content').show();
         })
-        .fail(function() {
-            // If metadata fails, still try to show task
-            $.get('/api/tasks/' + taskId)
-                .done(function(taskResponse) {
-                    const task = taskResponse.data || taskResponse;
-
-                    $('#task-result-id').text(taskId);
-                    $('#task-result-device').text('Unknown Device');
-
-                    const status = task.task_status || task.status || 'unknown';
-                    $('#task-result-status').html(`<span class="badge bg-secondary">${status}</span>`);
-
-                    const createdDate = task.created_on ? formatDateInUserTimezone(task.created_on) : 'N/A';
-                    $('#task-result-created').text(createdDate);
-
-                    let resultOutput = 'No output available';
-                    if (task.task_result) {
-                        resultOutput = typeof task.task_result === 'string' ?
-                            task.task_result :
-                            JSON.stringify(task.task_result, null, 2);
-                    }
-
-                    $('#task-result-output').text(resultOutput);
-
-                    $('#task-results-loading').hide();
-                    $('#task-results-content').show();
-                })
-                .fail(function(xhr) {
-                    $('#task-results-loading').hide();
-                    $('#task-error-message').text('Failed to load task: ' + (xhr.responseJSON?.error || 'Unknown error'));
-                    $('#task-results-error').show();
-                });
+        .fail(function(xhr) {
+            $('#task-results-loading').hide();
+            $('#task-error-message').text('Failed to load task details: ' + (xhr.responseJSON?.detail || xhr.responseJSON?.error || 'Unknown error'));
+            $('#task-results-error').show();
         });
+}
+
+/**
+ * Format task result for better readability (mirrors monitor.js)
+ */
+function formatTaskResultHtml(result) {
+    let html = '';
+
+    // Show status prominently if present
+    if (result.status) {
+        const statusClass = result.status === 'success' ? 'text-success' :
+                           result.status === 'failed' ? 'text-danger' : 'text-warning';
+        html += `<div class="mb-2"><strong>Status:</strong> <span class="${statusClass} fw-bold">${result.status.toUpperCase()}</span></div>`;
+    }
+
+    // Show host/device if present
+    if (result.host) {
+        html += `<div class="mb-2"><strong>Host:</strong> ${escapeHtmlDashboard(result.host)}</div>`;
+    }
+
+    // Show command if present
+    if (result.command) {
+        html += `<div class="mb-2"><strong>Command:</strong> <code>${escapeHtmlDashboard(result.command)}</code></div>`;
+    }
+
+    // Show error if present
+    if (result.error) {
+        html += `<div class="mb-3 p-2 bg-danger bg-opacity-10 border border-danger rounded">
+            <strong class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error:</strong>
+            <pre class="mb-0 mt-1 text-danger" style="white-space: pre-wrap;">${escapeHtmlDashboard(result.error)}</pre>
+        </div>`;
+    }
+
+    // Show config lines if present
+    if (result.config_lines && Array.isArray(result.config_lines)) {
+        html += `<div class="mb-3">
+            <strong>Config Lines (${result.config_lines.length}):</strong>
+            <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small" style="max-height: 200px; overflow-y: auto;">${escapeHtmlDashboard(result.config_lines.join('\n'))}</pre>
+        </div>`;
+    }
+
+    // Show rendered config if present
+    if (result.rendered_config) {
+        html += `<div class="mb-3">
+            <strong>Rendered Config:</strong>
+            <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small" style="max-height: 200px; overflow-y: auto;">${escapeHtmlDashboard(result.rendered_config)}</pre>
+        </div>`;
+    }
+
+    // Show CLI output (most important)
+    if (result.output) {
+        html += `<div class="mb-3">
+            <strong>Device Output:</strong>
+            <pre class="bg-dark text-light p-3 rounded mt-1" style="max-height: 400px; overflow-y: auto; font-size: 12px; line-height: 1.4;">${escapeHtmlDashboard(result.output)}</pre>
+        </div>`;
+    }
+
+    // Show save output if present
+    if (result.save_output) {
+        html += `<div class="mb-3">
+            <strong>Save Config Output:</strong>
+            <pre class="bg-secondary bg-opacity-10 p-2 rounded mt-1 small" style="max-height: 150px; overflow-y: auto;">${escapeHtmlDashboard(result.save_output)}</pre>
+        </div>`;
+    }
+
+    // Fallback to JSON if no structured data
+    if (html === '') {
+        html = `<pre class="mb-0">${escapeHtmlDashboard(JSON.stringify(result, null, 2))}</pre>`;
+    }
+
+    return html;
+}
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtmlDashboard(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 function loadServiceStacksSummary() {
     $.get('/api/service-stacks')
         .done(function(data) {
-            if (data.success && data.stacks && data.stacks.length > 0) {
-                const stacks = data.stacks;
+            // Handle both response formats: data.stacks (legacy) or data.data.stacks (microservice)
+            const stacks = data.stacks || (data.data && data.data.stacks) || [];
+            if (data.success && stacks.length > 0) {
 
                 // Update counts
                 $('#total-stacks-count').text(stacks.length);
@@ -1026,6 +1117,10 @@ function loadServiceStacksSummary() {
                 });
                 $('#active-deployments-count').text(deployedCount);
                 $('#total-services-count').text(totalServices);
+
+                // Update top card
+                $('#stack-count').text(stacks.length);
+                $('#deployed-services-text').text(`${totalServices} services deployed`);
 
                 // Count scheduled stacks
                 let scheduledCount = stacks.filter(stack => stack.scheduled).length;
@@ -1065,11 +1160,16 @@ function loadServiceStacksSummary() {
                 $('#service-stacks-loading').hide();
                 $('#service-stacks-container').show();
             } else {
+                // No stacks - update top card
+                $('#stack-count').text('0');
+                $('#deployed-services-text').text('No stacks');
                 $('#service-stacks-loading').hide();
                 $('#no-service-stacks').show();
             }
         })
         .fail(function() {
+            $('#stack-count').text('?');
+            $('#deployed-services-text').text('Error loading');
             $('#service-stacks-loading').hide();
             $('#no-service-stacks').show();
         });

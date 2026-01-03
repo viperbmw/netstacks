@@ -340,6 +340,7 @@ class TaskHistory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(String(255), nullable=False, unique=True, index=True)
     task_name = Column(String(255), nullable=True)  # e.g. tasks.device_tasks.get_config
+    action_type = Column(String(50), nullable=True)  # deploy, delete, validate, backup, command
     device_name = Column(String(500), nullable=True)
     status = Column(String(50), default='pending')  # pending, started, success, failure
     result = Column(JSONB, nullable=True)  # Task result data

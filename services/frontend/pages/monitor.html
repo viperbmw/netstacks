@@ -152,6 +152,8 @@
                         <table class="table table-hover" id="tasks-table">
                             <thead>
                                 <tr>
+                                    <th>Task ID</th>
+                                    <th>Type</th>
                                     <th>Device</th>
                                     <th>Status</th>
                                     <th>Created</th>
@@ -311,7 +313,7 @@
                     </div>
 
                     <h6>Result:</h6>
-                    <pre id="detail-result" class="p-3 border rounded" style="max-height: 400px; overflow-y: auto; font-size: 0.85rem;"></pre>
+                    <div id="detail-result" class="p-3 border rounded" style="max-height: 500px; overflow-y: auto;"></div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -464,9 +466,9 @@
             setInterval(updateSystemTime, 1000);
         });
     </script>
-<script src="/static/js/timezone-utils.js?v=9"></script>
-<script src="/static/js/monitor.js?v=9"></script>
-<script src="/static/js/monitor-history.js?v=9"></script>
+<script src="/static/js/timezone-utils.js?v=11"></script>
+<script src="/static/js/monitor.js?v=11"></script>
+<script src="/static/js/monitor-history.js?v=11"></script>
     <!-- NetStacks AI Assistant -->
     <script src="/static/js/assistant.js?v=4"></script>
 </body>

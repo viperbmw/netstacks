@@ -245,11 +245,13 @@ function loadServiceTemplateVariables(templateName, container, inputMode) {
 
     $.get('/api/templates/' + encodeURIComponent(templateName) + '/variables')
         .done(function(data) {
-            if (data.success && data.variables) {
+            // API returns data in data.data.variables
+            const variables = data.data?.variables || data.variables;
+            if (data.success && variables) {
                 if (inputMode === 'form') {
-                    renderServiceVariableForm(data.variables, container);
+                    renderServiceVariableForm(variables, container);
                 } else {
-                    renderServiceVariableJSON(data.variables, container);
+                    renderServiceVariableJSON(variables, container);
                 }
                 container.show();
             } else {
@@ -665,8 +667,10 @@ function loadServiceInstances() {
         .done(function(data) {
             $('#service-instances-loading').hide();
 
-            if (data.success && data.instances && data.instances.length > 0) {
-                renderServiceInstances(data.instances);
+            // API returns data in data.data.instances
+            const instances = data.data?.instances || data.instances;
+            if (data.success && instances && instances.length > 0) {
+                renderServiceInstances(instances);
                 $('#service-instances-table').show();
             } else {
                 $('#service-instances-empty').show();
@@ -739,8 +743,10 @@ function viewServiceDetails(serviceId) {
 
     $.get('/api/services/instances/' + encodeURIComponent(serviceId))
         .done(function(data) {
-            if (data.success && data.instance) {
-                renderServiceDetails(data.instance);
+            // API returns data in data.data.instance
+            const instance = data.data?.instance || data.instance;
+            if (data.success && instance) {
+                renderServiceDetails(instance);
             } else {
                 $('#service-details-content').html('<div class="alert alert-danger">Failed to load service details</div>');
             }

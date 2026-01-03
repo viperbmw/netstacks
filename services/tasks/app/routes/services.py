@@ -272,7 +272,7 @@ async def create_service_instance(
     )
 
     # Record task
-    record_task(session, task_id, request.device, "service_deploy")
+    record_task(session, task_id, request.device, "service_deploy", action_type="deploy")
 
     # Create service instance
     service_id = str(uuid.uuid4())
@@ -360,7 +360,7 @@ async def healthcheck_service(
         validation_command='show running-config'
     )
 
-    record_task(session, task_id, service.device, "service_healthcheck")
+    record_task(session, task_id, service.device, "service_healthcheck", action_type="healthcheck")
 
     return success_response(data={"task_id": task_id})
 
@@ -427,7 +427,7 @@ async def redeploy_service(
         save_config=True
     )
 
-    record_task(session, task_id, service.device, "service_redeploy")
+    record_task(session, task_id, service.device, "service_redeploy", action_type="deploy")
 
     # Update service state
     service.state = 'deploying'
@@ -501,7 +501,7 @@ async def delete_service(
                     save_config=True
                 )
 
-                record_task(session, task_id, service.device, "service_delete")
+                record_task(session, task_id, service.device, "service_delete", action_type="delete")
 
     # Remove service from stack if applicable
     stack_id = service.stack_id
@@ -677,7 +677,7 @@ async def validate_service(
         validation_command='show running-config'
     )
 
-    record_task(session, task_id, service.device, "service_validate")
+    record_task(session, task_id, service.device, "service_validate", action_type="validate")
 
     return success_response(data={
         'validation_source': 'live',
