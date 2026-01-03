@@ -756,8 +756,25 @@ $(document).ready(function() {
         setTimeout(() => $alert.alert('close'), 3000);
     }
 
+    // Check for agent query param and auto-select
+    function checkQueryParamAgent() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const agentId = urlParams.get('agent');
+
+        if (agentId) {
+            // Wait a bit for agents list to render, then auto-select
+            setTimeout(function() {
+                const $agentItem = $(`.agent-item[data-id="${agentId}"]`);
+                if ($agentItem.length > 0 && $agentItem.data('active')) {
+                    $agentItem.trigger('click');
+                }
+            }, 500);
+        }
+    }
+
     // Initial load
     loadAgents();
+    checkQueryParamAgent();
 });
 </script>
     <!-- NetStacks AI Assistant -->

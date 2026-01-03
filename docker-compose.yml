@@ -242,6 +242,34 @@ services:
       - postgres
     restart: unless-stopped
 
+  # SNMP Trap Receiver Service
+  snmp:
+    build:
+      context: .
+      dockerfile: services/snmp/Dockerfile
+    container_name: netstacks-snmp
+    environment:
+      - SNMP_TRAP_PORT=162
+      - SNMP_TRAP_ADDRESS=0.0.0.0
+      - SNMP_COMMUNITY_STRINGS=${SNMP_COMMUNITY_STRINGS:-public,private}
+      - SNMP_NETSTACKS_API_URL=http://ai:8003
+      - SNMP_LOG_LEVEL=INFO
+      - SNMP_HEALTH_PORT=8162
+      - TZ=${TZ:-America/New_York}
+    ports:
+      - "162:162/udp"  # SNMP trap port (UDP)
+    networks:
+      - netstacks-network
+    depends_on:
+      - ai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8162/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # Redis (message broker for Celery)
   redis:
     image: redis:7-alpine

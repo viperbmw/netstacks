@@ -1420,7 +1420,13 @@ $(document).ready(function() {
         `;
 
         document.getElementById('modal-chat-btn').onclick = function() {
-            window.location.href = '/agents/chat';
+            // Find the first active agent of this type
+            const activeAgent = agentsOfType.find(a => a.is_active);
+            if (activeAgent) {
+                window.location.href = `/agents/chat?agent=${activeAgent.agent_id}`;
+            } else {
+                showToast('No active agents of this type. Create or enable one first.', 'warning');
+            }
         };
 
         agentDetailsModal.show();
@@ -1570,8 +1576,20 @@ $(document).ready(function() {
         });
     });
 
-    $(document).on('click', '.chat-btn, .chat-agent-btn', function() {
-        window.location.href = '/agents/chat';
+    $(document).on('click', '.chat-btn', function() {
+        const agentId = $(this).data('id');
+        window.location.href = `/agents/chat?agent=${agentId}`;
+    });
+
+    $(document).on('click', '.chat-agent-btn', function() {
+        const agentType = $(this).data('type');
+        // Find the first active agent of this type
+        const agent = agents.find(a => a.agent_type === agentType && a.is_active);
+        if (agent) {
+            window.location.href = `/agents/chat?agent=${agent.agent_id}`;
+        } else {
+            showToast('No active agent of this type. Create one first.', 'warning');
+        }
     });
 
     $(document).on('click', '.sessions-btn', function() {

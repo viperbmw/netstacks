@@ -326,9 +326,10 @@ function loadScheduledTasks() {
 
         const allSchedules = [];
 
-        // Add scheduled operations
-        if (scheduleData.success && scheduleData.schedules) {
-            scheduleData.schedules.filter(s => s.enabled).forEach(s => {
+        // Add scheduled operations (handle both response formats)
+        const schedules = scheduleData.schedules || (scheduleData.data && scheduleData.data.schedules) || [];
+        if (scheduleData.success && schedules.length > 0) {
+            schedules.filter(s => s.enabled).forEach(s => {
                 allSchedules.push({
                     ...s,
                     source: 'operations'
@@ -531,8 +532,10 @@ $(document).on('click', '.edit-schedule-btn', function() {
     // Fetch schedule details
     $.get('/api/scheduled-operations/' + scheduleId)
         .done(function(data) {
-            if (data.success && data.schedule) {
-                openEditScheduleModal(data.schedule);
+            // Handle both response formats
+            const schedule = data.schedule || (data.data && data.data.schedule);
+            if (data.success && schedule) {
+                openEditScheduleModal(schedule);
             } else {
                 alert('Failed to load schedule details');
             }
@@ -724,9 +727,11 @@ function loadCompletedSchedules() {
         .done(function(data) {
             $('#completed-schedules-loading').hide();
 
-            if (data.success && data.schedules && data.schedules.length > 0) {
+            // Handle both response formats
+            const schedules = data.schedules || (data.data && data.data.schedules) || [];
+            if (data.success && schedules.length > 0) {
                 // Filter for completed schedules (run_count > 0 or last_run exists)
-                const completed = data.schedules.filter(s => s.run_count > 0 || s.last_run);
+                const completed = schedules.filter(s => s.run_count > 0 || s.last_run);
 
                 if (completed.length === 0) {
                     $('#no-completed-schedules').show();
@@ -1266,7 +1271,7 @@ function loadAgentsSummary() {
                             <td>${typeBadge}</td>
                             <td>${statusBadge}</td>
                             <td>
-                                <a href="/agents/${agent.agent_id}/chat" class="btn btn-sm btn-outline-primary" title="Chat">
+                                <a href="/agents/chat?agent=${agent.agent_id}" class="btn btn-sm btn-outline-primary" title="Chat">
                                     <i class="fas fa-comments"></i>
                                 </a>
                             </td>
@@ -1293,13 +1298,18 @@ function loadAgentsSummary() {
 function getAgentTypeBadge(type) {
     const badges = {
         'triage': '<span class="badge bg-warning text-dark">Triage</span>',
+        'bgp': '<span class="badge bg-primary">BGP</span>',
+        'ospf': '<span class="badge bg-info">OSPF</span>',
+        'isis': '<span class="badge bg-info">IS-IS</span>',
+        'general': '<span class="badge bg-secondary">General</span>',
+        'assistant': '<span class="badge bg-success">Assistant</span>',
         'diagnostic': '<span class="badge bg-info">Diagnostic</span>',
         'remediation': '<span class="badge bg-danger">Remediation</span>',
         'automation': '<span class="badge bg-primary">Automation</span>',
         'monitoring': '<span class="badge bg-success">Monitoring</span>',
         'custom': '<span class="badge bg-secondary">Custom</span>'
     };
-    return badges[type] || badges['custom'];
+    return badges[type] || `<span class="badge bg-secondary">${escapeHtml(type || 'Custom')}</span>`;
 }
 
 // ============================================================================

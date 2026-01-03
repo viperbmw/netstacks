@@ -1,0 +1,7 @@
+pysnmp==6.2.6
+pysnmp-mibs==0.1.6
+httpx==0.27.0
+aiohttp==3.9.1
+pydantic==2.5.3
+pydantic-settings==2.1.0
+pyyaml==6.0.1

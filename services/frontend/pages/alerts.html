@@ -223,6 +223,7 @@
                     <label class="form-label small mb-1">Source</label>
                     <select class="form-control form-control-sm" id="filter-source">
                         <option value="">All Sources</option>
+                        <option value="snmp_trap">SNMP Trap</option>
                         <option value="prometheus">Prometheus</option>
                         <option value="solarwinds">SolarWinds</option>
                         <option value="generic">Generic</option>
@@ -514,19 +515,69 @@
     </div>
 </div>
 
-<!-- Webhook Info Panel -->
+<!-- Alert Ingestion Panel -->
 <div class="card mt-4">
     <div class="card-header d-flex justify-content-between align-items-center py-2">
         <h6 class="mb-0">
-            <i class="fas fa-plug"></i> Webhook Endpoints
+            <i class="fas fa-plug"></i> Alert Ingestion Sources
         </h6>
-        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#webhook-panel">
+        <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#ingestion-panel">
             <i class="fas fa-chevron-down"></i>
         </button>
     </div>
-    <div class="collapse" id="webhook-panel">
+    <div class="collapse" id="ingestion-panel">
         <div class="card-body">
-            <p class="text-muted small">Configure your monitoring systems to send alerts to these endpoints. All alerts are automatically processed by AI unless <code>skip_ai: true</code> is set.</p>
+            <p class="text-muted small">Configure your monitoring systems to send alerts to NetStacks. All alerts are automatically processed by AI unless <code>skip_ai: true</code> is set.</p>
+
+            <!-- SNMP Trap Receiver -->
+            <div class="mb-4">
+                <h6><i class="fas fa-network-wired text-success"></i> SNMP Trap Receiver</h6>
+                <div class="row">
+                    <div class="col-md-8">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr>
+                                    <td style="width: 150px;"><strong>Protocol</strong></td>
+                                    <td>UDP</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Port</strong></td>
+                                    <td><code>162</code></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Host</strong></td>
+                                    <td><code id="snmp-host"></code></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Community</strong></td>
+                                    <td><code>public</code> (configurable)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-dark">
+                            <div class="card-body py-2">
+                                <small class="text-muted">Service Status</small>
+                                <div id="snmp-status" class="mt-1">
+                                    <span class="badge bg-secondary"><i class="fas fa-circle-notch fa-spin"></i> Checking...</span>
+                                </div>
+                                <small class="text-muted d-block mt-2">Traps Received</small>
+                                <div id="snmp-trap-count" class="fw-bold">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p class="small text-muted mt-2 mb-0">
+                    <i class="fas fa-info-circle"></i> Configure network devices to send SNMP traps to this receiver. Supports SNMPv1/v2c traps.
+                    Common trap types (linkDown, linkUp, BGP, OSPF, IS-IS) are automatically mapped to alert types.
+                </p>
+            </div>
+
+            <hr>
+
+            <!-- Webhook Endpoints -->
+            <h6><i class="fas fa-globe text-primary"></i> Webhook Endpoints</h6>
             <table class="table table-sm">
                 <thead>
                     <tr>
@@ -928,6 +979,43 @@ $(document).ready(function() {
     $('#webhook-generic').text(`${baseUrl}/api/webhooks/generic`);
     $('#webhook-prometheus').text(`${baseUrl}/api/webhooks/prometheus`);
     $('#webhook-solarwinds').text(`${baseUrl}/api/webhooks/solarwinds`);
+
+    // Set SNMP host (same host as web UI)
+    $('#snmp-host').text(window.location.hostname);
+
+    // Check SNMP service status
+    function checkSNMPStatus() {
+        // SNMP service health endpoint is internal, we need to proxy or check via platform health
+        // For now, we'll check via the platform health endpoint
+        $.ajax({
+            url: '/api/platform/health',
+            method: 'GET',
+            success: function(response) {
+                if (response.services && response.services.snmp) {
+                    const snmpHealth = response.services.snmp;
+                    if (snmpHealth.status === 'healthy') {
+                        $('#snmp-status').html('<span class="badge bg-success"><i class="fas fa-check-circle"></i> Online</span>');
+                        if (snmpHealth.trap_count !== undefined) {
+                            $('#snmp-trap-count').text(snmpHealth.trap_count.toLocaleString());
+                        }
+                    } else {
+                        $('#snmp-status').html('<span class="badge bg-danger"><i class="fas fa-times-circle"></i> Offline</span>');
+                    }
+                } else {
+                    // SNMP service not in health check yet, show as unknown
+                    $('#snmp-status').html('<span class="badge bg-warning"><i class="fas fa-question-circle"></i> Not Configured</span>');
+                }
+            },
+            error: function() {
+                $('#snmp-status').html('<span class="badge bg-secondary"><i class="fas fa-question-circle"></i> Unknown</span>');
+            }
+        });
+    }
+
+    // Initial SNMP status check
+    checkSNMPStatus();
+    // Refresh SNMP status every 30 seconds
+    setInterval(checkSNMPStatus, 30000);
 
     // Load alerts
     function loadAlerts() {
