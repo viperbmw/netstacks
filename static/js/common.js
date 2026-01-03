@@ -40,25 +40,27 @@ async function checkPlatformHealth() {
             // Update icon color based on overall health
             healthIcon.classList.remove('text-secondary', 'text-success', 'text-warning', 'text-danger');
 
+            let statusClass, titleText;
             if (overallStatus === 'healthy' || healthyCount === totalCount) {
-                healthIcon.classList.add('text-success');
-                if (healthIndicator) {
-                    healthIndicator.setAttribute('data-bs-original-title', 'All services healthy');
-                    healthIndicator.setAttribute('title', 'All services healthy');
-                }
+                statusClass = 'text-success';
+                titleText = 'All services healthy';
             } else if (healthyCount >= totalCount / 2) {
-                healthIcon.classList.add('text-warning');
-                if (healthIndicator) {
-                    healthIndicator.setAttribute('data-bs-original-title', `${healthyCount}/${totalCount} services healthy`);
-                    healthIndicator.setAttribute('title', `${healthyCount}/${totalCount} services healthy`);
-                }
+                statusClass = 'text-warning';
+                titleText = `${healthyCount}/${totalCount} services healthy`;
             } else {
-                healthIcon.classList.add('text-danger');
-                if (healthIndicator) {
-                    healthIndicator.setAttribute('data-bs-original-title', `${healthyCount}/${totalCount} services healthy - Click for details`);
-                    healthIndicator.setAttribute('title', `${healthyCount}/${totalCount} services healthy - Click for details`);
-                }
+                statusClass = 'text-danger';
+                titleText = `${healthyCount}/${totalCount} services healthy - Click for details`;
             }
+
+            healthIcon.classList.add(statusClass);
+            if (healthIndicator) {
+                healthIndicator.setAttribute('data-bs-original-title', titleText);
+                healthIndicator.setAttribute('title', titleText);
+            }
+
+            // Cache the status for page navigation
+            sessionStorage.setItem('netstacks_health_status', statusClass);
+            sessionStorage.setItem('netstacks_health_title', titleText);
         }
     } catch (e) {
         // API error or timeout - show unknown/gray state
@@ -90,7 +92,35 @@ function handleLogout(event) {
 
 // Initialize common functionality on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Check platform health immediately and every 30 seconds
-    checkPlatformHealth();
-    setInterval(checkPlatformHealth, 30000);
+    // Only run health check if we haven't checked recently (within 30 seconds)
+    // This prevents redundant API calls when navigating between pages
+    const lastCheck = sessionStorage.getItem('netstacks_health_last_check');
+    const now = Date.now();
+    const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+
+    if (!lastCheck || (now - parseInt(lastCheck)) > HEALTH_CHECK_INTERVAL) {
+        checkPlatformHealth();
+        sessionStorage.setItem('netstacks_health_last_check', now.toString());
+    } else {
+        // Restore the last known health state from session storage
+        const lastStatus = sessionStorage.getItem('netstacks_health_status');
+        if (lastStatus) {
+            const healthIcon = document.getElementById('health-status-icon');
+            const healthIndicator = document.getElementById('platform-health-indicator');
+            if (healthIcon) {
+                healthIcon.classList.remove('text-secondary', 'text-success', 'text-warning', 'text-danger');
+                healthIcon.classList.add(lastStatus);
+            }
+            const lastTitle = sessionStorage.getItem('netstacks_health_title');
+            if (healthIndicator && lastTitle) {
+                healthIndicator.setAttribute('title', lastTitle);
+            }
+        }
+    }
+
+    // Set up interval for periodic health checks (every 30 seconds)
+    setInterval(function() {
+        checkPlatformHealth();
+        sessionStorage.setItem('netstacks_health_last_check', Date.now().toString());
+    }, HEALTH_CHECK_INTERVAL);
 });
