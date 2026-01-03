@@ -768,12 +768,14 @@ $(document).ready(function() {
         $.ajax({
             url: `/api/knowledge/documents/${docId}`,
             method: 'GET',
-            success: function(doc) {
+            success: function(response) {
                 currentDocId = docId;
+                // API returns { success: true, document: { ... } }
+                const doc = response.document || response;
 
-                $('#detail-title').text(doc.title);
+                $('#detail-title').text(doc.title || '');
                 $('#detail-type').html(getTypeBadge(doc.doc_type));
-                $('#detail-source').text(doc.source || '-');
+                $('#detail-source').text(doc.source_url || doc.source || '-');
                 $('#detail-indexed').html(doc.is_indexed
                     ? '<span class="text-success"><i class="fas fa-check"></i> Yes</span>'
                     : '<span class="text-warning"><i class="fas fa-clock"></i> Pending</span>');
@@ -987,6 +989,6 @@ $(document).ready(function() {
 });
 </script>
     <!-- NetStacks AI Assistant -->
-    <script src="/static/js/assistant.js?v=4"></script>
+    <script src="/static/js/assistant.js?v=5"></script>
 </body>
 </html>

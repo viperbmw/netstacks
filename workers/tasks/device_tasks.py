@@ -17,44 +17,26 @@ from jinja2 import Environment, BaseLoader
 log = logging.getLogger(__name__)
 
 
-def get_textfsm_template_path(device_type: str, command: str) -> Optional[str]:
-    """Find TextFSM template for a given device type and command."""
+def parse_with_ntc_templates(output: str, device_type: str, command: str) -> List[Dict]:
+    """Parse CLI output using ntc-templates.
+
+    Args:
+        output: Raw CLI output to parse
+        device_type: Netmiko device type (e.g., 'arista_eos', 'cisco_ios')
+        command: The CLI command that was executed
+
+    Returns:
+        List of parsed dictionaries, or empty list if parsing fails
+    """
     try:
-        from ntc_templates.parse import _get_template_dir
-        template_dir = _get_template_dir()
+        from ntc_templates.parse import parse_output
 
-        # Normalize command for template lookup
-        command_normalized = command.lower().replace(' ', '_')
-        template_name = f"{device_type}_{command_normalized}.textfsm"
-        template_path = os.path.join(template_dir, template_name)
-
-        if os.path.exists(template_path):
-            return template_path
-
-        # Try ntc-templates index lookup
-        try:
-            from ntc_templates.parse import get_template
-            return get_template(platform=device_type, command=command)
-        except Exception:
-            pass
-
-        return None
-    except ImportError:
-        log.warning("ntc-templates not installed")
-        return None
-
-
-def parse_with_textfsm(output: str, template_path: str) -> List[Dict]:
-    """Parse CLI output using TextFSM template."""
-    try:
-        import textfsm
-        with open(template_path) as f:
-            fsm = textfsm.TextFSM(f)
-            result = fsm.ParseText(output)
-            headers = fsm.header
-            return [dict(zip(headers, row)) for row in result]
+        # ntc-templates uses platform names that match netmiko device types
+        parsed = parse_output(platform=device_type, command=command, data=output)
+        log.info(f"TextFSM parsed {len(parsed)} records for {device_type} '{command}'")
+        return parsed
     except Exception as e:
-        log.error(f"TextFSM parsing error: {e}")
+        log.warning(f"TextFSM parsing not available for {device_type} '{command}': {e}")
         return []
 
 
@@ -110,12 +92,12 @@ def get_config(self, connection_args: Dict, command: str,
                 except ImportError:
                     log.warning("TTP not available")
 
-            # Parse with TextFSM if requested
+            # Parse with TextFSM/ntc-templates if requested
             if use_textfsm and not result.get('parsed_output'):
                 device_type = connection_args.get('device_type', 'cisco_ios')
-                template_path = get_textfsm_template_path(device_type, command)
-                if template_path:
-                    result['parsed_output'] = parse_with_textfsm(output, template_path)
+                parsed = parse_with_ntc_templates(output, device_type, command)
+                if parsed:
+                    result['parsed_output'] = parsed
                     result['parser'] = 'textfsm'
 
     except NetmikoTimeoutException as e:
@@ -245,9 +227,9 @@ def run_commands(self, connection_args: Dict, commands: List[str],
                     cmd_result['status'] = 'success'
 
                     if use_textfsm:
-                        template_path = get_textfsm_template_path(device_type, command)
-                        if template_path:
-                            cmd_result['parsed_output'] = parse_with_textfsm(output, template_path)
+                        parsed = parse_with_ntc_templates(output, device_type, command)
+                        if parsed:
+                            cmd_result['parsed_output'] = parsed
 
                 except Exception as e:
                     cmd_result['status'] = 'failed'

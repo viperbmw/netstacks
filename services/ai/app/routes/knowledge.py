@@ -374,27 +374,36 @@ async def delete_document(doc_id: str, user=Depends(get_current_user)):
 @router.post("/documents/{doc_id}/reindex", response_model=dict)
 async def reindex_document(doc_id: str, user=Depends(get_current_user)):
     """Reindex a document (regenerate embeddings)."""
-    session = get_session()
-    try:
-        doc = session.query(KnowledgeDocument).filter(
-            KnowledgeDocument.doc_id == doc_id
-        ).first()
+    from app.services.knowledge_indexer import index_document
 
-        if not doc:
-            raise HTTPException(status_code=404, detail="Document not found")
+    result = await index_document(doc_id)
 
-        # TODO: Implement actual reindexing with embeddings
-        # For now, just mark as indexed
-        doc.is_indexed = True
-        session.commit()
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Indexing failed"))
 
-        return {
-            "success": True,
-            "message": "Document queued for reindexing",
-            "doc_id": doc_id
-        }
-    finally:
-        session.close()
+    return {
+        "success": True,
+        "message": "Document indexed successfully",
+        "doc_id": doc_id,
+        "chunk_count": result.get("chunk_count", 0),
+        "has_embeddings": result.get("has_embeddings", False),
+    }
+
+
+@router.post("/reindex-all", response_model=dict)
+async def reindex_all_documents(user=Depends(get_current_user)):
+    """Reindex all unindexed documents."""
+    from app.services.knowledge_indexer import index_all_documents
+
+    result = await index_all_documents()
+
+    return {
+        "success": True,
+        "message": result.get("message"),
+        "indexed": result.get("indexed", 0),
+        "failed": result.get("failed", 0),
+        "errors": result.get("errors"),
+    }
 
 
 # ============================================================================
@@ -406,36 +415,70 @@ async def search_documents(
     request: SearchRequest,
     user=Depends(get_current_user)
 ):
-    """Search documents using text matching (vector search coming soon)."""
+    """Search documents using text matching on indexed chunks."""
+    from sqlalchemy import text as sql_text
+
     session = get_session()
     try:
-        query = session.query(KnowledgeDocument)
-
+        # Search in indexed chunks for better results
         if request.collection_id:
-            query = query.filter(KnowledgeDocument.collection_id == request.collection_id)
+            result = session.execute(
+                sql_text("""
+                    SELECT DISTINCT ON (d.doc_id)
+                        d.doc_id,
+                        d.title,
+                        d.collection_id,
+                        d.doc_type,
+                        e.chunk_text
+                    FROM knowledge_embeddings e
+                    JOIN knowledge_documents d ON e.doc_id = d.doc_id
+                    WHERE d.collection_id = :collection_id
+                      AND (e.chunk_text ILIKE :query OR d.title ILIKE :query)
+                    LIMIT :limit
+                """),
+                {
+                    "collection_id": request.collection_id,
+                    "query": f"%{request.query}%",
+                    "limit": request.limit,
+                }
+            )
+        else:
+            result = session.execute(
+                sql_text("""
+                    SELECT DISTINCT ON (d.doc_id)
+                        d.doc_id,
+                        d.title,
+                        d.collection_id,
+                        d.doc_type,
+                        e.chunk_text
+                    FROM knowledge_embeddings e
+                    JOIN knowledge_documents d ON e.doc_id = d.doc_id
+                    WHERE e.chunk_text ILIKE :query OR d.title ILIKE :query
+                    LIMIT :limit
+                """),
+                {
+                    "query": f"%{request.query}%",
+                    "limit": request.limit,
+                }
+            )
 
-        # Simple text matching for now
-        # TODO: Implement actual vector search with pgvector
-        query = query.filter(
-            KnowledgeDocument.content.ilike(f"%{request.query}%")
-        )
-
-        docs = query.limit(request.limit).all()
+        results = []
+        for row in result:
+            # Get snippet from matching chunk
+            snippet = row.chunk_text[:200] + "..." if len(row.chunk_text) > 200 else row.chunk_text
+            results.append({
+                "doc_id": row.doc_id,
+                "title": row.title,
+                "collection_id": row.collection_id,
+                "doc_type": row.doc_type,
+                "score": 0.8,  # Placeholder score until vector search
+                "snippet": snippet,
+            })
 
         return {
             "success": True,
             "query": request.query,
-            "results": [
-                {
-                    "doc_id": d.doc_id,
-                    "title": d.title,
-                    "collection_id": d.collection_id,
-                    "doc_type": d.doc_type,
-                    "score": 0.5,  # Placeholder score until vector search
-                    "snippet": d.content[:200] + "..." if len(d.content) > 200 else d.content,
-                }
-                for d in docs
-            ]
+            "results": results
         }
     finally:
         session.close()

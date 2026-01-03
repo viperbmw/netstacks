@@ -466,3 +466,41 @@
 .assistant-message a:hover {
     color: #93c5fd;
 }
+
+/* Internal navigation links */
+.assistant-message a.assistant-internal-link {
+    color: #22d3ee;
+    text-decoration: none;
+    border-bottom: 1px dashed #22d3ee;
+}
+
+.assistant-message a.assistant-internal-link:hover {
+    color: #67e8f9;
+    border-bottom-color: #67e8f9;
+}
+
+/* Navigation buttons */
+.assistant-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    margin: 4px 0;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.assistant-nav-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
+}
+
+.assistant-nav-btn i {
+    font-size: 10px;
+}

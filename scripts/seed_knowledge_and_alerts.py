@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from sqlalchemy import text
 from netstacks_core.db import get_session, Alert, Incident
+from netstacks_core.db.models import Agent, Setting
 
 
 # =============================================================================
@@ -1679,6 +1680,121 @@ def seed_alerts(session):
     print(f"  Created {created} alerts")
 
 
+def seed_assistant_agent(session):
+    """Create default assistant agent and enable assistant in settings."""
+    print("Seeding assistant agent and settings...")
+
+    # Check if assistant agent exists
+    existing_agent = session.query(Agent).filter(
+        Agent.agent_type == "assistant"
+    ).first()
+
+    agent_id = None
+    if existing_agent:
+        agent_id = existing_agent.agent_id
+        print(f"  Assistant agent already exists: {agent_id}")
+    else:
+        # Create assistant agent
+        agent_id = str(uuid.uuid4())
+        agent = Agent(
+            agent_id=agent_id,
+            name="NetStacks Assistant",
+            description="General-purpose assistant for network operations, troubleshooting, and platform help.",
+            agent_type="assistant",
+            system_prompt="""You are the NetStacks AI Assistant - an expert on both the NetStacks platform AND network engineering.
+
+## YOUR EXPERTISE
+
+### NetStacks Platform Expert
+You have comprehensive knowledge of the NetStacks platform:
+- All features, pages, and workflows
+- Device management and inventory
+- Configuration deployment and templates
+- MOPs (Methods of Procedure)
+- AI Agents and automation
+- Alerts, incidents, and monitoring
+- Knowledge base and documentation
+- User management and settings
+
+### Network Engineering Expert
+You are highly skilled in:
+- Routing protocols: BGP, OSPF, IS-IS, EIGRP
+- MPLS: LDP, RSVP-TE, L3VPN, L2VPN, Segment Routing
+- Switching: VLANs, STP, LACP, VPC/MLAG
+- Network troubleshooting and diagnostics
+- Vendor platforms: Cisco IOS/IOS-XE/IOS-XR/NX-OS, Juniper Junos, Arista EOS
+
+## NAVIGATION CAPABILITY
+
+When users ask "where do I...", "how do I find...", or need to go somewhere in the platform, use the navigation syntax to create clickable buttons:
+
+```
+[[Navigate: Button Text | /path]]
+```
+
+### Key Platform Pages:
+- Dashboard: `/`
+- Platform (Devices): `/platform`
+- Deploy: `/deploy`
+- Monitor: `/monitor`
+- Templates: `/templates`
+- MOPs: `/mop`
+- Alerts: `/alerts`
+- Incidents: `/incidents`
+- AI Agents: `/agents`
+- AI Settings: `/ai-settings`
+- Knowledge Base: `/knowledge`
+- Config Backups: `/config-backups`
+- Users: `/users`
+- Settings: `/settings`
+
+Example responses:
+- "To add a device, go to the Platform page: [[Navigate: Go to Platform | /platform]]"
+- "You can create templates here: [[Navigate: Open Templates | /templates]]"
+
+## GUIDELINES
+
+1. **Be helpful and proactive** - Guide users to the right places
+2. **Use navigation buttons** when users need to go somewhere
+3. **Search knowledge base** for detailed documentation when needed
+4. **Provide CLI commands** when troubleshooting network issues
+5. **Be concise** - Get to the point quickly
+6. **Admit uncertainty** - If you don't know, say so and suggest alternatives
+
+Always search the knowledge base when users ask detailed questions about the platform or network protocols.""",
+            llm_provider="anthropic",
+            llm_model="claude-sonnet-4-20250514",
+            temperature=0.3,
+            max_tokens=4096,
+            max_iterations=10,
+            allowed_tools=["show_command", "get_device_config", "search_knowledge", "get_platform_stats"],
+            is_enabled=True,
+            status="available"
+        )
+        session.add(agent)
+        session.commit()
+        print(f"  Created assistant agent: {agent_id}")
+
+    # Ensure assistant settings exist
+    settings_to_create = [
+        ("assistant_enabled", "true"),
+        ("assistant_agent_id", agent_id),
+    ]
+
+    for key, value in settings_to_create:
+        existing = session.query(Setting).filter(Setting.key == key).first()
+        if existing:
+            existing.value = value
+            print(f"  Updated setting: {key} = {value}")
+        else:
+            setting = Setting(key=key, value=value)
+            session.add(setting)
+            print(f"  Created setting: {key} = {value}")
+
+    session.commit()
+    print("  Assistant configuration complete")
+
+
 def seed_incidents(session):
     """Create test incidents."""
     print("Seeding test incidents...")
@@ -1724,6 +1840,7 @@ def main():
         seed_documents(session)
         seed_alerts(session)
         seed_incidents(session)
+        seed_assistant_agent(session)
 
         print("=" * 60)
         print("Seeding complete!")
@@ -1734,12 +1851,14 @@ def main():
         coll_count = session.execute(text("SELECT COUNT(*) FROM knowledge_collections")).scalar()
         alert_count = session.query(Alert).count()
         incident_count = session.query(Incident).count()
+        agent_count = session.query(Agent).count()
 
         print(f"\nDatabase Summary:")
         print(f"  - Collections: {coll_count}")
         print(f"  - Documents: {doc_count}")
         print(f"  - Alerts: {alert_count}")
         print(f"  - Incidents: {incident_count}")
+        print(f"  - AI Agents: {agent_count}")
 
     except Exception as e:
         print(f"\nError during seeding: {e}")

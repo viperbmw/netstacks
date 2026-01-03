@@ -2,7 +2,7 @@
  * NetStacks AI Assistant
  *
  * Handles the sidebar chat interface for the AI assistant.
- * Uses Socket.IO for real-time communication with the assistant agent.
+ * Uses HTTP/SSE (Server-Sent Events) for real-time communication.
  * Persists session and chat history across page navigations.
  */
 
@@ -15,12 +15,12 @@
     const STORAGE_KEY_SIDEBAR_OPEN = 'netstacks_assistant_sidebar_open';
 
     // State
-    let socket = null;
     let sessionId = null;
-    let isConnected = false;
-    let isTyping = false;
+    let isProcessing = false;
     let currentPage = window.location.pathname;
     let chatMessages = [];  // In-memory message cache
+    let currentEventSource = null;  // For SSE connection
+    let assistantAgentId = null;  // The agent ID to use for chat
 
     // DOM Elements
     let sidebar = null;
@@ -36,16 +36,15 @@
     document.addEventListener('DOMContentLoaded', initAssistant);
 
     function initAssistant() {
-        // AI Assistant disabled - WebSocket server not implemented yet
-        console.log('AI Assistant disabled (WebSocket server not available)');
-        return;
-
         // Check if assistant is enabled before initializing
-        checkAssistantEnabled().then(function(enabled) {
-            if (!enabled) {
+        checkAssistantEnabled().then(function(config) {
+            if (!config.enabled) {
                 console.log('AI Assistant is disabled');
                 return;
             }
+
+            // Store the agent ID if provided
+            assistantAgentId = config.agentId;
 
             // Create and inject the sidebar HTML
             injectSidebarHTML();
@@ -68,8 +67,8 @@
             // Load persisted state
             loadPersistedState();
 
-            // Initialize Socket.IO connection
-            initSocket();
+            // Update status to ready
+            updateStatus('connected', 'Ready');
         });
     }
 
@@ -79,14 +78,17 @@
             $.get('/api/settings/assistant/config')
                 .done(function(data) {
                     if (data.config) {
-                        resolve(data.config.enabled === true || data.config.enabled === 'true');
+                        resolve({
+                            enabled: data.config.enabled === true || data.config.enabled === 'true',
+                            agentId: data.config.agent_id || null
+                        });
                     } else {
-                        resolve(false);
+                        resolve({ enabled: false, agentId: null });
                     }
                 })
                 .fail(function(error) {
                     console.warn('Could not check assistant config:', error);
-                    resolve(false);
+                    resolve({ enabled: false, agentId: null });
                 });
         });
     }
@@ -117,7 +119,7 @@
 
                 <div class="assistant-status">
                     <span class="assistant-status-dot"></span>
-                    <span class="assistant-status-text">Connecting...</span>
+                    <span class="assistant-status-text">Ready</span>
                 </div>
 
                 <div id="assistant-messages" class="assistant-messages">
@@ -126,16 +128,16 @@
                             <i class="fas fa-robot"></i>
                         </div>
                         <h4>Hi! I'm your NetStacks Assistant</h4>
-                        <p>I can help you navigate the app, create MOPs, and build templates.</p>
+                        <p>I can help you with network operations, troubleshooting, and navigating the platform.</p>
                         <div class="assistant-welcome-suggestions">
-                            <button class="assistant-suggestion-btn" data-message="How do I create a MOP?">
-                                <i class="fas fa-list-check"></i> How do I create a MOP?
+                            <button class="assistant-suggestion-btn" data-message="What can you help me with?">
+                                <i class="fas fa-question-circle"></i> What can you help me with?
                             </button>
-                            <button class="assistant-suggestion-btn" data-message="Help me create a Jinja2 template">
-                                <i class="fas fa-file-code"></i> Help me create a template
+                            <button class="assistant-suggestion-btn" data-message="Show me the network status">
+                                <i class="fas fa-network-wired"></i> Show network status
                             </button>
-                            <button class="assistant-suggestion-btn" data-message="Where can I manage devices?">
-                                <i class="fas fa-server"></i> Where can I manage devices?
+                            <button class="assistant-suggestion-btn" data-message="Help me troubleshoot a device">
+                                <i class="fas fa-wrench"></i> Troubleshoot a device
                             </button>
                         </div>
                     </div>
@@ -149,7 +151,7 @@
                             placeholder="Ask me anything..."
                             rows="1"
                         ></textarea>
-                        <button id="assistant-send-btn" class="assistant-send-btn" disabled>
+                        <button id="assistant-send-btn" class="assistant-send-btn">
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </div>
@@ -170,7 +172,7 @@
         // Input handling
         inputField.addEventListener('input', handleInput);
         inputField.addEventListener('keydown', handleKeyDown);
-        sendBtn.addEventListener('click', sendMessage);
+        sendBtn.addEventListener('click', function() { sendMessage(); });
 
         // Suggestion buttons
         document.querySelectorAll('.assistant-suggestion-btn').forEach(btn => {
@@ -260,146 +262,136 @@
     }
 
     // =========================================================================
-    // Socket.IO Connection
+    // Chat API Communication
     // =========================================================================
 
-    function initSocket() {
-        // Load Socket.IO if not already loaded
-        if (typeof io === 'undefined') {
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js';
-            script.onload = connectSocket;
-            document.head.appendChild(script);
-        } else {
-            connectSocket();
+    async function startSession() {
+        if (!assistantAgentId) {
+            // Try to find an assistant agent
+            try {
+                const response = await $.get('/api/agents/');
+                const agents = response.agents || response || [];
+                const assistantAgent = agents.find(a =>
+                    a.agent_type === 'assistant' ||
+                    a.name.toLowerCase().includes('assistant')
+                );
+                if (assistantAgent) {
+                    assistantAgentId = assistantAgent.agent_id;
+                } else if (agents.length > 0) {
+                    // Use first available enabled agent
+                    const enabledAgent = agents.find(a => a.is_enabled);
+                    if (enabledAgent) {
+                        assistantAgentId = enabledAgent.agent_id;
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not fetch agents:', e);
+            }
+        }
+
+        if (!assistantAgentId) {
+            addMessage('system', 'No AI agent is configured. Please set up an agent in the AI Agents settings.');
+            updateStatus('error', 'No agent configured');
+            return false;
+        }
+
+        try {
+            updateStatus('connecting', 'Starting session...');
+
+            const response = await $.ajax({
+                url: '/api/chat/start',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ agent_id: assistantAgentId })
+            });
+
+            if (response.success && response.session_id) {
+                sessionId = response.session_id;
+                saveSessionState();
+                console.log('Started chat session:', sessionId);
+                updateStatus('connected', 'Ready');
+                return true;
+            } else {
+                throw new Error('Failed to start session');
+            }
+        } catch (error) {
+            console.error('Error starting session:', error);
+            const errorMsg = error.responseJSON?.detail || error.message || 'Failed to start session';
+            addMessage('system', 'Error: ' + errorMsg);
+            updateStatus('error', 'Connection failed');
+            return false;
         }
     }
 
-    function connectSocket() {
-        updateStatus('connecting', 'Connecting...');
+    async function sendMessage(messageText) {
+        const message = typeof messageText === 'string' ? messageText : inputField.value.trim();
+        if (!message || isProcessing) return;
 
-        // Connect to the /agents namespace for WebSocket communication
-        socket = io('/agents', {
-            path: '/socket.io',
-            transports: ['websocket', 'polling']
-        });
+        // Clear input
+        if (typeof messageText !== 'string') {
+            inputField.value = '';
+            inputField.style.height = 'auto';
+        }
 
-        socket.on('connect', function() {
-            isConnected = true;
-            updateStatus('connected', 'Connected');
-            console.log('Socket connected to /agents namespace');
+        // Hide welcome message
+        const welcome = messagesContainer.querySelector('.assistant-welcome');
+        if (welcome) {
+            welcome.remove();
+        }
 
-            // Try to resume existing session or start new one
-            if (sessionId) {
-                resumeSession();
+        // Add user message
+        addMessage('user', message);
+
+        // Start session if needed
+        if (!sessionId) {
+            const started = await startSession();
+            if (!started) return;
+        }
+
+        // Show typing indicator
+        isProcessing = true;
+        sendBtn.disabled = true;
+        updateStatus('processing', 'Thinking...');
+        showTypingIndicator();
+
+        try {
+            // Use the sync endpoint for simpler handling
+            const response = await $.ajax({
+                url: `/api/chat/${sessionId}/message/sync`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ message: message }),
+                timeout: 120000  // 2 minute timeout for long responses
+            });
+
+            hideTypingIndicator();
+
+            if (response.success && response.response) {
+                addMessage('assistant', response.response);
+            } else if (response.error) {
+                addMessage('system', 'Error: ' + response.error);
             } else {
-                startSession();
+                addMessage('system', 'No response received from assistant.');
             }
-        });
 
-        socket.on('connected', function(data) {
-            console.log('WebSocket connected confirmation:', data);
-        });
+        } catch (error) {
+            hideTypingIndicator();
+            console.error('Error sending message:', error);
 
-        socket.on('disconnect', function() {
-            isConnected = false;
-            updateStatus('error', 'Disconnected');
-            sendBtn.disabled = true;
-        });
-
-        socket.on('connect_error', function(error) {
-            console.error('Socket connection error:', error);
-            updateStatus('error', 'Connection failed');
-            sendBtn.disabled = true;
-        });
-
-        // Handle agent events
-        socket.on('agent_event', handleAgentEvent);
-
-        // Handle session started (new session)
-        socket.on('session_started', function(data) {
-            sessionId = data.session_id;
-            console.log('Assistant session started:', sessionId);
-            saveSessionState();
-            sendBtn.disabled = false;
-            updateStatus('connected', 'Ready');
-        });
-
-        // Handle session resumed (existing session)
-        socket.on('session_resumed', function(data) {
-            sessionId = data.session_id;
-            console.log('Assistant session resumed:', sessionId);
-            saveSessionState();
-            restoreMessages();
-            sendBtn.disabled = false;
-            updateStatus('connected', 'Ready');
-        });
-
-        // Handle session expired
-        socket.on('session_expired', function(data) {
-            console.log('Session expired, starting new one:', data);
-            clearPersistedState();
-            startSession();
-        });
-
-        // Handle errors
-        socket.on('error', function(data) {
-            console.error('Socket error:', data);
-            addMessage('system', 'Error: ' + (data.message || 'Unknown error'));
-        });
-    }
-
-    function startSession() {
-        if (!socket || !isConnected) return;
-
-        socket.emit('start_session', {
-            agent_type: 'assistant',
-            context: {
-                current_page: currentPage
+            // Check if session expired
+            if (error.status === 404 || error.status === 400) {
+                // Session invalid, clear and retry
+                sessionId = null;
+                sessionStorage.removeItem(STORAGE_KEY_SESSION);
+                addMessage('system', 'Session expired. Please try again.');
+            } else {
+                const errorMsg = error.responseJSON?.detail || error.message || 'Failed to send message';
+                addMessage('system', 'Error: ' + errorMsg);
             }
-        });
-    }
-
-    function resumeSession() {
-        if (!socket || !isConnected || !sessionId) return;
-
-        console.log('Attempting to resume session:', sessionId);
-        socket.emit('resume_session', {
-            session_id: sessionId
-        });
-    }
-
-    function handleAgentEvent(event) {
-        console.log('Agent event:', event);
-
-        switch (event.type) {
-            case 'thought':
-                // Optionally show agent's thinking
-                break;
-
-            case 'tool_call':
-                // Optionally show tool usage
-                break;
-
-            case 'tool_result':
-                // Optionally show tool results
-                break;
-
-            case 'final_response':
-                hideTypingIndicator();
-                if (event.content) {
-                    addMessage('assistant', event.content);
-                }
-                break;
-
-            case 'error':
-                hideTypingIndicator();
-                addMessage('error', event.content || 'An error occurred');
-                break;
-
-            case 'done':
-                hideTypingIndicator();
-                break;
+        } finally {
+            isProcessing = false;
+            sendBtn.disabled = !inputField.value.trim();
+            updateStatus('connected', 'Ready');
         }
     }
 
@@ -426,11 +418,6 @@
         if (chatMessages.length > 0 && messagesContainer.querySelector('.assistant-welcome')) {
             restoreMessages();
         }
-
-        // Start session if not connected
-        if (!sessionId && isConnected) {
-            startSession();
-        }
     }
 
     function closeSidebar() {
@@ -441,6 +428,17 @@
     }
 
     function startNewChat() {
+        // End current session if exists
+        if (sessionId) {
+            $.ajax({
+                url: `/api/chat/${sessionId}/end`,
+                method: 'POST',
+                contentType: 'application/json'
+            }).catch(function() {
+                // Ignore errors when ending session
+            });
+        }
+
         // Clear state
         clearPersistedState();
 
@@ -451,16 +449,16 @@
                     <i class="fas fa-robot"></i>
                 </div>
                 <h4>Hi! I'm your NetStacks Assistant</h4>
-                <p>I can help you navigate the app, create MOPs, and build templates.</p>
+                <p>I can help you with network operations, troubleshooting, and navigating the platform.</p>
                 <div class="assistant-welcome-suggestions">
-                    <button class="assistant-suggestion-btn" data-message="How do I create a MOP?">
-                        <i class="fas fa-list-check"></i> How do I create a MOP?
+                    <button class="assistant-suggestion-btn" data-message="What can you help me with?">
+                        <i class="fas fa-question-circle"></i> What can you help me with?
                     </button>
-                    <button class="assistant-suggestion-btn" data-message="Help me create a Jinja2 template">
-                        <i class="fas fa-file-code"></i> Help me create a template
+                    <button class="assistant-suggestion-btn" data-message="Show me the network status">
+                        <i class="fas fa-network-wired"></i> Show network status
                     </button>
-                    <button class="assistant-suggestion-btn" data-message="Where can I manage devices?">
-                        <i class="fas fa-server"></i> Where can I manage devices?
+                    <button class="assistant-suggestion-btn" data-message="Help me troubleshoot a device">
+                        <i class="fas fa-wrench"></i> Troubleshoot a device
                     </button>
                 </div>
             </div>
@@ -474,10 +472,7 @@
             });
         });
 
-        // Start new session
-        if (isConnected) {
-            startSession();
-        }
+        updateStatus('connected', 'Ready');
     }
 
     function handleInput() {
@@ -486,7 +481,7 @@
         inputField.style.height = Math.min(inputField.scrollHeight, 120) + 'px';
 
         // Enable/disable send button
-        sendBtn.disabled = !inputField.value.trim() || !isConnected;
+        sendBtn.disabled = !inputField.value.trim() || isProcessing;
     }
 
     function handleKeyDown(e) {
@@ -494,39 +489,6 @@
             e.preventDefault();
             sendMessage();
         }
-    }
-
-    function sendMessage(messageText) {
-        const message = typeof messageText === 'string' ? messageText : inputField.value.trim();
-        if (!message || !isConnected || !sessionId) return;
-
-        // Clear input
-        if (typeof messageText !== 'string') {
-            inputField.value = '';
-            inputField.style.height = 'auto';
-            sendBtn.disabled = true;
-        }
-
-        // Hide welcome message
-        const welcome = messagesContainer.querySelector('.assistant-welcome');
-        if (welcome) {
-            welcome.remove();
-        }
-
-        // Add user message
-        addMessage('user', message);
-
-        // Show typing indicator
-        showTypingIndicator();
-
-        // Send to agent
-        socket.emit('send_message', {
-            session_id: sessionId,
-            message: message,
-            context: {
-                current_page: currentPage
-            }
-        });
     }
 
     function addMessage(type, content) {
@@ -548,7 +510,7 @@
 
         // Process markdown-like formatting for code blocks
         let processedContent = content;
-        if (type === 'assistant') {
+        if (type === 'assistant' || type === 'system') {
             processedContent = processContent(content);
         } else {
             processedContent = escapeHtml(content);
@@ -578,13 +540,34 @@
         // Process bold (**text**)
         processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-        // Process links [text](url)
-        processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+        // Process navigation commands [[Navigate: text | /path]]
+        processed = processed.replace(/\[\[Navigate:\s*([^\|]+)\s*\|\s*([^\]]+)\]\]/g, function(match, text, path) {
+            return `<button class="assistant-nav-btn" onclick="window.NetStacksAssistant.navigateTo('${path.trim()}')">${text.trim()} <i class="fas fa-arrow-right"></i></button>`;
+        });
+
+        // Process regular links [text](url) - make internal links navigatable
+        processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
+            // Check if it's an internal link (starts with /)
+            if (url.startsWith('/')) {
+                return `<a href="${url}" class="assistant-internal-link" onclick="event.preventDefault(); window.NetStacksAssistant.navigateTo('${url}')">${text}</a>`;
+            }
+            return `<a href="${url}" target="_blank">${text}</a>`;
+        });
 
         // Process line breaks
         processed = processed.replace(/\n/g, '<br>');
 
         return processed;
+    }
+
+    function navigateTo(path) {
+        // Close sidebar first
+        closeSidebar();
+
+        // Navigate after a brief delay for smooth transition
+        setTimeout(function() {
+            window.location.href = path;
+        }, 150);
     }
 
     function escapeHtml(text) {
@@ -594,8 +577,8 @@
     }
 
     function showTypingIndicator() {
-        if (isTyping) return;
-        isTyping = true;
+        const existing = document.getElementById('typing-indicator');
+        if (existing) return;
 
         const typingDiv = document.createElement('div');
         typingDiv.className = 'typing-indicator';
@@ -606,7 +589,6 @@
     }
 
     function hideTypingIndicator() {
-        isTyping = false;
         const indicator = document.getElementById('typing-indicator');
         if (indicator) {
             indicator.remove();
@@ -626,7 +608,8 @@
         close: closeSidebar,
         toggle: toggleSidebar,
         sendMessage: sendMessage,
-        newChat: startNewChat
+        newChat: startNewChat,
+        navigateTo: navigateTo
     };
 
 })();

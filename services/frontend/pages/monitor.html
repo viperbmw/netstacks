@@ -312,8 +312,23 @@
                         <div id="detail-errors" class="alert alert-danger"></div>
                     </div>
 
-                    <h6>Result:</h6>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Result:</h6>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <input type="radio" class="btn-check" name="result-view" id="view-formatted" checked>
+                            <label class="btn btn-outline-secondary" for="view-formatted">
+                                <i class="fas fa-table"></i> Formatted
+                            </label>
+                            <input type="radio" class="btn-check" name="result-view" id="view-raw">
+                            <label class="btn btn-outline-secondary" for="view-raw">
+                                <i class="fas fa-code"></i> Raw JSON
+                            </label>
+                        </div>
+                    </div>
                     <div id="detail-result" class="p-3 border rounded" style="max-height: 500px; overflow-y: auto;"></div>
+                    <div id="detail-result-raw" class="p-3 border rounded bg-dark" style="max-height: 500px; overflow-y: auto; display: none;">
+                        <pre id="detail-result-json" class="text-light mb-0" style="white-space: pre-wrap; font-size: 12px;"></pre>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -467,9 +482,9 @@
         });
     </script>
 <script src="/static/js/timezone-utils.js?v=11"></script>
-<script src="/static/js/monitor.js?v=11"></script>
+<script src="/static/js/monitor.js?v=12"></script>
 <script src="/static/js/monitor-history.js?v=11"></script>
     <!-- NetStacks AI Assistant -->
-    <script src="/static/js/assistant.js?v=4"></script>
+    <script src="/static/js/assistant.js?v=5"></script>
 </body>
 </html>

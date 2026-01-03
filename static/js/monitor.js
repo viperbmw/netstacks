@@ -43,6 +43,17 @@ $(document).ready(function() {
         const taskId = $(this).data('task-id');
         viewTaskDetails(taskId);
     });
+
+    // Result view toggle (Formatted vs Raw JSON) - use event delegation for dynamic content
+    $(document).on('change', 'input[name="result-view"]', function() {
+        if ($('#view-raw').is(':checked')) {
+            $('#detail-result').hide();
+            $('#detail-result-raw').show();
+        } else {
+            $('#detail-result').show();
+            $('#detail-result-raw').hide();
+        }
+    });
 });
 
 function loadMonitor() {
@@ -183,6 +194,9 @@ function loadWorkers() {
         });
 }
 
+// Store the current task result for view toggling
+let currentTaskResult = null;
+
 function viewTaskDetails(taskId) {
     const modal = new bootstrap.Modal(document.getElementById('taskDetailModal'));
     modal.show();
@@ -191,11 +205,19 @@ function viewTaskDetails(taskId) {
     $('#task-detail-content').hide();
     $('#detail-errors-section').hide();
 
+    // Reset view to formatted
+    $('#view-formatted').prop('checked', true);
+    $('#detail-result').show();
+    $('#detail-result-raw').hide();
+
     // Fetch task details from DB
     $.get('/api/tasks/' + taskId)
         .done(function(task) {
             const status = task.status || 'unknown';
             const result = task.result;
+
+            // Store the full result for raw view
+            currentTaskResult = result;
 
             // Status badge
             let statusClass = 'bg-secondary';
@@ -243,6 +265,13 @@ function viewTaskDetails(taskId) {
                 }
             }
             $('#detail-result').html(formattedResult);
+
+            // Set raw JSON view
+            if (result !== null && result !== undefined) {
+                $('#detail-result-json').text(JSON.stringify(result, null, 2));
+            } else {
+                $('#detail-result-json').text('No result data');
+            }
 
             // Copy button handler
             $('#copy-task-details').off('click').on('click', function() {

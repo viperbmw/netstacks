@@ -569,6 +569,7 @@ async def get_assistant_config(current_user: TokenData = Depends(get_current_use
             'assistant_enabled',
             'assistant_llm_provider',
             'assistant_llm_model',
+            'assistant_agent_id',
         ]
 
         for key in assistant_keys:
@@ -606,6 +607,7 @@ async def save_assistant_config(
             'enabled': 'assistant_enabled',
             'provider': 'assistant_llm_provider',
             'model': 'assistant_llm_model',
+            'agent_id': 'assistant_agent_id',
         }
 
         for key, db_key in settings_map.items():

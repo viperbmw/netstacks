@@ -15,7 +15,9 @@ class AlertCreate(BaseModel):
     severity: str = "warning"
     description: Optional[str] = None
     source: Optional[str] = None
-    device: Optional[str] = None
+    device_name: Optional[str] = None
+    alert_type: Optional[str] = None
+    raw_data: Optional[dict] = None
     skip_ai: bool = False
 
 
@@ -25,7 +27,7 @@ class AlertResponse(BaseModel):
     severity: str
     status: str
     source: Optional[str] = None
-    device: Optional[str] = None
+    device_name: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -61,7 +63,9 @@ async def list_alerts(
                     "severity": a.severity,
                     "status": a.status,
                     "source": a.source,
-                    "device": a.device,
+                    "device_name": a.device_name,
+                    "alert_type": a.alert_type,
+                    "description": a.description,
                     "created_at": a.created_at.isoformat() if a.created_at else None,
                 }
                 for a in alerts
@@ -82,8 +86,10 @@ async def create_alert(alert: AlertCreate):
             title=alert.title,
             severity=alert.severity,
             description=alert.description,
-            source=alert.source,
-            device=alert.device,
+            source=alert.source or "manual",
+            device_name=alert.device_name,
+            alert_type=alert.alert_type,
+            raw_data=alert.raw_data or {},
             status="new",
         )
         session.add(new_alert)
@@ -114,9 +120,13 @@ async def get_alert(alert_id: str, user=Depends(get_current_user)):
                 "status": alert.status,
                 "description": alert.description,
                 "source": alert.source,
-                "device": alert.device,
+                "device_name": alert.device_name,
+                "alert_type": alert.alert_type,
+                "raw_data": alert.raw_data,
                 "incident_id": alert.incident_id,
                 "created_at": alert.created_at.isoformat() if alert.created_at else None,
+                "acknowledged_at": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+                "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
             }
         }
     finally:
@@ -165,7 +175,9 @@ async def generic_webhook(data: dict):
             severity=data.get("severity", "warning"),
             description=data.get("description"),
             source=data.get("source", "generic"),
-            device=data.get("device"),
+            device_name=data.get("device_name") or data.get("device"),
+            alert_type=data.get("alert_type"),
+            raw_data=data,
             status="new",
         )
         session.add(alert)
@@ -194,7 +206,9 @@ async def prometheus_webhook(data: dict):
                 severity=labels.get("severity", "warning"),
                 description=annotations.get("summary") or annotations.get("description"),
                 source="prometheus",
-                device=labels.get("instance"),
+                device_name=labels.get("instance"),
+                alert_type=labels.get("alertname"),
+                raw_data=alert_data,
                 status="new",
             )
             session.add(alert)

@@ -14,7 +14,7 @@ class IncidentCreate(BaseModel):
     title: str
     severity: str = "warning"
     description: Optional[str] = None
-    source: str = "manual"
+    incident_type: Optional[str] = None
 
 
 class IncidentUpdate(BaseModel):
@@ -48,7 +48,8 @@ async def list_incidents(
                     "title": i.title,
                     "severity": i.severity,
                     "status": i.status,
-                    "source": i.source,
+                    "incident_type": i.incident_type,
+                    "priority": i.priority,
                     "resolution": i.resolution,
                     "created_at": i.created_at.isoformat() if i.created_at else None,
                     "resolved_at": i.resolved_at.isoformat() if i.resolved_at else None,
@@ -71,7 +72,7 @@ async def create_incident(incident: IncidentCreate, user=Depends(get_current_use
             title=incident.title,
             severity=incident.severity,
             description=incident.description,
-            source=incident.source,
+            incident_type=incident.incident_type,
             status="open",
         )
         session.add(new_incident)
@@ -99,8 +100,11 @@ async def get_incident(incident_id: str, user=Depends(get_current_user)):
                 "severity": incident.severity,
                 "status": incident.status,
                 "description": incident.description,
-                "source": incident.source,
+                "incident_type": incident.incident_type,
+                "priority": incident.priority,
                 "resolution": incident.resolution,
+                "root_cause": incident.root_cause,
+                "affected_devices": incident.affected_devices,
                 "created_at": incident.created_at.isoformat() if incident.created_at else None,
                 "resolved_at": incident.resolved_at.isoformat() if incident.resolved_at else None,
             }
