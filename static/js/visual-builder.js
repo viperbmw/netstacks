@@ -18,7 +18,7 @@ function loadStepTypes() {
         .done(function(data) {
             if (data.success) {
                 // Handle nested response format: {success: true, data: {step_types: [...]}}
-                const stepTypes = data.data?.step_types || data.step_types || [];
+                const stepTypes = (data.data && data.data.step_types) || data.step_types || [];
                 // Convert to simpler format for the visual builder
                 stepTypesMetadata = stepTypes.map(st => ({
                     id: st.step_type_id,
@@ -35,11 +35,11 @@ function loadStepTypes() {
                 }));
                 populateStepTypeDropdown();
             } else {
-                console.error('Failed to load step types:', data.error);
+                console.error('Failed to load step types:', data.error || 'Unknown error');
             }
         })
-        .fail(function() {
-            console.error('Failed to load step types from API');
+        .fail(function(xhr, status, error) {
+            console.error('Failed to load step types from API:', status, error);
         });
 }
 

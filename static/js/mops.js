@@ -213,12 +213,16 @@ function loadMOPs() {
         .done(function(data) {
             if (data.success) {
                 // Handle nested response format: {success: true, data: {mops: [...]}}
-                mops = data.data?.mops || data.mops || [];
+                mops = (data.data && data.data.mops) || data.mops || [];
                 renderMOPsList();
+            } else {
+                console.error('Failed to load MOPs:', data.error || 'Unknown error');
+                $('#mops-list').html('<div class="p-3 text-danger">Error loading MOPs</div>');
             }
         })
-        .fail(function() {
-            $('#mops-list').html('<div class="p-3 text-danger">Error loading mops</div>');
+        .fail(function(xhr, status, error) {
+            console.error('Failed to load MOPs:', status, error);
+            $('#mops-list').html('<div class="p-3 text-danger">Error loading MOPs</div>');
         });
 }
 
