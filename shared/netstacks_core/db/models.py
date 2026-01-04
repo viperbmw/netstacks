@@ -1270,6 +1270,61 @@ DEFAULT_STEP_TYPES = [
             }
         }
     },
+    {
+        'step_type_id': 'agent_task',
+        'name': 'AI Agent Task',
+        'description': 'Send a task to an AI agent for autonomous execution',
+        'category': 'AI',
+        'icon': 'robot',
+        'is_builtin': True,
+        'action_type': 'agent',
+        'config': {
+            'agent_id': '',
+            'prompt': '',
+            'context_from_previous': True,
+            'timeout_seconds': 300,
+            'require_approval': False
+        },
+        'parameters_schema': {
+            'agent_id': {
+                'type': 'string',
+                'description': 'ID of the AI agent to use (leave empty for default assistant)',
+                'default': ''
+            },
+            'prompt': {
+                'type': 'string',
+                'description': 'Task prompt/instructions for the agent',
+                'required': True
+            },
+            'context': {
+                'type': 'object',
+                'description': 'Additional context data to pass to the agent (JSON)'
+            },
+            'context_from_previous': {
+                'type': 'boolean',
+                'description': 'Include output from previous step as context',
+                'default': True
+            },
+            'timeout_seconds': {
+                'type': 'integer',
+                'description': 'Maximum time for agent to complete task',
+                'default': 300
+            },
+            'require_approval': {
+                'type': 'boolean',
+                'description': 'Require human approval before agent executes actions',
+                'default': False
+            },
+            'tools': {
+                'type': 'array',
+                'description': 'Specific tools to enable for this task (empty = all available)'
+            },
+            'success_criteria': {
+                'type': 'string',
+                'description': 'Criteria to determine if agent task succeeded'
+            }
+        }
+    },
 ]
 
 # Default agent tools for seeding

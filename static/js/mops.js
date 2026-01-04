@@ -212,7 +212,8 @@ function loadMOPs() {
     $.get('/api/mops')
         .done(function(data) {
             if (data.success) {
-                mops = data.mops;
+                // Handle nested response format: {success: true, data: {mops: [...]}}
+                mops = data.data?.mops || data.mops || [];
                 renderMOPsList();
             }
         })
@@ -259,7 +260,8 @@ function loadMOP(mopId) {
     $.get(`/api/mops/${mopId}`)
         .done(function(data) {
             if (data.success) {
-                const mop = data.mop;
+                // Handle nested response format: {success: true, data: {mop: {...}}}
+                const mop = data.data?.mop || data.mop;
                 currentMOPId = mopId;
 
                 $('#current-mop-id').val(mopId);
@@ -331,9 +333,10 @@ function saveMOP() {
             contentType: 'application/json',
             data: JSON.stringify(data)
         })
-        .done(function(data) {
-            if (data.success) {
-                currentMOPId = data.mop_id;
+        .done(function(resp) {
+            if (resp.success) {
+                // Handle nested response format
+                currentMOPId = resp.data?.mop_id || resp.mop_id;
                 $('#current-mop-id').val(currentMOPId);
                 $('#delete-mop-btn').show();
                 showSuccess('MOP created successfully');
@@ -392,7 +395,9 @@ function loadMOPExecutions(mopId) {
     $.get(`/api/mops/${mopId}/executions`)
         .done(function(data) {
             if (data.success) {
-                renderExecutionHistory(data.executions);
+                // Handle nested response format
+                const executions = data.data?.executions || data.executions || [];
+                renderExecutionHistory(executions);
             }
         });
 }
@@ -449,7 +454,9 @@ function viewExecutionDetails(executionId) {
     $.get(`/api/mops/executions/${executionId}`)
         .done(function(data) {
             if (data.success) {
-                renderExecutionDetails(data.execution);
+                // Handle nested response format
+                const execution = data.data?.execution || data.execution;
+                renderExecutionDetails(execution);
             }
         })
         .fail(function() {

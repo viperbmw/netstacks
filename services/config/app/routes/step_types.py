@@ -62,7 +62,7 @@ async def create_step_type(
     # Validate action type
     valid_action_types = [
         'get_config', 'set_config', 'api_call', 'validate',
-        'wait', 'manual', 'deploy_stack'
+        'wait', 'manual', 'deploy_stack', 'agent'
     ]
     if request.action_type not in valid_action_types:
         raise HTTPException(
@@ -77,6 +77,15 @@ async def create_step_type(
             raise HTTPException(
                 status_code=400,
                 detail='URL is required for API Call step types'
+            )
+
+    # For agent types, validate prompt is provided
+    if request.action_type == 'agent':
+        config = request.config or {}
+        if not config.get('prompt'):
+            raise HTTPException(
+                status_code=400,
+                detail='Prompt is required for AI Agent step types'
             )
 
     service = StepTypeService(session)

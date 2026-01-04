@@ -12,12 +12,27 @@ $(document).ready(function() {
     loadDevices();
 });
 
-// Load step types from introspection API
+// Load step types from API
 function loadStepTypes() {
-    $.get('/api/step-types-introspect')
+    $.get('/api/step-types')
         .done(function(data) {
             if (data.success) {
-                stepTypesMetadata = data.step_types;
+                // Handle nested response format: {success: true, data: {step_types: [...]}}
+                const stepTypes = data.data?.step_types || data.step_types || [];
+                // Convert to simpler format for the visual builder
+                stepTypesMetadata = stepTypes.map(st => ({
+                    id: st.step_type_id,
+                    name: st.name,
+                    icon: st.icon || 'cog',
+                    action_type: st.action_type,
+                    description: st.description,
+                    parameters: Object.entries(st.parameters_schema || {}).map(([key, schema]) => ({
+                        name: key,
+                        type: schema.type || 'string',
+                        required: schema.required || false,
+                        description: schema.description || key
+                    }))
+                }));
                 populateStepTypeDropdown();
             } else {
                 console.error('Failed to load step types:', data.error);
@@ -55,9 +70,11 @@ function loadDevices() {
         $select.empty();
         $select.append('<option value="">-- Select Device --</option>');
 
-        if (response.success && response.devices && response.devices.length > 0) {
-            console.log('Found ' + response.devices.length + ' devices');
-            response.devices.forEach(function(device) {
+        // Handle nested response format: {success: true, data: {devices: [...]}}
+        const devices = response.data?.devices || response.devices || [];
+        if (response.success && devices.length > 0) {
+            console.log('Found ' + devices.length + ' devices');
+            devices.forEach(function(device) {
                 const deviceName = device.name || device.display || device.hostname || 'Unknown';
                 $select.append(`<option value="${deviceName}">${deviceName}</option>`);
             });

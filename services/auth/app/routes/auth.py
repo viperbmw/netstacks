@@ -3,7 +3,9 @@ Authentication routes
 """
 
 import logging
+from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel
 
 from netstacks_core.auth import (
     create_access_token,
@@ -13,7 +15,7 @@ from netstacks_core.auth import (
     TokenData,
     TokenType,
 )
-from netstacks_core.db import get_session, User
+from netstacks_core.db import get_session, User, AuthConfig, Setting
 from netstacks_core.auth.password import hash_password, verify_password
 
 from app.config import get_settings
@@ -24,6 +26,11 @@ from app.schemas.auth import (
     RefreshResponse,
     UserInfo,
 )
+
+
+class LocalPriorityRequest(BaseModel):
+    """Request to set local auth priority"""
+    priority: int
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -168,3 +175,100 @@ async def logout(current_user: TokenData = Depends(get_current_user)):
     """
     log.info(f"User {current_user.sub} logged out")
     return {"success": True, "message": "Logged out successfully"}
+
+
+def mask_sensitive_config(config: dict) -> dict:
+    """Mask sensitive fields in config data."""
+    sensitive_keys = ['bind_password', 'client_secret', 'password', 'secret']
+    result = config.copy()
+    for key in sensitive_keys:
+        if key in result and result[key]:
+            result[key] = '****'
+    return result
+
+
+@router.get("/configs")
+async def get_auth_configs(current_user: TokenData = Depends(get_current_user)):
+    """
+    Get all authentication configurations.
+    Returns configs in format expected by admin page.
+    """
+    session = get_session()
+    try:
+        configs = session.query(AuthConfig).order_by(AuthConfig.priority).all()
+        return {
+            "success": True,
+            "configs": [
+                {
+                    "config_id": c.config_id,
+                    "auth_type": c.auth_type,
+                    "is_enabled": c.is_enabled,
+                    "priority": c.priority,
+                    "config_data": mask_sensitive_config(c.config_data or {}),
+                }
+                for c in configs
+            ]
+        }
+    finally:
+        session.close()
+
+
+@router.get("/local/priority")
+async def get_local_auth_priority(current_user: TokenData = Depends(get_current_user)):
+    """
+    Get local authentication priority.
+    """
+    session = get_session()
+    try:
+        # Check if local auth config exists
+        local_config = session.query(AuthConfig).filter(
+            AuthConfig.auth_type == "local"
+        ).first()
+
+        if local_config:
+            priority = local_config.priority
+        else:
+            # Check system setting fallback
+            setting = session.query(Setting).filter(
+                Setting.key == "local_auth_priority"
+            ).first()
+            priority = int(setting.value) if setting else 999
+
+        return {"success": True, "priority": priority}
+    finally:
+        session.close()
+
+
+@router.post("/local/priority")
+async def set_local_auth_priority(
+    request: LocalPriorityRequest,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """
+    Set local authentication priority.
+    """
+    session = get_session()
+    try:
+        # Try to update local auth config first
+        local_config = session.query(AuthConfig).filter(
+            AuthConfig.auth_type == "local"
+        ).first()
+
+        if local_config:
+            local_config.priority = request.priority
+        else:
+            # Create local auth config if it doesn't exist
+            local_config = AuthConfig(
+                auth_type="local",
+                is_enabled=True,
+                priority=request.priority,
+                config_data={}
+            )
+            session.add(local_config)
+
+        session.commit()
+        log.info(f"Local auth priority set to {request.priority} by {current_user.sub}")
+
+        return {"success": True, "message": "Priority saved successfully"}
+    finally:
+        session.close()

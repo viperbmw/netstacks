@@ -33,6 +33,7 @@
                     <span><span class="badge bg-secondary">wait</span> Pause execution</span>
                     <span><span class="badge" style="background-color: #6f42c1;">manual</span> Human approval</span>
                     <span><span class="badge bg-danger">deploy_stack</span> Deploy service stack</span>
+                    <span><span class="badge" style="background-color: #198754;">agent</span> Send task to AI agent</span>
                 </div>
             </div>
         </div>
@@ -194,6 +195,11 @@
                             <input type="radio" class="btn-check" name="action-type" id="action-deploy_stack" value="deploy_stack">
                             <label class="btn btn-outline-danger" for="action-deploy_stack">
                                 <i class="fas fa-layer-group"></i> Deploy Stack
+                            </label>
+
+                            <input type="radio" class="btn-check" name="action-type" id="action-agent" value="agent">
+                            <label class="btn btn-outline-dark" for="action-agent" style="border-color: #198754; color: #198754;">
+                                <i class="fas fa-robot"></i> AI Agent
                             </label>
                         </div>
                     </div>
@@ -377,6 +383,59 @@
                         </div>
                     </div>
 
+                    <!-- AI Agent Section -->
+                    <div id="config-agent" class="config-section" style="display: none;">
+                        <div class="card">
+                            <div class="card-header text-white" style="background-color: #198754;">
+                                <i class="fas fa-robot"></i> AI Agent Settings
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Agent ID</label>
+                                    <input type="text" class="form-control" id="agent-id" placeholder="Leave empty for default assistant">
+                                    <small class="text-muted">Specific agent to use (optional - uses default assistant if empty)</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Task Prompt *</label>
+                                    <textarea class="form-control" id="agent-prompt" rows="4" placeholder="Describe the task for the AI agent...
+Example: Analyze the BGP neighbor output and identify any sessions that are not in Established state. Report findings and suggest remediation steps."></textarea>
+                                    <small class="text-muted">Instructions for the AI agent (supports Jinja2 templating with MOP context variables)</small>
+                                </div>
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Timeout (seconds)</label>
+                                        <input type="number" class="form-control" id="agent-timeout" value="300" min="30" max="3600">
+                                        <small class="text-muted">Maximum time for agent to complete task</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Tools (comma-separated)</label>
+                                        <input type="text" class="form-control" id="agent-tools" placeholder="device_show, device_config">
+                                        <small class="text-muted">Specific tools to enable (leave empty for all)</small>
+                                    </div>
+                                </div>
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="agent-context-previous" checked>
+                                            <label class="form-check-label" for="agent-context-previous">Include previous step output as context</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="agent-require-approval">
+                                            <label class="form-check-label" for="agent-require-approval">Require approval before agent actions</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Success Criteria</label>
+                                    <input type="text" class="form-control" id="agent-success-criteria" placeholder="e.g., No errors found, All checks passed">
+                                    <small class="text-muted">How to determine if the agent task succeeded (optional)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <hr>
 
                     <div class="form-check">
@@ -435,7 +494,8 @@ function loadStepTypes() {
     $.get('/api/step-types')
         .done(function(data) {
             if (data.success) {
-                stepTypes = data.step_types;
+                // Handle nested response format: {success: true, data: {step_types: [...]}}
+                stepTypes = data.data?.step_types || data.step_types || [];
                 renderStepTypes();
             }
         })
@@ -520,7 +580,8 @@ function getActionTypeBadge(actionType) {
         'validate': '<span class="badge bg-warning text-dark">validate</span>',
         'wait': '<span class="badge bg-secondary">wait</span>',
         'manual': '<span class="badge" style="background-color: #6f42c1;">manual</span>',
-        'deploy_stack': '<span class="badge bg-danger">deploy_stack</span>'
+        'deploy_stack': '<span class="badge bg-danger">deploy_stack</span>',
+        'agent': '<span class="badge" style="background-color: #198754;">agent</span>'
     };
     return badges[actionType] || '<span class="badge bg-secondary">' + escapeHtml(actionType) + '</span>';
 }
@@ -598,6 +659,14 @@ function editStepType(stepTypeId) {
     } else if (st.action_type === 'deploy_stack') {
         $('#deploy-stack-name').val(config.stack_name || '');
         $('#deploy-stack-validate-only').prop('checked', config.validate_only || false);
+    } else if (st.action_type === 'agent') {
+        $('#agent-id').val(config.agent_id || '');
+        $('#agent-prompt').val(config.prompt || '');
+        $('#agent-timeout').val(config.timeout_seconds || 300);
+        $('#agent-tools').val(Array.isArray(config.tools) ? config.tools.join(', ') : (config.tools || ''));
+        $('#agent-context-previous').prop('checked', config.context_from_previous !== false);
+        $('#agent-require-approval').prop('checked', config.require_approval || false);
+        $('#agent-success-criteria').val(config.success_criteria || '');
     }
 
     const modal = new bootstrap.Modal(document.getElementById('stepTypeModal'));
@@ -777,6 +846,24 @@ function saveStepType() {
             stack_name: $('#deploy-stack-name').val().trim(),
             validate_only: $('#deploy-stack-validate-only').is(':checked')
         };
+    } else if (actionType === 'agent') {
+        const toolsText = $('#agent-tools').val().trim();
+        const tools = toolsText ? toolsText.split(',').map(t => t.trim()).filter(t => t) : [];
+
+        config = {
+            agent_id: $('#agent-id').val().trim(),
+            prompt: $('#agent-prompt').val().trim(),
+            timeout_seconds: parseInt($('#agent-timeout').val()) || 300,
+            tools: tools,
+            context_from_previous: $('#agent-context-previous').is(':checked'),
+            require_approval: $('#agent-require-approval').is(':checked'),
+            success_criteria: $('#agent-success-criteria').val().trim()
+        };
+
+        if (!config.prompt) {
+            alert('Task Prompt is required for AI Agent step types');
+            return;
+        }
     }
 
     const data = {
