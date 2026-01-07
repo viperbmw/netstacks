@@ -198,7 +198,7 @@ async def recalculate_snapshot_counts(
 
         # Update status if needed
         if total > 0 and (success + failed) >= total:
-            snapshot.status = 'completed' if failed == 0 else 'partial'
+            snapshot.status = 'complete' if failed == 0 else 'partial'
             if not snapshot.completed_at:
                 snapshot.completed_at = datetime.utcnow()
 
@@ -244,7 +244,7 @@ async def fix_stale_snapshots(
             snapshot.total_devices = total
             snapshot.success_count = success
             snapshot.failed_count = failed
-            snapshot.status = 'partial' if failed > 0 else 'completed'
+            snapshot.status = 'partial' if failed > 0 else 'complete'
             snapshot.completed_at = datetime.utcnow()
             fixed_count += 1
 

@@ -208,10 +208,14 @@ def _save_backup_to_db(device_name: str, device_ip: str, platform: str,
                 else:
                     snapshot.failed_count = (snapshot.failed_count or 0) + 1
 
-                # Check if snapshot is complete
-                total = snapshot.success_count + snapshot.failed_count
+                # Check if snapshot is complete (include skipped devices)
+                total = (snapshot.success_count or 0) + (snapshot.failed_count or 0) + (snapshot.skipped_count or 0)
                 if total >= snapshot.total_devices:
-                    snapshot.status = 'completed'
+                    # Status is 'complete' only if no failures/skips, otherwise 'partial'
+                    if (snapshot.failed_count or 0) == 0 and (snapshot.skipped_count or 0) == 0:
+                        snapshot.status = 'complete'
+                    else:
+                        snapshot.status = 'partial'
                     snapshot.completed_at = utc_now()
 
                 session.commit()
